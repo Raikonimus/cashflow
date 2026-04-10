@@ -1,0 +1,237 @@
+from decimal import Decimal
+from uuid import UUID
+
+import pytest
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
+
+from app.auth.models import UserRole
+from app.imports.models import ImportRun, ImportStatus, JournalLine, ReviewItem, utcnow
+from app.tenants.models import Account
+from tests.partners.conftest import assign_user_to_mandant, create_mandant, create_user, get_auth_token
+
+
+async def create_partner(client: AsyncClient, token: str, mandant_id, name: str = "Amazon EU") -> dict:
+    resp = await client.post(
+        f"/api/v1/mandants/{mandant_id}/partners",
+        json={"name": name},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 201
+    return resp.json()
+
+
+@pytest.mark.asyncio
+class TestServices:
+    async def test_partner_has_base_service_after_creation(self, client: AsyncClient, db_session: AsyncSession):
+        user = await create_user(db_session, "acc@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner(client, token, mandant.id)
+
+        resp = await client.get(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 200
+        items = resp.json()
+        assert len(items) == 1
+        assert items[0]["is_base_service"] is True
+        assert items[0]["name"] == "Basisleistung"
+
+    async def test_create_service(self, client: AsyncClient, db_session: AsyncSession):
+        user = await create_user(db_session, "acc2@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner(client, token, mandant.id)
+
+        resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            json={"name": "Hosting", "service_type": "supplier", "tax_rate": "20.00"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["name"] == "Hosting"
+        assert body["service_type"] == "supplier"
+        assert body["is_base_service"] is False
+
+    async def test_base_service_name_cannot_be_changed(self, client: AsyncClient, db_session: AsyncSession):
+        user = await create_user(db_session, "acc3@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner(client, token, mandant.id)
+
+        services_resp = await client.get(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        base_service_id = services_resp.json()[0]["id"]
+
+        resp = await client.patch(
+            f"/api/v1/mandants/{mandant.id}/services/{base_service_id}",
+            json={"name": "Renamed Base"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 422
+
+    async def test_base_service_cannot_be_deleted(self, client: AsyncClient, db_session: AsyncSession):
+        user = await create_user(db_session, "acc4@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner(client, token, mandant.id)
+
+        services_resp = await client.get(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        base_service_id = services_resp.json()[0]["id"]
+
+        resp = await client.delete(
+            f"/api/v1/mandants/{mandant.id}/services/{base_service_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 409
+
+    async def test_base_service_cannot_have_matcher(self, client: AsyncClient, db_session: AsyncSession):
+        user = await create_user(db_session, "acc5@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner(client, token, mandant.id)
+
+        services_resp = await client.get(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        base_service_id = services_resp.json()[0]["id"]
+
+        resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/services/{base_service_id}/matchers",
+            json={"pattern": "amazon", "pattern_type": "string"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 422
+
+    async def test_invalid_regex_matcher_returns_422(self, client: AsyncClient, db_session: AsyncSession):
+        user = await create_user(db_session, "acc6@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner(client, token, mandant.id)
+
+        service_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            json={"name": "Amazon Marketplace", "service_type": "customer", "tax_rate": "20.00"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        service_id = service_resp.json()["id"]
+
+        resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/services/{service_id}/matchers",
+            json={"pattern": "[invalid((", "pattern_type": "regex"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 422
+
+    async def test_keyword_rules_can_be_created_and_listed(self, client: AsyncClient, db_session: AsyncSession):
+        user = await create_user(db_session, "acc7@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+
+        create_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/settings/service-keywords",
+            json={"pattern": "Lohn", "pattern_type": "string", "target_service_type": "employee"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert create_resp.status_code == 201
+
+        list_resp = await client.get(
+            f"/api/v1/mandants/{mandant.id}/settings/service-keywords",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert list_resp.status_code == 200
+        payload = list_resp.json()
+        assert len(payload["items"]) == 1
+        assert payload["items"][0]["pattern"] == "Lohn"
+        assert len(payload["system_defaults"]) >= 1
+
+    async def test_matcher_change_revalidates_existing_journal_lines(self, client: AsyncClient, db_session: AsyncSession):
+        user = await create_user(db_session, "acc8@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner(client, token, mandant.id)
+
+        services_resp = await client.get(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        base_service_id = services_resp.json()[0]["id"]
+
+        now = utcnow()
+        account = Account(mandant_id=mandant.id, name="Girokonto", created_at=now, updated_at=now)
+        db_session.add(account)
+        await db_session.flush()
+
+        run = ImportRun(
+            account_id=account.id,
+            mandant_id=mandant.id,
+            user_id=user.id,
+            filename="test.csv",
+            status=ImportStatus.completed.value,
+            created_at=now,
+        )
+        db_session.add(run)
+        await db_session.flush()
+
+        line = JournalLine(
+            account_id=account.id,
+            import_run_id=run.id,
+            partner_id=UUID(partner["id"]),
+            service_id=UUID(base_service_id),
+            service_assignment_mode="auto",
+            valuta_date="2026-01-15",
+            booking_date="2026-01-15",
+            amount=Decimal("100.00"),
+            currency="EUR",
+            text="Hosting April",
+            partner_name_raw="Amazon EU",
+            created_at=now,
+        )
+        db_session.add(line)
+        await db_session.commit()
+        await db_session.refresh(line)
+
+        create_service_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            json={"name": "Hosting", "service_type": "unknown", "tax_rate": "20.00"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert create_service_resp.status_code == 201
+        service_id = create_service_resp.json()["id"]
+
+        matcher_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/services/{service_id}/matchers",
+            json={"pattern": "hosting", "pattern_type": "string"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert matcher_resp.status_code == 201
+
+        review = (
+            await db_session.exec(
+                select(ReviewItem).where(
+                    ReviewItem.item_type == "service_assignment",
+                    ReviewItem.journal_line_id == line.id,
+                )
+            )
+        ).first()
+        assert review is not None
+        assert review.context["current_service_id"] == base_service_id
+        assert review.context["proposed_service_id"] == service_id
