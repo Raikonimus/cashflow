@@ -1,0 +1,3 @@
+from typing import Any
+
+def __getattr__(_name: str) -> Any: ...

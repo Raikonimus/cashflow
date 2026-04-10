@@ -1,0 +1,30 @@
+backend/cashflow.db
+backend/.venv/
+backend/.pytest_cache/
+backend/.env
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Local run artifacts
+.run/
+*.pid
+*.log
+
+# Local editor settings
+.vscode/
+
+# Local draft and example data
+spec-own/
+data/examples/
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Test and type-checker caches
+.pytest_cache/
+.mypy_cache/
+
+# macOS
+.DS_Store
