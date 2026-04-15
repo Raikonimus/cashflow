@@ -28,3 +28,9 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+# Local database backup artifacts
+backend/cashflow.db.backup-*
+
+# Local cleanup analysis artifacts
+backend/false_duplicates_unmapped_*.csv
