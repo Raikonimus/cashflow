@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-from enum import Enum
 from typing import Any, Optional
 from uuid import UUID, uuid4
 
@@ -9,17 +8,6 @@ from sqlmodel import Field, SQLModel, UniqueConstraint
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
-
-
-class PartnerPatternType(str, Enum):
-    string = "string"
-    regex = "regex"
-
-
-class MatchField(str, Enum):
-    description = "description"
-    partner_name = "partner_name"
-    partner_iban = "partner_iban"
 
 
 class Partner(SQLModel, table=True):
@@ -66,20 +54,6 @@ class PartnerName(SQLModel, table=True):
     id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
     partner_id: UUID = Field(foreign_key="partners.id", index=True)
     name: str = Field(max_length=255)
-    created_at: datetime = Field(default_factory=utcnow)
-
-
-class PartnerPattern(SQLModel, table=True):
-    __tablename__ = "partner_patterns"
-    __table_args__ = (
-        UniqueConstraint("partner_id", "pattern", "match_field", name="uq_partner_patterns_combo"),
-    )
-
-    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
-    partner_id: UUID = Field(foreign_key="partners.id", index=True)
-    pattern: str = Field(max_length=500)
-    pattern_type: str = Field(max_length=10)  # PartnerPatternType value
-    match_field: str = Field(max_length=20)   # MatchField value
     created_at: datetime = Field(default_factory=utcnow)
 
 

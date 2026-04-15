@@ -1,15 +1,17 @@
 import math
 from datetime import datetime, timezone
+from typing import Any
 from uuid import UUID
 
 import structlog
 from fastapi import HTTPException, status
-from sqlalchemy import text
+from sqlalchemy import func, or_, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
 from app.imports.models import JournalLine
 from app.partners.models import AuditLog, Partner
+from app.services.models import Service
 from app.services.service import ServiceManagementService
 from app.tenants.models import Account
 from app.journal.schemas import (
@@ -20,9 +22,23 @@ from app.journal.schemas import (
 
 log = structlog.get_logger()
 
+INTERNAL_UNMAPPED_DATA_KEYS = {"_cashflow_source_values"}
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _sanitize_unmapped_data(unmapped_data: Any) -> Any:
+    if not isinstance(unmapped_data, dict):
+        return unmapped_data
+
+    sanitized = {
+        key: value
+        for key, value in unmapped_data.items()
+        if key not in INTERNAL_UNMAPPED_DATA_KEYS
+    }
+    return sanitized or None
 
 
 class JournalService:
@@ -73,9 +89,9 @@ class JournalService:
             query = query.where(JournalLine.partner_id == partner_id)
 
         if has_partner is True:
-            query = query.where(text("journal_lines.partner_id IS NOT NULL"))
+            query = query.where(JournalLine.partner_id.is_not(None))
         elif has_partner is False:
-            query = query.where(text("journal_lines.partner_id IS NULL"))
+            query = query.where(JournalLine.partner_id.is_(None))
 
         if year is not None and month is not None:
             prefix = f"{year:04d}-{month:02d}-"
@@ -90,27 +106,30 @@ class JournalService:
                 query
                 .outerjoin(Partner, Partner.id == JournalLine.partner_id)  # type: ignore[arg-type]
                 .where(
-                    text(
-                        "lower(coalesce(journal_lines.text,'')) LIKE :term"
-                        " OR lower(coalesce(journal_lines.partner_name_raw,'')) LIKE :term"
-                        " OR lower(coalesce(partners.display_name, partners.name,'')) LIKE :term"
-                    ).bindparams(term=term)
+                    or_(
+                        func.lower(func.coalesce(JournalLine.text, "")).like(term),
+                        func.lower(func.coalesce(JournalLine.partner_name_raw, "")).like(term),
+                        func.lower(func.coalesce(Partner.display_name, Partner.name, "")).like(term),
+                    )
                 )
             )
 
-        # Sorting: partner_name requires JOIN; others are plain SQL columns
+        # Sorting: partner_name / service_name require JOINs; others are plain SQL columns
         SQL_SORT_COLS = {"valuta_date", "booking_date", "amount", "text"}
+        order_dir = "DESC" if sort_dir == "desc" else "ASC"
         if sort_by in SQL_SORT_COLS:
-            order_expr = text(f"{sort_by} {'DESC' if sort_dir == 'desc' else 'ASC'}")
+            order_expr = text(f"{sort_by} {order_dir}")
         elif sort_by == "partner_name":
             # JOIN partners so we can ORDER BY coalesce(display_name, name) globally
             # Only join if not already joined via search
-            order_dir = "DESC" if sort_dir == "desc" else "ASC"
             if not search:  # search already added the join
                 query = query.outerjoin(Partner, Partner.id == JournalLine.partner_id)  # type: ignore[arg-type]
             order_expr = text(
                 f"lower(coalesce(partners.display_name, partners.name, journal_lines.partner_name_raw, '')) {order_dir}"
             )
+        elif sort_by == "service_name":
+            query = query.outerjoin(Service, Service.id == JournalLine.service_id)  # type: ignore[arg-type]
+            order_expr = text(f"lower(coalesce(services.name, '')) {order_dir}")
         else:
             order_expr = text("valuta_date DESC")  # fallback
 
@@ -135,9 +154,23 @@ class JournalService:
                 if partner.id in partner_ids
             }
 
+        service_ids = {ln.service_id for ln in lines if ln.service_id}
+        service_names: dict = {}
+        if service_ids:
+            s_res = await self._session.exec(select(Service))
+            service_names = {
+                service.id: service.name
+                for service in s_res.all()
+                if service.id in service_ids
+            }
+
         items = [
             JournalLineResponse(
-                **{k: v for k, v in ln.model_dump().items()},
+                **{
+                    **{k: v for k, v in ln.model_dump().items() if k != "unmapped_data"},
+                    "unmapped_data": _sanitize_unmapped_data(ln.unmapped_data),
+                },
+                service_name=service_names.get(ln.service_id) if ln.service_id else None,
                 partner_name=partner_names.get(ln.partner_id) if ln.partner_id else None,
             )
             for ln in lines
@@ -184,13 +217,16 @@ class JournalService:
 
         assigned = 0
         skipped = 0
+        changed_lines: list[JournalLine] = []
         for ln in lines:
             if ln.partner_id == partner_id:
                 skipped += 1
                 continue
-            ln.partner_id = partner_id
-            self._session.add(ln)
+            changed_lines.append(ln)
             assigned += 1
+
+        service_svc = ServiceManagementService(self._session)
+        await service_svc.prepare_lines_for_partner_change(mandant_id, changed_lines, partner_id)
 
         # Single audit log entry for the whole operation
         entry = AuditLog(
@@ -205,7 +241,11 @@ class JournalService:
             },
         )
         self._session.add(entry)
-        await self._session.commit()
+
+        if assigned > 0:
+            await service_svc.revalidate_partner_lines(partner_id)
+        else:
+            await self._session.commit()
 
         log.info(
             "journal_bulk_assigned",
@@ -253,7 +293,17 @@ class JournalService:
             if partner is not None:
                 partner_name = partner.display_name or partner.name
 
+        service_name = None
+        if line.service_id is not None:
+            service = await self._session.get(Service, line.service_id)
+            if service is not None:
+                service_name = service.name
+
         return JournalLineResponse(
-            **{key: value for key, value in line.model_dump().items()},
+            **{
+                **{key: value for key, value in line.model_dump().items() if key != "unmapped_data"},
+                "unmapped_data": _sanitize_unmapped_data(line.unmapped_data),
+            },
+            service_name=service_name,
             partner_name=partner_name,
         )

@@ -37,6 +37,8 @@ from app.core.database import get_session
 from app.tenants.schemas import (
     AccountResponse,
     ApplyExcludedResponse,
+    ExecuteMandantCleanupRequest,
+    ExecuteMandantCleanupResponse,
     ColumnMappingRequest,
     ColumnMappingResponse,
     CreateAccountRequest,
@@ -44,6 +46,7 @@ from app.tenants.schemas import (
     CsvPreviewResponse,
     ExcludedIdentifierCreate,
     ExcludedIdentifierResponse,
+    MandantCleanupPreviewResponse,
     MandantResponse,
     RemappingTriggerResponse,
     UpdateAccountRequest,
@@ -103,6 +106,25 @@ async def update_mandant(
 ) -> MandantResponse:
     mandant = await svc.update_mandant(mandant_id, body)
     return MandantResponse.model_validate(mandant)
+
+
+@tenants_router.get("/{mandant_id}/cleanup-preview", response_model=MandantCleanupPreviewResponse)
+async def get_mandant_cleanup_preview(
+    mandant_id: UUID,
+    actor: User = Depends(require_role("admin")),
+    svc: MandantService = Depends(_mandant_svc),
+) -> MandantCleanupPreviewResponse:
+    return await svc.get_cleanup_preview(mandant_id)
+
+
+@tenants_router.post("/{mandant_id}/cleanup", response_model=ExecuteMandantCleanupResponse)
+async def execute_mandant_cleanup(
+    mandant_id: UUID,
+    body: ExecuteMandantCleanupRequest,
+    actor: User = Depends(require_role("admin")),
+    svc: MandantService = Depends(_mandant_svc),
+) -> ExecuteMandantCleanupResponse:
+    return await svc.execute_cleanup(mandant_id, body)
 
 
 @tenants_router.post("/{mandant_id}/deactivate", status_code=status.HTTP_204_NO_CONTENT)

@@ -6,11 +6,12 @@ from decimal import Decimal
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import desc
+from sqlalchemy import desc, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.imports.models import JournalLine, ReviewItem
+from app.partners.delete_utils import delete_partner_clean
 from app.partners.models import Partner
 from app.services.models import (
     BASE_SERVICE_NAME,
@@ -25,6 +26,8 @@ from app.services.schemas import (
     CreateServiceMatcherRequest,
     CreateServiceRequest,
     CreateServiceTypeKeywordRequest,
+    MatcherPreviewLineItem,
+    MatcherPreviewResponse,
     ServiceResponse,
     ServiceTypeKeywordListResponse,
     ServiceTypeKeywordResponse,
@@ -42,7 +45,7 @@ def _utcnow() -> datetime:
 SYSTEM_DEFAULT_KEYWORDS: tuple[SystemServiceTypeKeywordResponse, ...] = (
     SystemServiceTypeKeywordResponse(pattern="gehalt", pattern_type=ServiceMatcherType.string, target_service_type=KeywordTargetType.employee),
     SystemServiceTypeKeywordResponse(pattern="lohn", pattern_type=ServiceMatcherType.string, target_service_type=KeywordTargetType.employee),
-    SystemServiceTypeKeywordResponse(pattern="entnahme", pattern_type=ServiceMatcherType.string, target_service_type=KeywordTargetType.employee),
+    SystemServiceTypeKeywordResponse(pattern="entnahme", pattern_type=ServiceMatcherType.string, target_service_type=KeywordTargetType.shareholder),
     SystemServiceTypeKeywordResponse(pattern="steuer", pattern_type=ServiceMatcherType.string, target_service_type=KeywordTargetType.authority),
     SystemServiceTypeKeywordResponse(pattern="köst", pattern_type=ServiceMatcherType.string, target_service_type=KeywordTargetType.authority),
     SystemServiceTypeKeywordResponse(pattern="umsatzsteuer", pattern_type=ServiceMatcherType.string, target_service_type=KeywordTargetType.authority),
@@ -50,7 +53,7 @@ SYSTEM_DEFAULT_KEYWORDS: tuple[SystemServiceTypeKeywordResponse, ...] = (
 
 
 def _default_tax_rate(service_type: ServiceType) -> Decimal:
-    if service_type in (ServiceType.employee, ServiceType.authority):
+    if service_type in (ServiceType.employee, ServiceType.shareholder, ServiceType.authority):
         return Decimal("0.00")
     return Decimal("20.00")
 
@@ -92,6 +95,35 @@ class ServiceManagementService:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    async def prepare_lines_for_partner_change(
+        self,
+        mandant_id: UUID,
+        lines: list[JournalLine],
+        new_partner_id: UUID,
+    ) -> int:
+        if not lines:
+            return 0
+
+        changed_line_ids: list[UUID] = []
+        old_service_ids: set[UUID] = set()
+
+        for line in lines:
+            changed_line_ids.append(line.id)
+            if line.service_id is not None:
+                old_service_ids.add(line.service_id)
+            line.partner_id = new_partner_id
+            line.service_id = None
+            line.service_assignment_mode = None
+            self._session.add(line)
+
+        await self._delete_open_line_reviews(changed_line_ids)
+        await self._session.flush()
+
+        for service_id in old_service_ids:
+            await self.detect_service_type_for_service(mandant_id, service_id)
+
+        return len(changed_line_ids)
+
     async def list_services(self, partner_id: UUID, mandant_id: UUID) -> list[ServiceResponse]:
         await self._get_partner(partner_id, mandant_id)
         services = (
@@ -113,6 +145,8 @@ class ServiceManagementService:
             tax_rate=body.tax_rate,
             valid_from=body.valid_from,
             valid_to=body.valid_to,
+            service_type_manual=True,
+            tax_rate_manual=True,
             created_at=now,
             updated_at=now,
         )
@@ -130,7 +164,7 @@ class ServiceManagementService:
         if body.name is not None and body.name != service.name:
             await self._ensure_unique_service_name(service.partner_id, body.name, exclude_service_id=service.id)
             service.name = body.name
-        if body.description is not None:
+        if body.description is not None or "description" in body.model_fields_set:
             service.description = body.description
         if body.service_type is not None:
             service.service_type = body.service_type.value
@@ -176,6 +210,7 @@ class ServiceManagementService:
         await self._session.commit()
         await self._session.refresh(matcher)
         await self._trigger_revalidation(service.partner_id)
+        await self._recheck_new_partner_reviews(mandant_id, service.partner_id)
         return matcher
 
     async def update_matcher(
@@ -202,6 +237,7 @@ class ServiceManagementService:
         await self._session.commit()
         await self._session.refresh(matcher)
         await self._trigger_revalidation(service.partner_id)
+        await self._recheck_new_partner_reviews(mandant_id, service.partner_id)
         return matcher
 
     async def delete_matcher(self, service_id: UUID, matcher_id: UUID, mandant_id: UUID) -> None:
@@ -213,6 +249,73 @@ class ServiceManagementService:
         await self._session.delete(matcher)
         await self._session.commit()
         await self._trigger_revalidation(service.partner_id)
+
+    async def preview_matcher(
+        self,
+        service_id: UUID,
+        mandant_id: UUID,
+        body: CreateServiceMatcherRequest,
+    ) -> MatcherPreviewResponse:
+        """Gibt eine Vorschau zurück, welche Buchungszeilen ein noch nicht gespeicherter
+        Matcher treffen würde – ohne Änderungen vorzunehmen."""
+        service = await self._get_service(service_id, mandant_id)
+        self._ensure_matcher_allowed(service)
+        self._validate_pattern(body.pattern, body.pattern_type)
+
+        mock_matcher = ServiceMatcher(
+            service_id=service_id,
+            pattern=body.pattern,
+            pattern_type=body.pattern_type.value,
+            created_at=_utcnow(),
+            updated_at=_utcnow(),
+        )
+
+        # Buchungszeilen laden, die noch NICHT zu dieser Leistung gehören
+        # (eigene Zeilen anderer Leistungen + Zeilen anderer Partner)
+        # Achtung: UUID-Vergleich gegen service_id ist unzuverlässig (Hex vs Bindestriche),
+        # daher Filterung im Python-Loop.
+        lines = (
+            await self._session.exec(
+                select(JournalLine)
+                .join(Partner, JournalLine.partner_id == Partner.id)
+                .where(
+                    Partner.mandant_id == mandant_id,
+                )
+            )
+        ).all()
+
+        service_id_hex = service_id.hex  # 32-char hex ohne Bindestriche
+
+        matched_lines: list[MatcherPreviewLineItem] = []
+        partner_name_cache: dict[UUID, str | None] = {}
+
+        for line in lines:
+            # Zeilen, die bereits zu dieser Leistung gehören, überspringen
+            line_service_id = str(line.service_id).replace("-", "").lower() if line.service_id else None
+            if line_service_id == service_id_hex:
+                continue
+            if not self._service_matches_line(service, [mock_matcher], line):
+                continue
+            if line.partner_id not in partner_name_cache:
+                p = await self._session.get(Partner, line.partner_id)
+                partner_name_cache[line.partner_id] = (
+                    (p.display_name or p.name) if p else None
+                )
+            matched_lines.append(
+                MatcherPreviewLineItem(
+                    journal_line_id=line.id,
+                    partner_name_raw=line.partner_name_raw,
+                    current_partner_name=partner_name_cache.get(line.partner_id),
+                    booking_date=line.booking_date,
+                    valuta_date=line.valuta_date,
+                    amount=Decimal(str(line.amount)),
+                    currency=line.currency,
+                    text=line.text,
+                )
+            )
+
+        matched_lines.sort(key=lambda x: x.booking_date, reverse=True)
+        return MatcherPreviewResponse(matched_lines=matched_lines, total=len(matched_lines))
 
     async def list_keywords(self, mandant_id: UUID) -> ServiceTypeKeywordListResponse:
         items = (
@@ -335,10 +438,11 @@ class ServiceManagementService:
         touched_service_ids: set[UUID] = set()
 
         for line in lines:
-            assignment = await self._calculate_assignment(line, services, matchers_by_service)
-            touched_service_ids.add(assignment.service_id)
             if line.service_id is not None:
                 touched_service_ids.add(line.service_id)
+
+            assignment = await self._calculate_assignment(line, services, matchers_by_service)
+            touched_service_ids.add(assignment.service_id)
 
             if assignment.reason == "multiple_matches":
                 await self._upsert_service_assignment_review(
@@ -355,13 +459,10 @@ class ServiceManagementService:
                 await self._clear_service_assignment_review(line.id)
                 continue
 
-            await self._upsert_service_assignment_review(
-                mandant_id=partner.mandant_id,
-                journal_line_id=line.id,
-                current_service_id=line.service_id,
-                proposed_service_id=assignment.service_id,
-                reason=assignment.reason,
-            )
+            line.service_id = assignment.service_id
+            line.service_assignment_mode = "auto"
+            self._session.add(line)
+            await self._clear_service_assignment_review(line.id)
 
         for service_id in touched_service_ids:
             await self.detect_service_type_for_service(partner.mandant_id, service_id)
@@ -385,6 +486,7 @@ class ServiceManagementService:
             )
         ).all()
         if not lines:
+            await self._clear_service_type_review(service.id)
             return
 
         rules = await self._load_keyword_rules(mandant_id)
@@ -416,6 +518,7 @@ class ServiceManagementService:
             service_id=service.id,
             previous_type=review_previous_type,
             auto_assigned_type=detected_service_type.value,
+            auto_assigned_tax_rate=str(_default_tax_rate(detected_service_type)),
             reason=reasons[0],
             current_journal_line_ids=[str(line.id) for line in lines],
         )
@@ -592,6 +695,80 @@ class ServiceManagementService:
     async def _trigger_revalidation(self, partner_id: UUID) -> None:
         await self.revalidate_partner_lines(partner_id)
 
+    async def _recheck_new_partner_reviews(self, mandant_id: UUID, changed_partner_id: UUID) -> None:
+        """Prüft nach einer Matcher-Änderung alle anderen Partner des Mandanten.
+
+        Dieselbe Logik wie die Preview: lädt alle Buchungszeilen anderer Partner,
+        prüft ob ein Matcher des geänderten Partners trifft. Nur die treffenden
+        Zeilen werden umgezogen. Der Quell-Partner wird gelöscht sofern er danach
+        keine Zeilen mehr hat.
+        """
+        services, matchers_by_service = await self._load_partner_services(changed_partner_id)
+        has_matchers = any(
+            not svc.is_base_service and bool(matchers_by_service.get(svc.id))
+            for svc in services
+        )
+        if not has_matchers:
+            await self._session.commit()
+            return
+
+        # Alle Buchungszeilen anderer Partner desselben Mandanten laden
+        other_lines = (
+            await self._session.exec(
+                select(JournalLine)
+                .join(Partner, JournalLine.partner_id == Partner.id)
+                .where(
+                    Partner.mandant_id == mandant_id,
+                    JournalLine.partner_id != changed_partner_id,
+                )
+            )
+        ).all()
+
+        # Treffende Zeilen nach partner_id gruppieren
+        matching_by_partner: dict[UUID, list[JournalLine]] = {}
+        for line in other_lines:
+            if line.partner_id is None:
+                continue
+            matched = any(
+                not service.is_base_service
+                and bool(matchers_by_service.get(service.id))
+                and self._service_matches_line(service, matchers_by_service.get(service.id, []), line)
+                for service in services
+            )
+            if matched:
+                matching_by_partner.setdefault(line.partner_id, []).append(line)
+
+        if not matching_by_partner:
+            await self._session.commit()
+            return
+
+        needs_revalidation = False
+
+        for other_partner_id, matched_lines in matching_by_partner.items():
+            # Nur die treffenden Zeilen verschieben (nicht alle des Partners)
+            await self.prepare_lines_for_partner_change(mandant_id, list(matched_lines), changed_partner_id)
+            needs_revalidation = True
+
+            # Partner löschen falls danach keine Zeilen mehr übrig
+            remaining = (
+                await self._session.exec(
+                    select(JournalLine).where(JournalLine.partner_id == other_partner_id)
+                )
+            ).all()
+            if not remaining:
+                other_partner = await self._session.get(Partner, other_partner_id)
+                if other_partner is not None and other_partner.mandant_id == mandant_id:
+                    await delete_partner_clean(
+                        self._session,
+                        other_partner,
+                        detach_journal_lines=False,
+                    )
+
+        if needs_revalidation:
+            await self.revalidate_partner_lines(changed_partner_id)
+        else:
+            await self._session.commit()
+
     def _is_service_valid_for_booking_date(self, service: Service, booking_date_raw: str) -> bool:
         booking_date = date.fromisoformat(booking_date_raw)
         if service.valid_from is not None and booking_date < service.valid_from:
@@ -674,6 +851,7 @@ class ServiceManagementService:
         service_id: UUID,
         previous_type: str,
         auto_assigned_type: str,
+        auto_assigned_tax_rate: str,
         reason: str,
         current_journal_line_ids: list[str],
     ) -> None:
@@ -681,6 +859,7 @@ class ServiceManagementService:
         context = {
             "previous_type": previous_type,
             "auto_assigned_type": auto_assigned_type,
+            "auto_assigned_tax_rate": auto_assigned_tax_rate,
             "reason": reason,
             "current_journal_line_ids": current_journal_line_ids,
         }
@@ -711,6 +890,29 @@ class ServiceManagementService:
             return
         await self._session.delete(review)
 
+    async def _clear_service_type_review(self, service_id: UUID | None) -> None:
+        if service_id is None:
+            return
+        review = await self._get_service_type_review(service_id)
+        if review is None or review.status != "open":
+            return
+        await self._session.delete(review)
+
+    async def _delete_open_line_reviews(self, journal_line_ids: list[UUID]) -> None:
+        if not journal_line_ids:
+            return
+        line_filters = [ReviewItem.journal_line_id == journal_line_id for journal_line_id in journal_line_ids]
+        reviews = (
+            await self._session.exec(
+                select(ReviewItem).where(
+                    ReviewItem.status == "open",
+                    or_(*line_filters),
+                )
+            )
+        ).all()
+        for review in reviews:
+            await self._session.delete(review)
+
     async def _load_keyword_rules(self, mandant_id: UUID) -> list[ServiceTypeKeyword | SystemServiceTypeKeywordResponse]:
         custom_rules = (
             await self._session.exec(
@@ -731,7 +933,7 @@ class ServiceManagementService:
             if self._pattern_matches(searchable_text, rule.pattern, rule.pattern_type):
                 target_type = ServiceType(rule.target_service_type)
                 return target_type, f"keyword:{rule.pattern}"
-        if line.amount <= Decimal("0.00"):
+        if Decimal(str(line.amount)) <= Decimal("0.00"):
             return ServiceType.supplier, "amount<=0"
         return ServiceType.customer, "amount>0"
 

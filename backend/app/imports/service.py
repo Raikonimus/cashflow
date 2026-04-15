@@ -44,6 +44,11 @@ from app.tenants.service import AccountService
 
 log = structlog.get_logger()
 
+# Internal import metadata stored alongside user-visible unmapped_data.
+# It persists the raw CSV values needed for duplicate detection, but should
+# not leak back into user-facing API payloads.
+SOURCE_VALUES_KEY = "_cashflow_source_values"
+
 
 def _parse_decimal(raw: str, decimal_separator: str) -> Decimal:
     """Parse amount string, handling German/European decimal separators."""
@@ -57,6 +62,85 @@ def _parse_decimal(raw: str, decimal_separator: str) -> Decimal:
 def _parse_date(raw: str, date_format: str) -> str:
     """Parse date string and return ISO 8601 date string (YYYY-MM-DD)."""
     return datetime.strptime(raw.strip(), date_format).date().isoformat()
+
+
+def _normalize_source_value(raw: str | None) -> str:
+    return (raw or "").strip()
+
+
+def _merge_source_values_into_unmapped_data(
+    unmapped_data: dict[str, str] | None,
+    source_values: dict[str, str],
+) -> dict[str, object] | None:
+    if not source_values:
+        return unmapped_data
+
+    merged: dict[str, object] = dict(unmapped_data or {})
+    merged[SOURCE_VALUES_KEY] = source_values
+    return merged
+
+
+def _extract_stored_source_values(unmapped_data: object) -> dict[str, str]:
+    if not isinstance(unmapped_data, dict):
+        return {}
+
+    extracted: dict[str, str] = {
+        key: value
+        for key, value in unmapped_data.items()
+        if isinstance(key, str) and key != SOURCE_VALUES_KEY and isinstance(value, str)
+    }
+
+    raw_values = unmapped_data.get(SOURCE_VALUES_KEY)
+    if not isinstance(raw_values, dict):
+        return extracted
+
+    for key, value in raw_values.items():
+        if isinstance(key, str) and isinstance(value, str):
+            extracted[key] = value
+    return extracted
+
+
+def _build_duplicate_signature(
+    source_values: dict[str, str],
+    duplicate_sources: list[str],
+) -> tuple[tuple[str, str], ...] | None:
+    """Erstellt einen sortierten Fingerabdruck einer Buchungszeile für die Duplikaterkennung.
+
+    Gibt ein stabiles, vergleichbares Tupel aus (Spaltenname, Rohwert)-Paaren zurück,
+    das ausschließlich die konfigurierten ``duplicate_check``-Spalten enthält.
+
+    Gibt ``None`` zurück wenn:
+    - keine Vergleichsspalten konfiguriert sind, oder
+    - mindestens eine Vergleichsspalte im aktuellen Zeilenwerte-Dict fehlt.
+
+    In beiden Fällen wird die Zeile nicht als Duplikat behandelt.
+    """
+    if not duplicate_sources:
+        return None
+    if any(source not in source_values for source in duplicate_sources):
+        return None
+    return tuple(sorted((source, source_values[source]) for source in duplicate_sources))
+
+
+def _assignment_duplicate_sources(assignments: list[dict]) -> list[str]:
+    sources = [
+        assignment.get("source", "")
+        for assignment in assignments
+        if assignment.get("duplicate_check") and assignment.get("source")
+    ]
+    return sorted(dict.fromkeys(str(source) for source in sources))
+
+
+def _legacy_duplicate_sources(mapping: ColumnMappingConfig) -> list[str]:
+    sources = [
+        mapping.valuta_date_col,
+        mapping.booking_date_col,
+        mapping.amount_col,
+        mapping.partner_iban_col,
+        mapping.partner_name_col,
+        mapping.description_col,
+    ]
+    return [source for source in sources if source]
 
 
 class ImportService:
@@ -114,56 +198,15 @@ class ImportService:
 
         run.status = ImportStatus.processing.value
 
-        content = await file.read()
-        encoding = _detect_encoding(content)
-        try:
-            decoded = content.decode(encoding)
-        except UnicodeDecodeError:
-            decoded = content.decode('utf-8', errors='replace')
+        decoded = await self._decode_upload(file)
+        reader = self._build_csv_reader(decoded, mapping)
+        self._validate_duplicate_check_columns(reader.fieldnames, mapping)
+        lines_to_insert, errors = self._collect_lines_to_insert(reader, mapping, run.id, account_id)
 
-        lines_to_insert: list[dict] = []
-        errors: list[dict] = []
-
-        effective_delimiter = _detect_delimiter(decoded, fallback=mapping.delimiter or ";")
-        reader = csv.DictReader(
-            io.StringIO(decoded),
-            delimiter=effective_delimiter,
-        )
-
-        for row_num, row in enumerate(reader, start=1 + (mapping.skip_rows or 0)):
-            if row_num <= (mapping.skip_rows or 0):
-                continue
-
-            try:
-                line_data = self._map_row(row, mapping, run.id, account_id, row_num)
-                if line_data is None:
-                    errors.append({"row": row_num, "error": "required field missing after mapping"})
-                    continue
-                lines_to_insert.append(line_data)
-            except (ValueError, InvalidOperation) as exc:
-                errors.append({"row": row_num, "error": str(exc)})
-
-        inserted, skipped, review_items, duplicates = await self._bulk_insert_with_matching(
+        inserted, skipped, review_items, duplicates, zero_skipped = await self._bulk_insert_with_matching(
             lines_to_insert, mandant_id, run.id, account_id
         )
-
-        run.row_count = inserted
-        run.skipped_count = skipped
-        run.error_count = len(errors)
-        run.completed_at = utcnow()
-
-        details: dict = {}
-        if errors:
-            details["parse_errors"] = errors
-        if duplicates:
-            details["duplicates"] = duplicates
-
-        if errors and inserted == 0 and skipped == 0 and not duplicates:
-            run.status = ImportStatus.failed.value
-        else:
-            run.status = ImportStatus.completed.value
-
-        run.error_details = details if details else None
+        self._finalize_run(run, inserted, skipped, errors, duplicates, zero_skipped)
 
         for ri in review_items:
             self._session.add(ri)
@@ -198,6 +241,76 @@ class ImportService:
             errors=len(errors),
         )
         return run
+
+    async def _decode_upload(self, file: UploadFile) -> str:
+        content = await file.read()
+        encoding = _detect_encoding(content)
+        try:
+            return content.decode(encoding)
+        except UnicodeDecodeError:
+            return content.decode('utf-8', errors='replace')
+
+    def _build_csv_reader(
+        self,
+        decoded: str,
+        mapping: ColumnMappingConfig,
+    ) -> csv.DictReader:
+        effective_delimiter = _detect_delimiter(decoded, fallback=mapping.delimiter or ";")
+        return csv.DictReader(io.StringIO(decoded), delimiter=effective_delimiter)
+
+    def _collect_lines_to_insert(
+        self,
+        reader: csv.DictReader,
+        mapping: ColumnMappingConfig,
+        run_id: UUID,
+        account_id: UUID,
+    ) -> tuple[list[dict], list[dict]]:
+        lines_to_insert: list[dict] = []
+        errors: list[dict] = []
+
+        for row_num, row in enumerate(reader, start=1 + (mapping.skip_rows or 0)):
+            if row_num <= (mapping.skip_rows or 0):
+                continue
+
+            try:
+                line_data = self._map_row(row, mapping, run_id, account_id, row_num)
+                if line_data is None:
+                    errors.append({"row": row_num, "error": "required field missing after mapping"})
+                    continue
+                lines_to_insert.append(line_data)
+            except (ValueError, InvalidOperation) as exc:
+                errors.append({"row": row_num, "error": str(exc)})
+
+        return lines_to_insert, errors
+
+    def _finalize_run(
+        self,
+        run: ImportRun,
+        inserted: int,
+        skipped: int,
+        errors: list[dict],
+        duplicates: list[dict],
+        zero_skipped: int = 0,
+    ) -> None:
+        run.row_count = inserted
+        run.skipped_count = skipped
+        run.error_count = len(errors)
+        run.completed_at = utcnow()
+
+        details: dict = {}
+        if errors:
+            details["parse_errors"] = errors
+        if duplicates:
+            details["duplicates"] = duplicates
+        if zero_skipped:
+            details["zero_amount_skipped"] = zero_skipped
+
+        if errors and inserted == 0 and skipped == 0 and not duplicates:
+            run.status = ImportStatus.failed.value
+        else:
+            run.status = ImportStatus.completed.value
+
+        run.error_details = details if details else None
 
     def _map_row(
         self,
@@ -237,15 +350,22 @@ class ImportService:
                 continue
             by_target.setdefault(target, []).append(a.get("source", ""))
 
-        def get_concat(target: str) -> str | None:
+        def get_values(target: str) -> list[str]:
             sources = by_target.get(target, [])
             parts = [row.get(s, "").strip() for s in sources]
-            parts = [p for p in parts if p]
-            return "\n".join(parts) if parts else None
+            return [part for part in parts if part]
 
-        valuta_raw = get_concat("valuta_date")
-        booking_raw = get_concat("booking_date")
-        amount_raw = get_concat("amount")
+        def get_concat(target: str) -> str | None:
+            values = get_values(target)
+            return "\n".join(values) if values else None
+
+        def get_first(target: str) -> str | None:
+            values = get_values(target)
+            return values[0] if values else None
+
+        valuta_raw = get_first("valuta_date")
+        booking_raw = get_first("booking_date")
+        amount_raw = get_first("amount")
 
         if not valuta_raw or not booking_raw or not amount_raw:
             return None
@@ -260,22 +380,33 @@ class ImportService:
         # Spalten, die explizit zugeordnet sind (auch "unused")
         assigned_sources = {a.get("source", "") for a in assignments}
         unmapped = {k: v for k, v in row.items() if k not in assigned_sources and v}
+        source_values = {
+            source: _normalize_source_value(row.get(source))
+            for source in assigned_sources
+            if source
+        }
+        duplicate_sources = _assignment_duplicate_sources(assignments)
 
         return {
             "_csv_row_num": row_num,
+            "_duplicate_sources": duplicate_sources,
+            "_duplicate_signature": _build_duplicate_signature(source_values, duplicate_sources),
             "account_id": account_id,
             "import_run_id": run_id,
             "valuta_date": valuta_date,
             "booking_date": booking_date,
             "amount": str(amount),
-            "currency": (get_concat("currency") or "EUR").strip().upper()[:3],
+            "currency": (get_first("currency") or "EUR").strip().upper()[:3],
             "text": get_concat("description"),
             "partner_name_raw": get_concat("partner_name"),
             "partner_iban_raw": get_concat("partner_iban"),
             "partner_account_raw": get_concat("partner_account"),
             "partner_blz_raw": get_concat("partner_blz"),
             "partner_bic_raw": get_concat("partner_bic"),
-            "unmapped_data": unmapped if unmapped else None,
+            "unmapped_data": _merge_source_values_into_unmapped_data(
+                unmapped if unmapped else None,
+                source_values,
+            ),
         }
 
     def _map_row_legacy(
@@ -316,9 +447,16 @@ class ImportService:
             mapping.description_col,
         }
         unmapped = {k: v for k, v in row.items() if k not in known_cols and v}
+        source_values = {
+            source: _normalize_source_value(row.get(source))
+            for source in _legacy_duplicate_sources(mapping)
+        }
+        duplicate_sources = list(source_values.keys())
 
         return {
             "_csv_row_num": row_num,
+            "_duplicate_sources": duplicate_sources,
+            "_duplicate_signature": _build_duplicate_signature(source_values, duplicate_sources),
             "account_id": account_id,
             "import_run_id": run_id,
             "valuta_date": valuta_date,
@@ -331,7 +469,10 @@ class ImportService:
             "partner_account_raw": None,  # Legacy-Mapping hat keine Konto-Spalte
             "partner_blz_raw": None,
             "partner_bic_raw": None,
-            "unmapped_data": unmapped if unmapped else None,
+            "unmapped_data": _merge_source_values_into_unmapped_data(
+                unmapped if unmapped else None,
+                source_values,
+            ),
         }
 
     async def _bulk_insert_with_matching(
@@ -340,15 +481,21 @@ class ImportService:
         mandant_id: UUID,
         current_run_id: UUID,
         account_id: UUID | None = None,
-    ) -> tuple[int, int, list[ReviewItem], list[dict]]:
+    ) -> tuple[int, int, list[ReviewItem], list[dict], int]:
         """Insert JournalLines with partner matching.
 
         Duplikaterkennung erfolgt ausschließlich gegen bestehende DB-Einträge
         aus anderen Import-Runs. Innerhalb eines Runs gibt es per Definition
-        keine Duplikate. Alle Felder (inkl. unmapped_data) müssen übereinstimmen.
+        keine Duplikate.
+
+        Verglichen werden nur die CSV-Quellspalten, die in der
+        Spaltenkonfiguration mit ``duplicate_check=true`` markiert sind.
+        Die zugehörigen Rohwerte werden intern in ``_cashflow_source_values``
+        gespeichert; für Legacy-Zeilen ohne diesen Block wird auf top-level
+        String-Werte in ``unmapped_data`` zurückgefallen.
         """
         if not rows:
-            return 0, 0, [], []
+            return 0, 0, [], [], 0
 
         # Ausgeschlossene Identifier für das Konto laden (einmalig)
         excluded_ibans: frozenset[str] = frozenset()
@@ -360,33 +507,39 @@ class ImportService:
         matcher = PartnerMatchingService(self._session)
         inserted = 0
         skipped = 0
+        zero_skipped = 0
         review_items: list[ReviewItem] = []
         duplicates: list[dict] = []
+        existing_rows: list[JournalLine] = []
+        if account_id is not None:
+            existing_rows = (
+                await self._session.exec(
+                    select(JournalLine).where(
+                        JournalLine.account_id == account_id,
+                        JournalLine.import_run_id != current_run_id,  # type: ignore[arg-type]
+                    )
+                )
+            ).all()
 
         for row in rows:
-            # Kandidaten aus vorherigen Runs laden (current_run_id ausschließen)
-            candidates_res = await self._session.exec(
-                select(JournalLine).where(
-                    JournalLine.account_id == row["account_id"],
-                    JournalLine.import_run_id != current_run_id,  # type: ignore[arg-type]
-                    JournalLine.valuta_date == row["valuta_date"],
-                    JournalLine.booking_date == row["booking_date"],
-                    JournalLine.amount == Decimal(row["amount"]),
-                    JournalLine.currency == row["currency"],
-                    JournalLine.text == row.get("text"),
-                    JournalLine.partner_name_raw == row.get("partner_name_raw"),
-                    JournalLine.partner_iban_raw == row.get("partner_iban_raw"),
-                    JournalLine.partner_account_raw == row.get("partner_account_raw"),
-                    JournalLine.partner_blz_raw == row.get("partner_blz_raw"),
-                    JournalLine.partner_bic_raw == row.get("partner_bic_raw"),
-                )
-            )
-            candidates = candidates_res.all()
+            # Buchungszeilen mit Betrag 0.00 werden ignoriert
+            if Decimal(row["amount"]) == Decimal("0"):
+                skipped += 1
+                zero_skipped += 1
+                continue
 
-            # unmapped_data (JSON) in Python vergleichen
-            is_duplicate = any(
-                c.unmapped_data == row.get("unmapped_data") for c in candidates
-            )
+            duplicate_sources = row.get("_duplicate_sources", [])
+            current_signature = row.get("_duplicate_signature")
+            is_duplicate = False
+            if current_signature is not None and duplicate_sources:
+                is_duplicate = any(
+                    _build_duplicate_signature(
+                        _extract_stored_source_values(candidate.unmapped_data),
+                        duplicate_sources,
+                    )
+                    == current_signature
+                    for candidate in existing_rows
+                )
 
             if is_duplicate:
                 skipped += 1
@@ -407,6 +560,7 @@ class ImportService:
                 account_raw=row.get("partner_account_raw"),
                 blz_raw=row.get("partner_blz_raw"),
                 bic_raw=row.get("partner_bic_raw"),
+                text_raw=row.get("text"),
                 excluded_ibans=excluded_ibans,
                 excluded_accounts=excluded_accounts,
             )
@@ -447,6 +601,8 @@ class ImportService:
                 })
                 continue
 
+            existing_rows.append(line)
+
             from app.services.service import ServiceManagementService
 
             service_svc = ServiceManagementService(self._session)
@@ -458,7 +614,29 @@ class ImportService:
 
             inserted += 1
 
-        return inserted, skipped, review_items, duplicates
+        return inserted, skipped, review_items, duplicates, zero_skipped
+
+    def _validate_duplicate_check_columns(
+        self,
+        fieldnames: list[str] | None,
+        mapping: ColumnMappingConfig,
+    ) -> None:
+        assignments = mapping.column_assignments or []
+        if not assignments:
+            return
+
+        required_sources = _assignment_duplicate_sources(assignments)
+        if not required_sources:
+            return
+
+        available = set(fieldnames or [])
+        missing = [source for source in required_sources if source not in available]
+        if missing:
+            missing_list = ", ".join(sorted(missing))
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"CSV is missing duplicate-check columns: {missing_list}",
+            )
 
     async def _bulk_insert(self, rows: list[dict]) -> tuple[int, int]:
         """Insert rows, skipping exact duplicates (portable — works in SQLite and PostgreSQL)."""

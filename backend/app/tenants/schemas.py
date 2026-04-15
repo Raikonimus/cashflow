@@ -25,6 +25,51 @@ class MandantResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+CleanupMode = Literal["delete_mandant", "delete_data", "selected"]
+CleanupScope = Literal["journal_data", "partner_service_data", "audit_data", "review_data"]
+
+
+class CleanupPreviewItem(BaseModel):
+    key: str
+    label: str
+    count: int
+
+
+class CleanupPreviewSection(BaseModel):
+    key: str
+    label: str
+    description: str
+    items: list[CleanupPreviewItem]
+
+
+class MandantCleanupPreviewResponse(BaseModel):
+    mandant_id: UUID
+    mandant_name: str
+    delete_mandant: CleanupPreviewSection
+    delete_data: CleanupPreviewSection
+    selectable_sections: list[CleanupPreviewSection]
+
+
+class ExecuteMandantCleanupRequest(BaseModel):
+    mode: CleanupMode
+    scopes: list[CleanupScope] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_scopes(self) -> "ExecuteMandantCleanupRequest":
+        if self.mode == "selected" and not self.scopes:
+            raise ValueError("scopes is required when mode is 'selected'")
+        if self.mode != "selected" and self.scopes:
+            raise ValueError("scopes is only allowed when mode is 'selected'")
+        return self
+
+
+class ExecuteMandantCleanupResponse(BaseModel):
+    mode: CleanupMode
+    deleted_mandant: bool
+    executed_sections: list[str]
+    items: list[CleanupPreviewItem]
+
+
 # ─── Account ─────────────────────────────────────────────────────────────────
 
 class CreateAccountRequest(BaseModel):
@@ -43,7 +88,7 @@ class AccountResponse(BaseModel):
     id: UUID
     mandant_id: UUID
     name: str
-    iban: Optional[str]
+    iban: Optional[str] = None
     currency: str
     is_active: bool
     created_at: datetime
@@ -78,6 +123,10 @@ class ColumnAssignment(BaseModel):
     source: str = Field(min_length=1, max_length=200, description="Name der CSV-Spalte")
     target: ColumnTarget = Field(description="Zielfeld (oder 'unused')")
     sort_order: int = Field(ge=0, description="Reihenfolge bei Mehrfach-Belegung desselben Zielfelds")
+    duplicate_check: bool = Field(
+        default=False,
+        description="Wenn true, wird diese CSV-Spalte für die Dublettenprüfung verwendet.",
+    )
 
 
 class ColumnMappingRequest(BaseModel):
@@ -110,6 +159,10 @@ class ColumnMappingRequest(BaseModel):
                 raise ValueError(
                     f"Fehlende Pflichtfelder in column_assignments: {sorted(missing)}"
                 )
+            if not any(a.duplicate_check for a in self.column_assignments):
+                raise ValueError(
+                    "Mindestens eine CSV-Spalte muss für die Dublettenprüfung ausgewählt sein"
+                )
         else:
             if not self.valuta_date_col:
                 raise ValueError("valuta_date_col ist Pflichtfeld (oder column_assignments verwenden)")
@@ -124,12 +177,12 @@ class ColumnMappingResponse(BaseModel):
     id: UUID
     account_id: UUID
     column_assignments: Optional[list[ColumnAssignment]] = None
-    valuta_date_col: Optional[str]
-    booking_date_col: Optional[str]
-    amount_col: Optional[str]
-    partner_iban_col: Optional[str]
-    partner_name_col: Optional[str]
-    description_col: Optional[str]
+    valuta_date_col: Optional[str] = None
+    booking_date_col: Optional[str] = None
+    amount_col: Optional[str] = None
+    partner_iban_col: Optional[str] = None
+    partner_name_col: Optional[str] = None
+    description_col: Optional[str] = None
     decimal_separator: str
     date_format: str
     encoding: str
@@ -171,7 +224,7 @@ class ExcludedIdentifierResponse(BaseModel):
     account_id: UUID
     identifier_type: str
     value: str
-    label: Optional[str]
+    label: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

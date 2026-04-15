@@ -36,11 +36,12 @@ def _review_svc(session: AsyncSession = Depends(get_session)) -> ReviewService:
 async def list_review_items(
     mandant_id: UUID,
     status_filter: str = Query(default="open", alias="status", description="open | confirmed | adjusted | all"),
+    item_type: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=100),
     svc: ReviewService = Depends(_review_svc),
 ) -> PaginatedReviewItemsResponse:
-    items, total = await svc.list_items(mandant_id, status_filter, page=page, size=size)
+    items, total = await svc.list_items(mandant_id, status_filter, item_type=item_type, page=page, size=size)
     pages = math.ceil(total / size) if total > 0 else 1
     response_items: list[ReviewItemResponse] = []
     for item in items:

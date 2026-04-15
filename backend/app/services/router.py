@@ -9,6 +9,7 @@ from app.services.schemas import (
     CreateServiceMatcherRequest,
     CreateServiceRequest,
     CreateServiceTypeKeywordRequest,
+    MatcherPreviewResponse,
     ServiceMatcherResponse,
     ServiceResponse,
     ServiceTypeKeywordListResponse,
@@ -125,6 +126,20 @@ async def delete_matcher(
     svc: ServiceManagementService = Depends(_services_svc),
 ) -> None:
     await svc.delete_matcher(service_id, matcher_id, mandant_id)
+
+
+@services_router.post(
+    "/{mandant_id}/services/{service_id}/matchers/preview",
+    response_model=MatcherPreviewResponse,
+    dependencies=[Depends(require_role("viewer")), Depends(require_mandant_access)],
+)
+async def preview_matcher(
+    mandant_id: UUID,
+    service_id: UUID,
+    body: CreateServiceMatcherRequest,
+    svc: ServiceManagementService = Depends(_services_svc),
+) -> MatcherPreviewResponse:
+    return await svc.preview_matcher(service_id, mandant_id, body)
 
 
 @services_router.get(

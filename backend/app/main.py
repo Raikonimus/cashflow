@@ -8,6 +8,7 @@ from app.journal.router import audit_router, journal_router
 from app.partners.router import partners_router
 from app.review.router import review_router
 from app.services.router import services_router
+from app.testing.router import testing_router
 from app.tenants.router import accounts_router, tenants_router
 
 app = FastAPI(
@@ -37,3 +38,4 @@ app.include_router(imports_router, prefix="/api/v1")
 app.include_router(review_router, prefix="/api/v1")
 app.include_router(journal_router, prefix="/api/v1")
 app.include_router(audit_router, prefix="/api/v1")
+app.include_router(testing_router, prefix="/api/v1")

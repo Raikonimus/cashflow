@@ -43,23 +43,17 @@ class ReviewService:
         self,
         mandant_id: UUID,
         status_filter: str | None,
+        item_type: str | None,
         page: int,
         size: int,
     ) -> tuple[list[ReviewItem], int]:
         size = min(size, 100)
-        offset = (page - 1) * size
 
         base_where = [ReviewItem.mandant_id == mandant_id]
         if status_filter and status_filter != "all":
             base_where.append(ReviewItem.status == status_filter)
-
-        total = len(
-            (
-                await self._session.exec(  # type: ignore[attr-defined]
-                    select(ReviewItem.id).where(*base_where)  # type: ignore[arg-type]
-                )
-            ).all()
-        )
+        if item_type:
+            base_where.append(ReviewItem.item_type == item_type)
 
         items = list(
             (
@@ -67,13 +61,15 @@ class ReviewService:
                     select(ReviewItem)
                     .where(*base_where)
                     .order_by(col(ReviewItem.created_at))
-                    .offset(offset)
-                    .limit(size)
                 )
             ).all()
         )
 
-        return items, total
+        items = [item for item in items if not self._should_hide_from_open_list(item, status_filter)]
+        total = len(items)
+        offset = (page - 1) * size
+
+        return items[offset:offset + size], total
 
     async def get_item(self, item_id: UUID, mandant_id: UUID) -> ReviewItem:
         item = await self._session.get(ReviewItem, item_id)
@@ -137,6 +133,7 @@ class ReviewService:
     async def to_response(self, item: ReviewItem) -> ReviewItemResponse:
         journal_line = await self._load_journal_line_summary(item.journal_line_id)
         service = await self._load_service_summary(item.service_id)
+        context = await self._enrich_context(item.context)
         assigned_journal_lines: list[ReviewJournalLineSummary] = []
         if item.item_type == "service_type_review" and item.service_id is not None:
             lines = (
@@ -146,7 +143,7 @@ class ReviewService:
                     .order_by(JournalLine.created_at)
                 )
             ).all()
-            assigned_journal_lines = [self._serialize_journal_line(line) for line in lines]
+            assigned_journal_lines = [await self._serialize_journal_line(line) for line in lines]
 
         return ReviewItemResponse(
             id=item.id,
@@ -154,7 +151,7 @@ class ReviewService:
             item_type=item.item_type,
             journal_line_id=item.journal_line_id,
             service_id=item.service_id,
-            context=item.context,
+            context=context,
             status=item.status,
             created_at=item.created_at,
             updated_at=item.updated_at,
@@ -273,6 +270,7 @@ class ReviewService:
         self, item_id: UUID, mandant_id: UUID, actor_id: UUID, partner_id: UUID
     ) -> ReviewItem:
         item = await self._get_open_or_raise(item_id, mandant_id)
+        service_svc = ServiceManagementService(self._session)
 
         target = await self._session.get(Partner, partner_id)
         if target is None or target.mandant_id != mandant_id or not target.is_active:
@@ -283,8 +281,6 @@ class ReviewService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found")
 
         old_partner_id = journal_line.partner_id
-        journal_line.partner_id = partner_id
-        self._session.add(journal_line)
 
         item.status = "adjusted"
         item.resolved_by = actor_id
@@ -305,7 +301,27 @@ class ReviewService:
             )
         )
 
-        await self._session.commit()
+        await service_svc.prepare_lines_for_partner_change(mandant_id, [journal_line], partner_id)
+        await service_svc.revalidate_partner_lines(partner_id)
+
+        # Für new_partner-Items: Ghost-Partner löschen, wenn er nach der Neuzuweisung keine
+        # Buchungszeilen mehr hat (automatisch angelegter Partner war fehlerhaft).
+        if (
+            item.item_type == "new_partner"
+            and old_partner_id is not None
+            and old_partner_id != partner_id
+        ):
+            remaining = (
+                await self._session.exec(
+                    select(JournalLine).where(JournalLine.partner_id == old_partner_id)
+                )
+            ).all()
+            if not remaining:
+                ghost = await self._session.get(Partner, old_partner_id)
+                if ghost is not None and ghost.mandant_id == mandant_id:
+                    await self._session.delete(ghost)
+                    await self._session.commit()
+
         await self._session.refresh(item)
         log.info("review_reassigned", item_id=str(item_id), partner_id=str(partner_id))
         return item
@@ -314,6 +330,7 @@ class ReviewService:
         self, item_id: UUID, mandant_id: UUID, actor_id: UUID, partner_name: str
     ) -> ReviewItem:
         item = await self._get_open_or_raise(item_id, mandant_id)
+        service_svc = ServiceManagementService(self._session)
 
         journal_line = await self._session.get(JournalLine, item.journal_line_id)
         if journal_line is None:
@@ -347,9 +364,6 @@ class ReviewService:
 
         await ensure_base_service(self._session, new_partner.id)
 
-        journal_line.partner_id = new_partner.id  # type: ignore[assignment]
-        self._session.add(journal_line)
-
         item.status = "adjusted"
         item.resolved_by = actor_id
         item.resolved_at = utcnow()
@@ -369,7 +383,8 @@ class ReviewService:
             )
         )
 
-        await self._session.commit()
+        await service_svc.prepare_lines_for_partner_change(mandant_id, [journal_line], new_partner.id)  # type: ignore[list-item]
+        await service_svc.revalidate_partner_lines(new_partner.id)
         await self._session.refresh(item)
         log.info("review_new_partner", item_id=str(item_id), partner_name=desired_name)
         return item
@@ -574,7 +589,7 @@ class ReviewService:
         journal_line = await self._session.get(JournalLine, journal_line_id)
         if journal_line is None:
             return None
-        return self._serialize_journal_line(journal_line)
+        return await self._serialize_journal_line(journal_line)
 
     async def _load_service_summary(self, service_id: UUID | None) -> ReviewServiceSummary | None:
         if service_id is None:
@@ -582,10 +597,75 @@ class ReviewService:
         service = await self._session.get(Service, service_id)
         if service is None:
             return None
-        return ReviewServiceSummary.model_validate(service)
+        partner = await self._session.get(Partner, service.partner_id)
+        partner_name = None if partner is None else partner.display_name or partner.name
+        return ReviewServiceSummary.model_validate(
+            {
+                "id": service.id,
+                "partner_id": service.partner_id,
+                "partner_name": partner_name,
+                "name": service.name,
+                "service_type": service.service_type,
+                "tax_rate": service.tax_rate,
+                "valid_from": service.valid_from,
+                "valid_to": service.valid_to,
+                "service_type_manual": service.service_type_manual,
+                "tax_rate_manual": service.tax_rate_manual,
+            }
+        )
 
-    def _serialize_journal_line(self, line: JournalLine) -> ReviewJournalLineSummary:
-        return ReviewJournalLineSummary.model_validate(line)
+    async def _serialize_journal_line(self, line: JournalLine) -> ReviewJournalLineSummary:
+        partner_name: str | None = None
+        if line.partner_id is not None:
+            partner = await self._session.get(Partner, line.partner_id)
+            if partner is not None:
+                partner_name = partner.display_name or partner.name
+
+        return ReviewJournalLineSummary.model_validate(
+            {
+                "id": line.id,
+                "partner_id": line.partner_id,
+                "partner_name": partner_name,
+                "service_id": line.service_id,
+                "service_assignment_mode": line.service_assignment_mode,
+                "valuta_date": line.valuta_date,
+                "booking_date": line.booking_date,
+                "amount": line.amount,
+                "currency": line.currency,
+                "text": line.text,
+                "partner_name_raw": line.partner_name_raw,
+            }
+        )
+
+    async def _enrich_context(self, raw_context: object) -> dict:
+        context = dict(raw_context) if isinstance(raw_context, dict) else {}
+        current_service_id = self._parse_optional_uuid(context.get("current_service_id"))
+        proposed_service_id = self._parse_optional_uuid(context.get("proposed_service_id"))
+
+        if current_service_id is not None:
+            current_service = await self._session.get(Service, current_service_id)
+            if current_service is not None:
+                context["current_service_name"] = current_service.name
+
+        if proposed_service_id is not None:
+            proposed_service = await self._session.get(Service, proposed_service_id)
+            if proposed_service is not None:
+                context["proposed_service_name"] = proposed_service.name
+
+        raw_matching_services = context.get("matching_services")
+        if isinstance(raw_matching_services, list):
+            matching_service_names: list[str] = []
+            for raw_service_id in raw_matching_services:
+                service_id = self._parse_optional_uuid(raw_service_id)
+                if service_id is None:
+                    continue
+                service = await self._session.get(Service, service_id)
+                if service is not None:
+                    matching_service_names.append(service.name)
+            if matching_service_names:
+                context["matching_service_names"] = matching_service_names
+
+        return context
 
     async def _get_service_for_review(self, item: ReviewItem, mandant_id: UUID) -> Service:
         if item.service_id is None:
@@ -605,3 +685,18 @@ class ReviewService:
         if isinstance(raw_value, UUID):
             return raw_value
         return UUID(str(raw_value))
+
+    def _should_hide_from_open_list(self, item: ReviewItem, status_filter: str | None) -> bool:
+        if status_filter != "open":
+            return False
+        if item.item_type != "service_type_review":
+            return False
+        context = item.context if isinstance(item.context, dict) else {}
+        previous_type = context.get("previous_type")
+        auto_assigned_type = context.get("auto_assigned_type")
+        current_journal_line_ids = context.get("current_journal_line_ids")
+
+        has_line_ids = isinstance(current_journal_line_ids, list) and len(current_journal_line_ids) > 0
+        has_meaningful_types = previous_type not in (None, "") or auto_assigned_type not in (None, "")
+
+        return not has_line_ids and not has_meaningful_types

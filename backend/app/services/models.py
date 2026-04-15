@@ -16,7 +16,9 @@ class ServiceType(str, Enum):
     customer = "customer"
     supplier = "supplier"
     employee = "employee"
+    shareholder = "shareholder"
     authority = "authority"
+    internal_transfer = "internal_transfer"
     unknown = "unknown"
 
 
@@ -27,6 +29,7 @@ class ServiceMatcherType(str, Enum):
 
 class KeywordTargetType(str, Enum):
     employee = "employee"
+    shareholder = "shareholder"
     authority = "authority"
 
 

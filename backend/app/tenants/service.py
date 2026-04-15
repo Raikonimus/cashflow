@@ -4,17 +4,28 @@ from uuid import UUID
 
 import structlog
 from fastapi import HTTPException, status
+from sqlalchemy import delete as sa_delete, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from sqlalchemy.exc import IntegrityError
 
+from app.auth.models import MandantUser
+from app.imports.models import ImportRun, JournalLine, ReviewItem
+from app.partners.models import AuditLog, Partner, PartnerAccount, PartnerIban, PartnerName
+from app.services.models import Service, ServiceMatcher, ServiceTypeKeyword
+from app.services.service import ServiceManagementService
 from app.tenants.models import Account, AccountExcludedIdentifier, ColumnMappingConfig, Mandant
 from app.tenants.schemas import (
+    CleanupPreviewItem,
+    CleanupPreviewSection,
     ColumnMappingRequest,
     CreateAccountRequest,
     CreateMandantRequest,
+    ExecuteMandantCleanupRequest,
+    ExecuteMandantCleanupResponse,
     ExcludedIdentifierCreate,
+    MandantCleanupPreviewResponse,
     UpdateAccountRequest,
     UpdateMandantRequest,
 )
@@ -78,6 +89,280 @@ class MandantService:
 
         await self._session.commit()
         log.info("mandant_deactivated", mandant_id=str(mandant_id), accounts_deactivated=len(accounts))
+
+    async def get_cleanup_preview(self, mandant_id: UUID) -> MandantCleanupPreviewResponse:
+        mandant = await self.get_mandant(mandant_id)
+        inventory = await self._collect_inventory(mandant_id)
+
+        return MandantCleanupPreviewResponse(
+            mandant_id=mandant.id,
+            mandant_name=mandant.name,
+            delete_mandant=self._build_section(
+                key="delete_mandant",
+                label="Mandant löschen",
+                description="Löscht den Mandanten selbst inklusive aller mandantenspezifischen Daten und Zuweisungen.",
+                items=self._delete_mandant_items(inventory),
+            ),
+            delete_data=self._build_section(
+                key="delete_data",
+                label="Nur alle Daten dieses Mandanten löschen",
+                description="Behält den Mandantenstammsatz, löscht aber alle fachlichen Daten und Konfigurationen dieses Mandanten.",
+                items=self._delete_data_items(inventory),
+            ),
+            selectable_sections=[
+                self._build_section(
+                    key="journal_data",
+                    label="Journaldaten",
+                    description="Löscht Importläufe, Buchungszeilen und die daran hängenden Review-Einträge dieses Mandanten.",
+                    items=self._journal_scope_items(inventory),
+                ),
+                self._build_section(
+                    key="partner_service_data",
+                    label="Leistungen und Partnerdaten",
+                    description="Löscht Partner, Partnermerkmale, Leistungen, Matcher und alle daran hängenden Buchungs- und Review-Daten.",
+                    items=self._partner_scope_items(inventory),
+                ),
+                self._build_section(
+                    key="audit_data",
+                    label="Auditdaten",
+                    description="Löscht alle Audit-Log-Einträge dieses Mandanten.",
+                    items=self._audit_scope_items(inventory),
+                ),
+                self._build_section(
+                    key="review_data",
+                    label="Reviewdaten",
+                    description="Löscht alle Review-Einträge dieses Mandanten, unabhängig von ihrem Ursprung.",
+                    items=self._review_scope_items(inventory),
+                ),
+            ],
+        )
+
+    async def execute_cleanup(
+        self,
+        mandant_id: UUID,
+        body: ExecuteMandantCleanupRequest,
+    ) -> ExecuteMandantCleanupResponse:
+        await self.get_mandant(mandant_id)
+        deleted_items: dict[str, CleanupPreviewItem] = {}
+        executed_sections: list[str] = []
+        deleted_mandant = False
+
+        if body.mode == "delete_mandant":
+            executed_sections.append("delete_mandant")
+            for item in await self._delete_all_data(mandant_id):
+                deleted_items[item.key] = item
+            for item in await self._delete_mandant_record(mandant_id):
+                deleted_items[item.key] = item
+            deleted_mandant = True
+        elif body.mode == "delete_data":
+            executed_sections.append("delete_data")
+            for item in await self._delete_all_data(mandant_id):
+                deleted_items[item.key] = item
+        else:
+            for scope in body.scopes:
+                if scope in executed_sections:
+                    continue
+                executed_sections.append(scope)
+                if scope == "journal_data":
+                    deleted = await self._delete_journal_scope(mandant_id)
+                elif scope == "partner_service_data":
+                    deleted = await self._delete_partner_scope(mandant_id)
+                elif scope == "audit_data":
+                    deleted = await self._delete_audit_scope(mandant_id)
+                else:
+                    deleted = await self._delete_review_scope(mandant_id)
+                for item in deleted:
+                    deleted_items[item.key] = item
+
+        return ExecuteMandantCleanupResponse(
+            mode=body.mode,
+            deleted_mandant=deleted_mandant,
+            executed_sections=executed_sections,
+            items=list(deleted_items.values()),
+        )
+
+    async def _collect_inventory(self, mandant_id: UUID) -> dict[str, int]:
+        account_ids = await self._select_ids(Account.id, Account.mandant_id == mandant_id)
+        partner_ids = await self._select_ids(Partner.id, Partner.mandant_id == mandant_id)
+        service_ids = await self._select_ids_for_values(Service.id, Service.partner_id, partner_ids)
+        journal_line_ids_all = await self._select_ids_for_values(JournalLine.id, JournalLine.account_id, account_ids)
+        journal_line_ids_partner = await self._select_ids_for_values(JournalLine.id, JournalLine.partner_id, partner_ids)
+        review_ids_journal = await self._select_ids_for_values(ReviewItem.id, ReviewItem.journal_line_id, journal_line_ids_all)
+        review_ids_partner = await self._select_ids_for_values(ReviewItem.id, ReviewItem.journal_line_id, journal_line_ids_partner)
+        review_ids_service = await self._select_ids_for_values(ReviewItem.id, ReviewItem.service_id, service_ids)
+
+        return {
+            "mandant": 1,
+            "mandant_users": len(await self._select_ids(MandantUser.user_id, MandantUser.mandant_id == mandant_id)),
+            "accounts": len(account_ids),
+            "column_mapping_configs": len(await self._select_ids_for_values(ColumnMappingConfig.id, ColumnMappingConfig.account_id, account_ids)),
+            "account_excluded_identifiers": len(await self._select_ids_for_values(AccountExcludedIdentifier.id, AccountExcludedIdentifier.account_id, account_ids)),
+            "import_runs": len(await self._select_ids(ImportRun.id, ImportRun.mandant_id == mandant_id)),
+            "journal_lines_all": len(journal_line_ids_all),
+            "journal_lines_partner": len(journal_line_ids_partner),
+            "review_items_all": len(await self._select_ids(ReviewItem.id, ReviewItem.mandant_id == mandant_id)),
+            "review_items_journal": len(review_ids_journal),
+            "review_items_partner": len(set(review_ids_partner) | set(review_ids_service)),
+            "partners": len(partner_ids),
+            "partner_ibans": len(await self._select_ids_for_values(PartnerIban.id, PartnerIban.partner_id, partner_ids)),
+            "partner_accounts": len(await self._select_ids_for_values(PartnerAccount.id, PartnerAccount.partner_id, partner_ids)),
+            "partner_names": len(await self._select_ids_for_values(PartnerName.id, PartnerName.partner_id, partner_ids)),
+            "services": len(service_ids),
+            "service_matchers": len(await self._select_ids_for_values(ServiceMatcher.id, ServiceMatcher.service_id, service_ids)),
+            "service_type_keywords": len(await self._select_ids(ServiceTypeKeyword.id, ServiceTypeKeyword.mandant_id == mandant_id)),
+            "audit_log": len(await self._select_ids(AuditLog.id, AuditLog.mandant_id == mandant_id)),
+        }
+
+    async def _delete_all_data(self, mandant_id: UUID) -> list[CleanupPreviewItem]:
+        deleted_items: list[CleanupPreviewItem] = []
+        deleted_items.extend(await self._delete_review_scope(mandant_id))
+        deleted_items.extend(await self._delete_journal_scope(mandant_id, include_related_reviews=False))
+        deleted_items.extend(await self._delete_partner_scope(mandant_id, include_related_reviews=False))
+        deleted_items.extend(await self._delete_audit_scope(mandant_id))
+
+        account_ids = await self._select_ids(Account.id, Account.mandant_id == mandant_id)
+        deleted_items.append(await self._delete_for_values(ColumnMappingConfig, ColumnMappingConfig.account_id, account_ids, "column_mapping_configs", "Spalten-Mappings"))
+        deleted_items.append(await self._delete_for_values(AccountExcludedIdentifier, AccountExcludedIdentifier.account_id, account_ids, "account_excluded_identifiers", "Ausgeschlossene Konto-Identifikatoren"))
+        deleted_items.append(await self._delete_where(ServiceTypeKeyword, ServiceTypeKeyword.mandant_id == mandant_id, "service_type_keywords", "Mandanten-Keyword-Regeln"))
+        deleted_items.append(await self._delete_where(Account, Account.mandant_id == mandant_id, "accounts", "Konten"))
+
+        await self._session.commit()
+        return [item for item in deleted_items if item.count > 0]
+
+    async def _delete_mandant_record(self, mandant_id: UUID) -> list[CleanupPreviewItem]:
+        deleted_items = [
+            await self._delete_where(MandantUser, MandantUser.mandant_id == mandant_id, "mandant_users", "Mandantenzuweisungen"),
+            await self._delete_where(Mandant, Mandant.id == mandant_id, "mandant", "Mandant"),
+        ]
+        await self._session.commit()
+        return [item for item in deleted_items if item.count > 0]
+
+    async def _delete_journal_scope(self, mandant_id: UUID, include_related_reviews: bool = True) -> list[CleanupPreviewItem]:
+        account_ids = await self._select_ids(Account.id, Account.mandant_id == mandant_id)
+        journal_line_ids = await self._select_ids_for_values(JournalLine.id, JournalLine.account_id, account_ids)
+        touched_service_ids = await self._select_ids_for_values(JournalLine.service_id, JournalLine.account_id, account_ids, skip_none=True)
+        deleted_items: list[CleanupPreviewItem] = []
+
+        if include_related_reviews:
+            deleted_items.append(await self._delete_for_values(ReviewItem, ReviewItem.journal_line_id, journal_line_ids, "review_items_journal", "Review-Einträge zu Buchungen"))
+        deleted_items.append(await self._delete_for_values(JournalLine, JournalLine.id, journal_line_ids, "journal_lines", "Buchungszeilen"))
+        deleted_items.append(await self._delete_where(ImportRun, ImportRun.mandant_id == mandant_id, "import_runs", "Importläufe"))
+
+        service_svc = ServiceManagementService(self._session)
+        for service_id in touched_service_ids:
+            await service_svc.detect_service_type_for_service(mandant_id, service_id)
+
+        await self._session.commit()
+        return [item for item in deleted_items if item.count > 0]
+
+    async def _delete_partner_scope(self, mandant_id: UUID, include_related_reviews: bool = True) -> list[CleanupPreviewItem]:
+        partner_ids = await self._select_ids(Partner.id, Partner.mandant_id == mandant_id)
+        service_ids = await self._select_ids_for_values(Service.id, Service.partner_id, partner_ids)
+        journal_line_ids = await self._select_ids_for_values(JournalLine.id, JournalLine.partner_id, partner_ids)
+        deleted_items: list[CleanupPreviewItem] = []
+
+        if include_related_reviews:
+            deleted_items.append(await self._delete_for_values(ReviewItem, ReviewItem.journal_line_id, journal_line_ids, "review_items_partner_journal", "Review-Einträge zu Partner-Buchungen"))
+            deleted_items.append(await self._delete_for_values(ReviewItem, ReviewItem.service_id, service_ids, "review_items_partner_service", "Review-Einträge zu Leistungen"))
+        deleted_items.append(await self._delete_for_values(JournalLine, JournalLine.id, journal_line_ids, "partner_journal_lines", "Partnerbezogene Buchungszeilen"))
+        deleted_items.append(await self._delete_for_values(ServiceMatcher, ServiceMatcher.service_id, service_ids, "service_matchers", "Leistungs-Matcher"))
+        deleted_items.append(await self._delete_for_values(Service, Service.id, service_ids, "services", "Leistungen"))
+        deleted_items.append(await self._delete_for_values(PartnerIban, PartnerIban.partner_id, partner_ids, "partner_ibans", "Partner-IBANs"))
+        deleted_items.append(await self._delete_for_values(PartnerAccount, PartnerAccount.partner_id, partner_ids, "partner_accounts", "Partner-Konten"))
+        deleted_items.append(await self._delete_for_values(PartnerName, PartnerName.partner_id, partner_ids, "partner_names", "Namensvarianten"))
+        deleted_items.append(await self._delete_for_values(Partner, Partner.id, partner_ids, "partners", "Partner"))
+
+        await self._session.commit()
+        return [item for item in deleted_items if item.count > 0]
+
+    async def _delete_audit_scope(self, mandant_id: UUID) -> list[CleanupPreviewItem]:
+        item = await self._delete_where(AuditLog, AuditLog.mandant_id == mandant_id, "audit_log", "Audit-Log-Einträge")
+        await self._session.commit()
+        return [item] if item.count > 0 else []
+
+    async def _delete_review_scope(self, mandant_id: UUID) -> list[CleanupPreviewItem]:
+        item = await self._delete_where(ReviewItem, ReviewItem.mandant_id == mandant_id, "review_items", "Review-Einträge")
+        await self._session.commit()
+        return [item] if item.count > 0 else []
+
+    async def _select_ids(self, field, *conditions):
+        return list((await self._session.exec(select(field).where(*conditions))).all())
+
+    async def _select_ids_for_values(self, field, match_field, values: list[UUID], skip_none: bool = False):
+        if not values:
+            return []
+        result = list((await self._session.exec(select(field).where(or_(*[match_field == value for value in values])))).all())
+        if skip_none:
+            return [value for value in result if value is not None]
+        return result
+
+    async def _delete_where(self, model, condition, key: str, label: str) -> CleanupPreviewItem:
+        count = len((await self._session.exec(select(model).where(condition))).all())
+        if count > 0:
+            await self._session.exec(sa_delete(model).where(condition))
+        return CleanupPreviewItem(key=key, label=label, count=count)
+
+    async def _delete_for_values(self, model, match_field, values: list[UUID], key: str, label: str) -> CleanupPreviewItem:
+        if not values:
+            return CleanupPreviewItem(key=key, label=label, count=0)
+        condition = or_(*[match_field == value for value in values])
+        count = len((await self._session.exec(select(model).where(condition))).all())
+        if count > 0:
+            await self._session.exec(sa_delete(model).where(condition))
+        return CleanupPreviewItem(key=key, label=label, count=count)
+
+    def _build_section(self, key: str, label: str, description: str, items: list[CleanupPreviewItem]) -> CleanupPreviewSection:
+        return CleanupPreviewSection(key=key, label=label, description=description, items=[item for item in items if item.count > 0])
+
+    def _delete_mandant_items(self, inventory: dict[str, int]) -> list[CleanupPreviewItem]:
+        return [
+            CleanupPreviewItem(key="mandant", label="Mandant", count=inventory["mandant"]),
+            CleanupPreviewItem(key="mandant_users", label="Mandantenzuweisungen", count=inventory["mandant_users"]),
+            *self._delete_data_items(inventory),
+        ]
+
+    def _delete_data_items(self, inventory: dict[str, int]) -> list[CleanupPreviewItem]:
+        return [
+            CleanupPreviewItem(key="accounts", label="Konten", count=inventory["accounts"]),
+            CleanupPreviewItem(key="column_mapping_configs", label="Spalten-Mappings", count=inventory["column_mapping_configs"]),
+            CleanupPreviewItem(key="account_excluded_identifiers", label="Ausgeschlossene Konto-Identifikatoren", count=inventory["account_excluded_identifiers"]),
+            CleanupPreviewItem(key="import_runs", label="Importläufe", count=inventory["import_runs"]),
+            CleanupPreviewItem(key="journal_lines_all", label="Buchungszeilen", count=inventory["journal_lines_all"]),
+            CleanupPreviewItem(key="review_items_all", label="Review-Einträge", count=inventory["review_items_all"]),
+            CleanupPreviewItem(key="partners", label="Partner", count=inventory["partners"]),
+            CleanupPreviewItem(key="partner_ibans", label="Partner-IBANs", count=inventory["partner_ibans"]),
+            CleanupPreviewItem(key="partner_accounts", label="Partner-Konten", count=inventory["partner_accounts"]),
+            CleanupPreviewItem(key="partner_names", label="Namensvarianten", count=inventory["partner_names"]),
+            CleanupPreviewItem(key="services", label="Leistungen", count=inventory["services"]),
+            CleanupPreviewItem(key="service_matchers", label="Leistungs-Matcher", count=inventory["service_matchers"]),
+            CleanupPreviewItem(key="service_type_keywords", label="Mandanten-Keyword-Regeln", count=inventory["service_type_keywords"]),
+            CleanupPreviewItem(key="audit_log", label="Audit-Log-Einträge", count=inventory["audit_log"]),
+        ]
+
+    def _journal_scope_items(self, inventory: dict[str, int]) -> list[CleanupPreviewItem]:
+        return [
+            CleanupPreviewItem(key="import_runs", label="Importläufe", count=inventory["import_runs"]),
+            CleanupPreviewItem(key="journal_lines", label="Buchungszeilen", count=inventory["journal_lines_all"]),
+            CleanupPreviewItem(key="review_items_journal", label="Review-Einträge zu Buchungen", count=inventory["review_items_journal"]),
+        ]
+
+    def _partner_scope_items(self, inventory: dict[str, int]) -> list[CleanupPreviewItem]:
+        return [
+            CleanupPreviewItem(key="partners", label="Partner", count=inventory["partners"]),
+            CleanupPreviewItem(key="partner_ibans", label="Partner-IBANs", count=inventory["partner_ibans"]),
+            CleanupPreviewItem(key="partner_accounts", label="Partner-Konten", count=inventory["partner_accounts"]),
+            CleanupPreviewItem(key="partner_names", label="Namensvarianten", count=inventory["partner_names"]),
+            CleanupPreviewItem(key="services", label="Leistungen", count=inventory["services"]),
+            CleanupPreviewItem(key="service_matchers", label="Leistungs-Matcher", count=inventory["service_matchers"]),
+            CleanupPreviewItem(key="journal_lines_partner", label="Partnerbezogene Buchungszeilen", count=inventory["journal_lines_partner"]),
+            CleanupPreviewItem(key="review_items_partner", label="Review-Einträge zu Partnern und Leistungen", count=inventory["review_items_partner"]),
+        ]
+
+    def _audit_scope_items(self, inventory: dict[str, int]) -> list[CleanupPreviewItem]:
+        return [CleanupPreviewItem(key="audit_log", label="Audit-Log-Einträge", count=inventory["audit_log"])]
+
+    def _review_scope_items(self, inventory: dict[str, int]) -> list[CleanupPreviewItem]:
+        return [CleanupPreviewItem(key="review_items", label="Review-Einträge", count=inventory["review_items_all"])]
 
 
 class AccountService:

@@ -11,6 +11,7 @@ from app.services.models import ServiceType
 class ReviewJournalLineSummary(BaseModel):
     id: UUID
     partner_id: UUID | None
+    partner_name: str | None = None
     service_id: UUID | None
     service_assignment_mode: str | None
     valuta_date: str
@@ -26,6 +27,7 @@ class ReviewJournalLineSummary(BaseModel):
 class ReviewServiceSummary(BaseModel):
     id: UUID
     partner_id: UUID
+    partner_name: str | None = None
     name: str
     service_type: ServiceType
     tax_rate: Decimal

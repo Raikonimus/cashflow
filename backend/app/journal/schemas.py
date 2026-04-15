@@ -14,6 +14,7 @@ class JournalLineResponse(BaseModel):
     import_run_id: UUID
     partner_id: Optional[UUID]
     service_id: Optional[UUID] = None
+    service_name: Optional[str] = None
     service_assignment_mode: Optional[str] = None
     partner_name: Optional[str] = None
     valuta_date: str
@@ -51,7 +52,7 @@ class AssignServiceRequest(BaseModel):
     service_id: UUID
 
 
-SORTABLE_COLUMNS = {"valuta_date", "booking_date", "amount", "partner_name", "text"}
+SORTABLE_COLUMNS = {"valuta_date", "booking_date", "amount", "partner_name", "text", "service_name"}
 
 
 class BulkAssignResponse(BaseModel):

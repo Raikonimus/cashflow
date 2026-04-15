@@ -99,6 +99,22 @@ class ServiceTypeKeywordListResponse(BaseModel):
     system_defaults: list[SystemServiceTypeKeywordResponse]
 
 
+class MatcherPreviewLineItem(BaseModel):
+    journal_line_id: UUID
+    partner_name_raw: str | None
+    current_partner_name: str | None
+    booking_date: str
+    valuta_date: str
+    amount: Decimal
+    currency: str
+    text: str | None
+
+
+class MatcherPreviewResponse(BaseModel):
+    matched_lines: list[MatcherPreviewLineItem]
+    total: int
+
+
 class CreateServiceTypeKeywordRequest(BaseModel):
     pattern: str = Field(min_length=1, max_length=500)
     pattern_type: ServiceMatcherType

@@ -1,10 +1,11 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.partners.models import MatchField, PartnerPatternType
+from app.services.models import ServiceType
 
 
 # ─── Partner ──────────────────────────────────────────────────────────────────
@@ -40,24 +41,14 @@ class PartnerNameResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class PartnerPatternResponse(BaseModel):
-    id: UUID
-    pattern: str
-    pattern_type: PartnerPatternType
-    match_field: MatchField
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
 class PartnerListItem(BaseModel):
     id: UUID
     name: str
     display_name: str | None = None
     is_active: bool
+    service_types: list[ServiceType] = Field(default_factory=list)
     iban_count: int
     name_count: int
-    pattern_count: int
     journal_line_count: int
     created_at: datetime
 
@@ -73,7 +64,6 @@ class PartnerDetailResponse(BaseModel):
     ibans: list[PartnerIbanResponse]
     accounts: list[PartnerAccountResponse]
     names: list[PartnerNameResponse]
-    patterns: list[PartnerPatternResponse]
     created_at: datetime
     updated_at: datetime
 
@@ -118,18 +108,27 @@ class AddAccountRequest(BaseModel):
     bic: str | None = Field(default=None, max_length=11)
 
 
+class AccountPreviewLineItem(BaseModel):
+    journal_line_id: UUID
+    partner_name_raw: str | None
+    current_partner_name: str | None
+    booking_date: str
+    valuta_date: str
+    amount: Decimal
+    currency: str
+    text: str | None
+    already_assigned: bool = False
+
+
+class AccountPreviewResponse(BaseModel):
+    matched_lines: list[AccountPreviewLineItem]
+    total: int
+
+
 # ─── Name ─────────────────────────────────────────────────────────────────────
 
 class AddNameRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-
-
-# ─── Pattern ──────────────────────────────────────────────────────────────────
-
-class AddPatternRequest(BaseModel):
-    pattern: str = Field(min_length=1, max_length=500)
-    pattern_type: PartnerPatternType
-    match_field: MatchField
 
 
 # ─── Merge ────────────────────────────────────────────────────────────────────

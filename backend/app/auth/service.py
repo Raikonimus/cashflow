@@ -35,9 +35,8 @@ class AuthService:
 
         # Constant-time failure path: always attempt verify even if user not found
         dummy_hash = "$2b$12$mqi/bTXx0seaYIZVL7lMRO1AtXJ/thdGanrdd.l/pZNsH90CtedI2"
-        stored_hash = user.password_hash if (user and user.password_hash) else dummy_hash
-
-        if not verify_password(password, stored_hash) or user is None:
+        if user is None:
+            verify_password(password, dummy_hash)
             log.warning("login_failed", email=email)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -51,9 +50,17 @@ class AuthService:
             )
 
         if user.password_hash is None:
+            verify_password(password, dummy_hash)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invitation pending – set your password first",
+            )
+
+        if not verify_password(password, user.password_hash):
+            log.warning("login_failed", email=email)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials",
             )
 
         mandants = await self._get_mandants_for_user(user.id)

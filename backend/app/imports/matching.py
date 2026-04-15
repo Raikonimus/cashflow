@@ -1,12 +1,21 @@
 """Partner matching service for import pipeline.
 
-Matches a journal line's IBAN/name against known active partners.
-Produces a PartnerMatchResult and, when appropriate, a ReviewItem
-(ADR-011: inactive partners are ignored; ADR-012: ReviewItem only
-when a name-only match exists alongside a raw IBAN value).
+Matches a journal line's IBAN/name/text against known active partners.
+Produces a PartnerMatchResult and, when appropriate, a ReviewItem.
+
+Matching order (first match wins):
+  1. IBAN-Lookup
+  2. BLZ + Kontonummer Lookup
+  3. Namens-Lookup
+  4. Leistungs-Matcher aller aktiver Partner (neu)
+  5. Neuer Partner anlegen (nur wenn Partnername bekannt)
+     — andernfalls: ReviewItem "no_partner_identified"
+  Falls ≥2 Leistungs-Matcher auf verschiedene Partner zeigen:
+     → ReviewItem "service_matcher_ambiguous" statt Zuweisung.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import StrEnum
 from uuid import UUID, uuid4
@@ -17,6 +26,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.imports.models import JournalLine, ReviewItem, utcnow
 from app.partners.models import Partner, PartnerAccount, PartnerIban, PartnerName
+from app.services.models import Service, ServiceMatcher, ServiceMatcherType
 
 
 def _normalize_iban(raw: str) -> str:
@@ -30,14 +40,17 @@ def _normalize_account(raw: str) -> str:
 
 class MatchOutcome(StrEnum):
     iban_match = "iban_match"
-    account_match = "account_match"   # BLZ + Kontonummer
+    account_match = "account_match"            # BLZ + Kontonummer
     name_match = "name_match"
+    service_matcher_match = "service_matcher_match"        # eindeutiger Leistungs-Matcher-Treffer
+    service_matcher_ambiguous = "service_matcher_ambiguous"  # mehrere Partner getroffen
+    no_partner_identified = "no_partner_identified"          # kein Treffer, kein Name
     new_partner = "new_partner"
 
 
 @dataclass
 class PartnerMatchResult:
-    partner_id: UUID
+    partner_id: UUID | None   # None bei ambiguous / no_partner_identified
     outcome: MatchOutcome
     review_context: dict | None = field(default=None)
 
@@ -54,6 +67,7 @@ class PartnerMatchingService:
         account_raw: str | None = None,
         blz_raw: str | None = None,
         bic_raw: str | None = None,
+        text_raw: str | None = None,
         excluded_ibans: frozenset[str] = frozenset(),
         excluded_accounts: frozenset[str] = frozenset(),
     ) -> PartnerMatchResult:
@@ -63,16 +77,25 @@ class PartnerMatchingService:
         1. IBAN-Lookup (übersprungen wenn IBAN in excluded_ibans)
         2. BLZ + Kontonummer Lookup (übersprungen wenn Konto in excluded_accounts)
         3. Name-Lookup
-        4. Neuen Partner anlegen
+        4. Leistungs-Matcher aller aktiver Partner prüfen (via text_raw + name_raw)
+           → 1 Treffer: Partner zuweisen
+           → ≥2 Treffer: ReviewItem "service_matcher_ambiguous"
+        5. Neuen Partner anlegen (nur wenn name_raw bekannt)
+           → kein Name: ReviewItem "no_partner_identified" statt neuem Partner
 
-        Nach dem Match werden fehlende Identifier automatisch beim Partner ergänzt
-        (IBAN wenn noch nicht vorhanden, Kontonummer wenn noch nicht vorhanden).
+        Nach dem Match werden fehlende Identifier automatisch beim Partner ergänzt.
         """
+
+        # Diagnose-Dict – wird von jedem fehlschlagenden Schritt befüllt und
+        # bei MatchOutcome.no_partner_identified an den review_context angehängt.
+        _diag: dict[str, object] = {}
 
         # --- Step 1: IBAN lookup ---
         if iban_raw:
             normalized = _normalize_iban(iban_raw)
-            if normalized not in excluded_ibans:
+            if normalized in excluded_ibans:
+                _diag["iban"] = {"provided": True, "excluded": True, "normalized": normalized}
+            else:
                 row = (
                     await self._session.exec(
                         select(PartnerIban)
@@ -89,11 +112,16 @@ class PartnerMatchingService:
                     # Auto-Anreicherung: Kontonummer + BIC ergänzen wenn noch nicht bekannt
                     await self._maybe_add_account(partner_id, account_raw, blz_raw, bic_raw)
                     return PartnerMatchResult(partner_id=partner_id, outcome=MatchOutcome.iban_match)
+                _diag["iban"] = {"provided": True, "excluded": False, "found": False, "normalized": normalized}
+        else:
+            _diag["iban"] = {"provided": False}
 
         # --- Step 2: BLZ + Kontonummer Lookup ---
         if account_raw:
             normalized_acct = _normalize_account(account_raw)
-            if normalized_acct not in excluded_accounts:
+            if normalized_acct in excluded_accounts:
+                _diag["account"] = {"provided": True, "excluded": True, "normalized": normalized_acct}
+            else:
                 acct_row = (
                     await self._session.exec(
                         select(PartnerAccount)
@@ -111,9 +139,13 @@ class PartnerMatchingService:
                     await self._maybe_add_iban(partner_id, iban_raw)
                     await self._maybe_update_bic(acct_row, bic_raw)
                     return PartnerMatchResult(partner_id=partner_id, outcome=MatchOutcome.account_match)
+                _diag["account"] = {"provided": True, "excluded": False, "found": False, "normalized": normalized_acct}
+        else:
+            _diag["account"] = {"provided": False}
 
         # --- Step 3: Name lookup ---
         if name_raw:
+            # Suche in PartnerName-Einträgen (Namensvarianten + vom Import angelegte Namen)
             row_name = (
                 await self._session.exec(
                     select(Partner)
@@ -125,6 +157,18 @@ class PartnerMatchingService:
                     )
                 )
             ).first()
+            # Fallback: Partner.name direkt prüfen (manuell angelegte Partner ohne PartnerName-Eintrag)
+            if row_name is None:
+                row_name = (
+                    await self._session.exec(
+                        select(Partner)
+                        .where(
+                            sa.func.lower(Partner.name) == name_raw.lower(),
+                            Partner.mandant_id == mandant_id,
+                            Partner.is_active == True,  # noqa: E712
+                        )
+                    )
+                ).first()
             if row_name is not None:
                 assert row_name.id is not None
                 partner_id = row_name.id
@@ -135,9 +179,53 @@ class PartnerMatchingService:
                     outcome=MatchOutcome.name_match,
                     review_context={"matched_on": "name", "raw_name": name_raw, "raw_iban": iban_raw},
                 )
+            _diag["name"] = {"provided": True, "found": False, "value": name_raw}
+        else:
+            _diag["name"] = {"provided": False}
 
-        # --- Step 4: Neuen Partner anlegen ---
-        desired_name = name_raw or "Unknown"
+        # --- Step 4: Leistungs-Matcher aller aktiven Partner prüfen ---
+        matched_by_service, svc_diag = await self._find_partners_by_service_matcher(
+            mandant_id, text_raw, name_raw
+        )
+        _diag["service_matchers"] = svc_diag
+        if len(matched_by_service) == 1:
+            pid, pname = matched_by_service[0]
+            await self._maybe_add_iban(pid, iban_raw)
+            await self._maybe_add_account(pid, account_raw, blz_raw, bic_raw)
+            return PartnerMatchResult(
+                partner_id=pid,
+                outcome=MatchOutcome.service_matcher_match,
+                review_context={"matched_on": "service_matcher", "partner_name": pname},
+            )
+        if len(matched_by_service) > 1:
+            return PartnerMatchResult(
+                partner_id=None,
+                outcome=MatchOutcome.service_matcher_ambiguous,
+                review_context={
+                    "candidates": [
+                        {"id": str(pid), "name": pname}
+                        for pid, pname in matched_by_service
+                    ],
+                    "raw_text": text_raw,
+                    "raw_name": name_raw,
+                    "raw_iban": iban_raw,
+                },
+            )
+
+        # --- Step 5: Neuen Partner anlegen (nur wenn Name bekannt) ---
+        if not name_raw:
+            return PartnerMatchResult(
+                partner_id=None,
+                outcome=MatchOutcome.no_partner_identified,
+                review_context={
+                    "raw_text": text_raw,
+                    "raw_iban": iban_raw,
+                    "raw_account": account_raw,
+                    "diagnosis": _diag,
+                },
+            )
+
+        desired_name = name_raw
         existing_by_name = (
             await self._session.exec(
                 select(Partner).where(
@@ -162,9 +250,10 @@ class PartnerMatchingService:
 
         from app.services.service import ensure_base_service
 
+        assert new_partner.id is not None
         await ensure_base_service(self._session, new_partner.id)
         # Alle verfügbaren Identifier direkt beim neuen Partner speichern
-        if name_raw and desired_name != "Unknown":
+        if name_raw:
             self._session.add(PartnerName(partner_id=new_partner.id, name=name_raw, created_at=utcnow()))  # type: ignore[arg-type]
         await self._maybe_add_iban(new_partner.id, iban_raw)  # type: ignore[arg-type]
         await self._maybe_add_account(new_partner.id, account_raw, blz_raw, bic_raw)  # type: ignore[arg-type]
@@ -205,6 +294,83 @@ class PartnerMatchingService:
                 created_at=utcnow(),
             ))
 
+    async def _find_partners_by_service_matcher(
+        self,
+        mandant_id: UUID,
+        text_raw: str | None,
+        name_raw: str | None,
+    ) -> tuple[list[tuple[UUID, str]], dict]:
+        """Gibt (partner_id, partner_name)-Paare zurück, deren Leistungs-Matcher passen.
+
+        Sucht in Buchungstext (text_raw) und Partnerrohrname (name_raw).
+        Gibt für jeden Partner maximal einen Eintrag zurück.
+        Basis-Leistungen (is_base_service=True) werden ignoriert.
+        Zweiter Rückgabewert ist ein Diagnose-Dict für den review_context.
+        """
+        searchable = "\n".join(filter(None, [text_raw or "", name_raw or ""]))
+        if not searchable:
+            return [], {"skipped": True, "reason": "no_searchable_text"}
+
+        # Aktive Partner dieses Mandanten laden (liefert auch die Namen)
+        partners = (
+            await self._session.exec(
+                select(Partner).where(
+                    Partner.mandant_id == mandant_id,
+                    Partner.is_active == True,  # noqa: E712
+                )
+            )
+        ).all()
+        if not partners:
+            return [], {"skipped": False, "total_matchers": 0, "matched": 0, "reason": "no_active_partners"}
+        partner_names: dict[UUID, str] = {p.id: p.name for p in partners}  # type: ignore[misc]
+
+        # Nicht-Basis-Leistungen aktiver Partner laden
+        services = (
+            await self._session.exec(
+                select(Service)
+                .join(Partner, Partner.id == Service.partner_id)  # type: ignore[arg-type]
+                .where(
+                    Partner.mandant_id == mandant_id,
+                    Partner.is_active == True,   # noqa: E712
+                    Service.is_base_service == False,  # noqa: E712
+                )
+            )
+        ).all()
+        if not services:
+            return [], {"skipped": False, "total_matchers": 0, "matched": 0, "reason": "no_services_configured"}
+        svc_to_partner: dict[UUID, UUID] = {s.id: s.partner_id for s in services}  # type: ignore[misc]
+
+        # Leistungs-Matcher über dieselben JOINs laden (kein IN-Operator nötig)
+        all_matchers = (
+            await self._session.exec(
+                select(ServiceMatcher)
+                .join(Service, Service.id == ServiceMatcher.service_id)  # type: ignore[arg-type]
+                .join(Partner, Partner.id == Service.partner_id)  # type: ignore[arg-type]
+                .where(
+                    Partner.mandant_id == mandant_id,
+                    Partner.is_active == True,    # noqa: E712
+                    Service.is_base_service == False,  # noqa: E712
+                )
+            )
+        ).all()
+        if not all_matchers:
+            return [], {"skipped": False, "total_matchers": 0, "matched": 0, "reason": "no_matchers_configured"}
+
+        # Matcher gruppiert nach Partner
+        matchers_by_partner: dict[UUID, list[ServiceMatcher]] = {}
+        for m in all_matchers:
+            pid = svc_to_partner.get(m.service_id)
+            if pid is not None:
+                matchers_by_partner.setdefault(pid, []).append(m)
+
+        searchable_lower = searchable.lower()
+        matched: list[tuple[UUID, str]] = []
+        for pid, matchers in matchers_by_partner.items():
+            if _any_matcher_hits(matchers, searchable, searchable_lower):
+                matched.append((pid, partner_names.get(pid, "")))
+
+        return matched, {"skipped": False, "total_matchers": len(all_matchers), "matched": len(matched)}
+
     async def _maybe_update_bic(self, account: PartnerAccount, bic_raw: str | None) -> None:
         """Trägt BIC nach, wenn der Account noch keinen hat."""
         if not bic_raw or account.bic:
@@ -213,13 +379,27 @@ class PartnerMatchingService:
         self._session.add(account)
 
 
-class ReviewItemFactory:
-    """Creates a ReviewItem only when a human should review the match.
+def _any_matcher_hits(
+    matchers: list[ServiceMatcher],
+    searchable: str,
+    searchable_lower: str,
+) -> bool:
+    """Gibt True zurück, wenn mindestens ein Matcher auf den Text passt."""
+    for m in matchers:
+        if m.pattern_type == ServiceMatcherType.string.value:
+            if m.pattern.lower() in searchable_lower:
+                return True
+        else:
+            try:
+                if re.search(m.pattern, searchable, re.IGNORECASE):
+                    return True
+            except re.error:
+                pass
+    return False
 
-    ADR-012: a ReviewItem is created when the match outcome is NAME_MATCH
-    and the journal line carried a raw IBAN value (suggesting the IBAN was
-    not yet registered for that partner).
-    """
+
+class ReviewItemFactory:
+    """Creates a ReviewItem when a human should review the partner assignment."""
 
     @staticmethod
     def maybe_create(
@@ -234,6 +414,39 @@ class ReviewItemFactory:
                 item_type="name_match_with_iban",
                 journal_line_id=journal_line.id,  # type: ignore[arg-type]
                 context=result.review_context,
+                status="open",
+                created_at=utcnow(),
+            )
+        # Kein Partner identifizierbar (kein Treffer + kein Name)
+        if result.outcome == MatchOutcome.no_partner_identified:
+            return ReviewItem(
+                mandant_id=mandant_id,
+                item_type="no_partner_identified",
+                journal_line_id=journal_line.id,  # type: ignore[arg-type]
+                context=result.review_context,
+                status="open",
+                created_at=utcnow(),
+            )
+        # Mehrdeutiger Leistungs-Matcher-Treffer (≥2 Partner)
+        if result.outcome == MatchOutcome.service_matcher_ambiguous:
+            return ReviewItem(
+                mandant_id=mandant_id,
+                item_type="service_matcher_ambiguous",
+                journal_line_id=journal_line.id,  # type: ignore[arg-type]
+                context=result.review_context,
+                status="open",
+                created_at=utcnow(),
+            )
+        # Neuer Partner wurde automatisch angelegt – muss geprüft werden
+        if result.outcome == MatchOutcome.new_partner:
+            return ReviewItem(
+                mandant_id=mandant_id,
+                item_type="new_partner",
+                journal_line_id=journal_line.id,  # type: ignore[arg-type]
+                context={
+                    "partner_name_raw": journal_line.partner_name_raw,
+                    "new_partner_id": str(result.partner_id),
+                },
                 status="open",
                 created_at=utcnow(),
             )
