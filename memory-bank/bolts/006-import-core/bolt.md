@@ -45,6 +45,13 @@ column_mapping_configs.column_assignments  (JSON, nullable)
 ```
 Erlaubte `target`-Werte: `valuta_date | booking_date | amount | partner_iban | partner_name | description | unused`
 
+### Duplikatlogik
+Seit der erweiterten Spaltenzuordnung wird der Duplikatschlüssel ausschließlich aus jenen CSV-Spalten gebildet, die in `column_assignments` mit `duplicate_check=true` markiert sind.
+
+- Die Rohwerte dieser ausgewählten CSV-Spalten werden intern in `journal_lines.unmapped_data._cashflow_source_values` gespeichert.
+- Diese Struktur ist interne Import-Metadaten und gehört nicht in benutzerseitige API-Antworten oder Tooltips.
+- Für Legacy-Bestandsdaten ohne `_cashflow_source_values` fällt die Importlogik auf gleichnamige top-level-Stringwerte in `unmapped_data` zurück, damit Altimporte weiterhin korrekt als Duplikate erkannt werden.
+
 ### API-Endpunkte
 | Methode | Pfad | Zweck |
 |---------|------|-------|

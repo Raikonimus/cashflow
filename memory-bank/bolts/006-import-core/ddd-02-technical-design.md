@@ -195,6 +195,14 @@ class PaginatedImportRunsResponse(BaseModel):
 
 ## Service-Schicht
 
+## Duplikaterkennung
+
+Die Duplikaterkennung verwendet nicht pauschal alle gemappten Felder, sondern ausschließlich jene CSV-Quellspalten, die in der Spaltenkonfiguration mit `duplicate_check=true` markiert sind.
+
+- Die ausgewählten Rohwerte werden intern in `journal_lines.unmapped_data._cashflow_source_values` persistiert.
+- Dieser Block dient nur der Import-Engine und darf nicht ungefiltert in benutzerseitige Journal-Responses übernommen werden.
+- Für Legacy-Zeilen ohne `_cashflow_source_values` wird beim Vergleich auf top-level-Stringwerte in `unmapped_data` zurückgefallen.
+
 ### `ImportService`
 
 ```python

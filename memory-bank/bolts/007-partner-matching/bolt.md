@@ -8,7 +8,7 @@ stories:
   - 003-partner-matching
 created: 2026-04-07T00:00:00Z
 started: 2026-04-07T08:30:00Z
-completed: null
+completed: 2026-04-07T10:00:00Z
 current_stage: done
 stages_completed: [domain-model, technical-design, adr-analysis, implement, test]
 

@@ -22,6 +22,7 @@ BACKEND_PID  := $(RUN_DIR)/backend.pid
 FRONTEND_PID := $(RUN_DIR)/frontend.pid
 BACKEND_LOG  := $(RUN_DIR)/backend.log
 FRONTEND_LOG := $(RUN_DIR)/frontend.log
+BACKEND_PORT ?= 8010
 
 UVICORN := $(VENV)/bin/uvicorn
 NPM     := npm
@@ -32,7 +33,7 @@ NPM     := npm
 start: _ensure-run-dir _start-backend _start-frontend
 	@echo ""
 	@echo "✅  Dienste gestartet:"
-	@echo "    Backend   → http://localhost:8000  (Logs: .run/backend.log)"
+	@echo "    Backend   → http://localhost:$(BACKEND_PORT)  (Logs: .run/backend.log)"
 	@echo "    Frontend  → http://localhost:5173  (Logs: .run/frontend.log)"
 	@echo ""
 	@echo "    make stop    – Dienste stoppen"
@@ -46,7 +47,7 @@ _start-backend:
 		echo "▶   Backend starten …"; \
 		cd "$(BACKEND_DIR)" && \
 		  nohup $(UVICORN) app.main:app \
-		    --host 0.0.0.0 --port 8000 \
+		    --host 0.0.0.0 --port $(BACKEND_PORT) \
 		    --reload \
 		    > "$(BACKEND_LOG)" 2>&1 & \
 		  echo $$! > "$(BACKEND_PID)"; \
@@ -60,7 +61,7 @@ _start-frontend:
 	else \
 		echo "▶   Frontend starten …"; \
 		cd "$(FRONTEND_DIR)" && \
-		  nohup $(NPM) run dev \
+		  nohup env BACKEND_PORT=$(BACKEND_PORT) $(NPM) run dev \
 		    > "$(FRONTEND_LOG)" 2>&1 & \
 		  echo $$! > "$(FRONTEND_PID)"; \
 		echo "    PID $$(cat $(FRONTEND_PID))"; \

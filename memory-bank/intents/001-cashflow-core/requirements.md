@@ -249,6 +249,16 @@ journal_lines
 
 ## Leistungsmanagement
 
+**Implementierungsstand 2026-04-11**
+
+- Backend-seitig sind Service-CRUD, Basisleistung-Schutz, automatische/manuelle Zuordnung, Revalidierung, Service-Type-Detection und Review-Typen weitgehend vorhanden.
+- Im Frontend sind Partnerdetail, dedizierte Service-Verwaltung inklusive Matcher-CRUD, Keyword-Konfiguration in den Einstellungen, Review-Queue, Service-Type-Review, Archiv und die deduplizierte Service-Typ-Anzeige in der Partnerliste vorhanden.
+- Für FR-17 und FR-22 bestehen aktuell keine bekannten UI-Lücken mehr.
+
+**Priorisiertes Rest-Backlog 2026-04-11**
+
+Kein offenes Rest-Backlog aus dem Audit von `intent.2.txt`.
+
 ### FR-12: Leistungs-Stammdatenverwaltung
 - **Description**: Zu jedem Partner existiert eine unveränderliche Basisleistung (is_base_service = true), die automatisch beim Anlegen eines Partners erzeugt wird. Darüber hinaus können beliebig viele weitere Leistungen angelegt werden. Jede Leistung hat: Name, Beschreibung, Service-Typ (customer | supplier | employee | authority | unknown), Steuersatz (%), optionalen Geltungszeitraum (valid_from, valid_to, jeweils inklusiv). Die Basisleistung ist nicht löschbar, ihr Name ist nicht änderbar und sie besitzt keine Matcher. Beim Anlegen, Ändern oder Löschen einer Leistung werden alle Buchungszeilen des betroffenen Partners neu validiert; die Revalidierung erzeugt ausschließlich Vorschläge und speichert keine neue Zuordnung automatisch.
 - **Acceptance Criteria**:
