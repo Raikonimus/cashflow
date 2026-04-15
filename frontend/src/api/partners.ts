@@ -1,13 +1,14 @@
 import { apiClient } from './client'
+import type { ServiceType } from './services'
 
 export interface PartnerListItem {
   id: string
   name: string
   display_name: string | null
   is_active: boolean
+  service_types: Array<'customer' | 'supplier' | 'employee' | 'shareholder' | 'authority' | 'unknown'>
   iban_count: number
   name_count: number
-  pattern_count: number
   journal_line_count: number
   created_at: string
 }
@@ -21,7 +22,6 @@ export interface PartnerDetail {
   ibans: PartnerIban[]
   accounts: PartnerAccount[]
   names: PartnerName[]
-  patterns: PartnerPattern[]
   created_at: string
   updated_at: string
 }
@@ -48,14 +48,6 @@ export interface PartnerName {
   created_at: string
 }
 
-export interface PartnerPattern {
-  id: string
-  pattern: string
-  pattern_type: 'string' | 'regex'
-  match_field: 'description' | 'partner_name' | 'partner_iban'
-  created_at: string
-}
-
 export interface PaginatedPartners {
   items: PartnerListItem[]
   total: number
@@ -63,6 +55,9 @@ export interface PaginatedPartners {
   size: number
   pages: number
 }
+
+export type PartnerSortField = 'name' | 'iban_count' | 'name_count' | 'journal_line_count' | 'status'
+export type SortDirection = 'asc' | 'desc'
 
 export interface MergeResponse {
   target: PartnerDetail
@@ -86,10 +81,13 @@ export async function listPartners(
   size = 20,
   includeInactive = false,
   search = '',
+  serviceType?: ServiceType,
+  sortBy: PartnerSortField = 'name',
+  sortDir: SortDirection = 'asc',
 ): Promise<PaginatedPartners> {
   const resp = await apiClient.get<PaginatedPartners>(
     `/mandants/${mandantId}/partners`,
-    { params: { page, size, include_inactive: includeInactive, search } },
+    { params: { page, size, include_inactive: includeInactive, search, service_type: serviceType, sort_by: sortBy, sort_dir: sortDir } },
   )
   return resp.data
 }
@@ -116,26 +114,19 @@ export async function updatePartnerDisplayName(
   return resp.data
 }
 
+export async function deletePartner(
+  mandantId: string,
+  partnerId: string,
+): Promise<void> {
+  await apiClient.delete(`/mandants/${mandantId}/partners/${partnerId}`)
+}
+
 export async function getPartnerNeighbors(
   mandantId: string,
   partnerId: string,
 ): Promise<PartnerNeighbors> {
   const resp = await apiClient.get<PartnerNeighbors>(
     `/mandants/${mandantId}/partners/${partnerId}/neighbors`,
-  )
-  return resp.data
-}
-
-export async function previewPattern(
-  mandantId: string,
-  partnerId: string,
-  pattern: string,
-  patternType: 'string' | 'regex',
-  matchField: 'partner_name' | 'partner_iban' | 'description',
-): Promise<PartnerNeighbor[]> {
-  const resp = await apiClient.post<PartnerNeighbor[]>(
-    `/mandants/${mandantId}/partners/${partnerId}/patterns/preview`,
-    { pattern, pattern_type: patternType, match_field: matchField },
   )
   return resp.data
 }
@@ -155,9 +146,23 @@ export async function addPartnerIban(
   mandantId: string,
   partnerId: string,
   iban: string,
+  reassign = false,
 ): Promise<PartnerIban> {
   const resp = await apiClient.post<PartnerIban>(
     `/mandants/${mandantId}/partners/${partnerId}/ibans`,
+    { iban },
+    { params: reassign ? { reassign: true } : undefined },
+  )
+  return resp.data
+}
+
+export async function previewPartnerIban(
+  mandantId: string,
+  partnerId: string,
+  iban: string,
+): Promise<AccountPreviewResponse> {
+  const resp = await apiClient.post<AccountPreviewResponse>(
+    `/mandants/${mandantId}/partners/${partnerId}/ibans/preview`,
     { iban },
   )
   return resp.data
@@ -169,6 +174,57 @@ export async function deletePartnerIban(
   ibanId: string,
 ): Promise<void> {
   await apiClient.delete(`/mandants/${mandantId}/partners/${partnerId}/ibans/${ibanId}`)
+}
+
+export interface AccountPreviewLineItem {
+  journal_line_id: string
+  partner_name_raw: string | null
+  current_partner_name: string | null
+  booking_date: string
+  valuta_date: string
+  amount: string
+  currency: string
+  text: string | null
+  already_assigned: boolean
+}
+
+export interface AccountPreviewResponse {
+  matched_lines: AccountPreviewLineItem[]
+  total: number
+}
+
+export async function previewPartnerAccount(
+  mandantId: string,
+  partnerId: string,
+  data: { account_number: string; blz?: string },
+): Promise<AccountPreviewResponse> {
+  const resp = await apiClient.post<AccountPreviewResponse>(
+    `/mandants/${mandantId}/partners/${partnerId}/accounts/preview`,
+    data,
+  )
+  return resp.data
+}
+
+export async function addPartnerAccount(
+  mandantId: string,
+  partnerId: string,
+  data: { account_number: string; blz?: string; bic?: string },
+  reassign = false,
+): Promise<PartnerAccount> {
+  const resp = await apiClient.post<PartnerAccount>(
+    `/mandants/${mandantId}/partners/${partnerId}/accounts`,
+    data,
+    { params: reassign ? { reassign: true } : undefined },
+  )
+  return resp.data
+}
+
+export async function deletePartnerAccount(
+  mandantId: string,
+  partnerId: string,
+  accountId: string,
+): Promise<void> {
+  await apiClient.delete(`/mandants/${mandantId}/partners/${partnerId}/accounts/${accountId}`)
 }
 
 export async function addPartnerName(
@@ -189,28 +245,6 @@ export async function deletePartnerName(
   nameId: string,
 ): Promise<void> {
   await apiClient.delete(`/mandants/${mandantId}/partners/${partnerId}/names/${nameId}`)
-}
-
-export async function addPartnerPattern(
-  mandantId: string,
-  partnerId: string,
-  data: { pattern: string; pattern_type: 'string' | 'regex'; match_field: string },
-): Promise<PartnerPattern> {
-  const resp = await apiClient.post<PartnerPattern>(
-    `/mandants/${mandantId}/partners/${partnerId}/patterns`,
-    data,
-  )
-  return resp.data
-}
-
-export async function deletePartnerPattern(
-  mandantId: string,
-  partnerId: string,
-  patternId: string,
-): Promise<void> {
-  await apiClient.delete(
-    `/mandants/${mandantId}/partners/${partnerId}/patterns/${patternId}`,
-  )
 }
 
 export async function mergePartners(

@@ -1,23 +1,36 @@
-import { useState, useEffect, useRef } from 'react'
+import axios from 'axios'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '@/store/auth-store'
 import {
   getPartner,
   addPartnerIban,
+  previewPartnerIban,
   deletePartnerIban,
+  addPartnerAccount,
+  previewPartnerAccount,
+  deletePartnerAccount,
   addPartnerName,
   deletePartnerName,
-  addPartnerPattern,
-  deletePartnerPattern,
   getPartnerNeighbors,
-  mergePartners,
-  previewPattern,
   updatePartnerDisplayName,
+  deletePartner,
 } from '@/api/partners'
-import type { PartnerPattern, PartnerAccount, PartnerNeighbor } from '@/api/partners'
+import { listPartnerServices } from '@/api/services'
+import type { ServiceListItem } from '@/api/services'
+import type { AccountPreviewLineItem, PartnerAccount } from '@/api/partners'
 import { listJournalLines } from '@/api/journal'
 import { MergeDialog } from './MergeDialog'
+
+const serviceTypeLabels: Record<'customer' | 'supplier' | 'employee' | 'shareholder' | 'authority' | 'unknown', string> = {
+  customer: 'Kunde',
+  supplier: 'Lieferant',
+  employee: 'Mitarbeiter',
+  shareholder: 'Gesellschafter',
+  authority: 'Behörde',
+  unknown: 'Unbekannt',
+}
 
 export function PartnerDetailPage() {
   const { partnerId } = useParams<{ partnerId: string }>()
@@ -28,19 +41,15 @@ export function PartnerDetailPage() {
 
   const [showMerge, setShowMerge] = useState(false)
   const [newIban, setNewIban] = useState('')
+  const [newAccountNumber, setNewAccountNumber] = useState('')
+  const [newBlz, setNewBlz] = useState('')
+  const [newBic, setNewBic] = useState('')
+  const [ibanPreview, setIbanPreview] = useState<AccountPreviewLineItem[] | null>(null)
+  const [accountPreview, setAccountPreview] = useState<AccountPreviewLineItem[] | null>(null)
   const [newName, setNewName] = useState('')
-  const [newPattern, setNewPattern] = useState('')
-  const [patternType, setPatternType] = useState<'string' | 'regex'>('string')
-  const [matchField, setMatchField] = useState<'partner_name' | 'partner_iban' | 'description'>('partner_name')
   const [editingDisplayName, setEditingDisplayName] = useState(false)
   const [displayNameDraft, setDisplayNameDraft] = useState('')
-
-  // Pattern preview (live debounced + persisted after save)
-  type PreviewQuery = { pattern: string; patternType: 'string' | 'regex'; matchField: 'partner_name' | 'partner_iban' | 'description' }
-  const [livePreviewQuery, setLivePreviewQuery] = useState<PreviewQuery | null>(null)
-  const [savedPreviewQuery, setSavedPreviewQuery] = useState<PreviewQuery | null>(null)
-  const previewTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  const lastPatternSnapshot = useRef<PreviewQuery | null>(null)
+  const [deleteNotice, setDeleteNotice] = useState<string | null>(null)
 
   const { data: partner, isLoading, isError } = useQuery({
     queryKey: ['partner', mandantId, partnerId],
@@ -54,41 +63,62 @@ export function PartnerDetailPage() {
     enabled: !!mandantId && !!partnerId,
   })
 
-  // Debounce pattern input → live preview
-  useEffect(() => {
-    clearTimeout(previewTimerRef.current)
-    if (!newPattern.trim()) {
-      setLivePreviewQuery(null)
-      return
-    }
-    setSavedPreviewQuery(null)
-    previewTimerRef.current = setTimeout(() => {
-      setLivePreviewQuery({ pattern: newPattern.trim(), patternType, matchField })
-    }, 350)
-    return () => clearTimeout(previewTimerRef.current)
-  }, [newPattern, patternType, matchField])
-
-  const activePreview = savedPreviewQuery ?? livePreviewQuery
-
-  const { data: previewResults, isFetching: previewFetching } = useQuery({
-    queryKey: ['pattern-preview', mandantId, partnerId, activePreview],
-    queryFn: () => previewPattern(mandantId, partnerId!, activePreview!.pattern, activePreview!.patternType, activePreview!.matchField),
-    enabled: !!activePreview && !!mandantId && !!partnerId,
-    staleTime: 15_000,
+  const { data: services = [] } = useQuery({
+    queryKey: ['partner-services', mandantId, partnerId],
+    queryFn: () => listPartnerServices(mandantId, partnerId!),
+    enabled: !!mandantId && !!partnerId,
   })
 
   const isReadOnly = role === 'viewer'
 
   const addIbanMutation = useMutation({
-    mutationFn: () => addPartnerIban(mandantId, partnerId!, newIban.trim()),
+    mutationFn: (reassign: boolean) => addPartnerIban(mandantId, partnerId!, newIban.trim(), reassign),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['partner', mandantId, partnerId] })
+      queryClient.invalidateQueries({ queryKey: ['partners', mandantId] })
       setNewIban('')
+      setIbanPreview(null)
     },
+  })
+
+  const previewIbanMutation = useMutation({
+    mutationFn: () => previewPartnerIban(mandantId, partnerId!, newIban.trim()),
+    onSuccess: (data) => setIbanPreview(data.matched_lines),
   })
 
   const deleteIbanMutation = useMutation({
     mutationFn: (ibanId: string) => deletePartnerIban(mandantId, partnerId!, ibanId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['partner', mandantId, partnerId] }),
+  })
+
+  const addAccountMutation = useMutation({
+    mutationFn: (reassign: boolean) =>
+      addPartnerAccount(mandantId, partnerId!, {
+        account_number: newAccountNumber.trim(),
+        blz: newBlz.trim() || undefined,
+        bic: newBic.trim() || undefined,
+      }, reassign),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['partner', mandantId, partnerId] })
+      queryClient.invalidateQueries({ queryKey: ['partners', mandantId] })
+      setNewAccountNumber('')
+      setNewBlz('')
+      setNewBic('')
+      setAccountPreview(null)
+    },
+  })
+
+  const previewAccountMutation = useMutation({
+    mutationFn: () =>
+      previewPartnerAccount(mandantId, partnerId!, {
+        account_number: newAccountNumber.trim(),
+        blz: newBlz.trim() || undefined,
+      }),
+    onSuccess: (data) => setAccountPreview(data.matched_lines),
+  })
+
+  const deleteAccountMutation = useMutation({
+    mutationFn: (accountId: string) => deletePartnerAccount(mandantId, partnerId!, accountId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['partner', mandantId, partnerId] }),
   })
 
@@ -105,33 +135,6 @@ export function PartnerDetailPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['partner', mandantId, partnerId] }),
   })
 
-  const addPatternMutation = useMutation({
-    mutationFn: () =>
-      addPartnerPattern(mandantId, partnerId!, {
-        pattern: newPattern.trim(),
-        pattern_type: patternType,
-        match_field: matchField,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['partner', mandantId, partnerId] })
-      if (lastPatternSnapshot.current) {
-        setSavedPreviewQuery(lastPatternSnapshot.current)
-      }
-      setNewPattern('')
-    },
-  })
-
-  const mergeIntoCurrentMutation = useMutation({
-    mutationFn: (sourceId: string) => mergePartners(mandantId, sourceId, partnerId!),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['partners', mandantId] })
-      queryClient.invalidateQueries({ queryKey: ['partner', mandantId, partnerId] })
-      queryClient.invalidateQueries({ queryKey: ['partner-neighbors', mandantId, partnerId] })
-      queryClient.invalidateQueries({ queryKey: ['pattern-preview', mandantId, partnerId] })
-      queryClient.invalidateQueries({ queryKey: ['partner-journal', mandantId, partnerId] })
-    },
-  })
-
   const updateDisplayNameMutation = useMutation({
     mutationFn: (name: string | null) => updatePartnerDisplayName(mandantId, partnerId!, name),
     onSuccess: () => {
@@ -141,9 +144,20 @@ export function PartnerDetailPage() {
     },
   })
 
-  const deletePatternMutation = useMutation({
-    mutationFn: (patternId: string) => deletePartnerPattern(mandantId, partnerId!, patternId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['partner', mandantId, partnerId] }),
+  const deletePartnerMutation = useMutation({
+    mutationFn: () => deletePartner(mandantId, partnerId!),
+    onSuccess: async () => {
+      setDeleteNotice(null)
+      await queryClient.invalidateQueries({ queryKey: ['partners', mandantId] })
+      navigate('/partners')
+    },
+    onError: (error) => {
+      if (axios.isAxiosError(error) && error.response?.status === 409) {
+        setDeleteNotice('Partner kann nicht gelöscht werden. Verschiebe zuerst alle Buchungen auf einen anderen Partner.')
+        return
+      }
+      setDeleteNotice('Partner konnte nicht gelöscht werden.')
+    },
   })
 
   if (isLoading) {
@@ -244,14 +258,34 @@ export function PartnerDetailPage() {
           )}
         </div>
         {!isReadOnly && partner.is_active && (
-          <button
-            onClick={() => setShowMerge(true)}
-            className="rounded border border-red-300 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
-          >
-            Merge…
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowMerge(true)}
+              className="rounded border border-red-300 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
+            >
+              Merge…
+            </button>
+            <button
+              onClick={() => {
+                const confirmed = window.confirm('Partner wirklich löschen? Das ist nur möglich, wenn keine Buchungen mehr zugeordnet sind.')
+                if (!confirmed) return
+                setDeleteNotice(null)
+                deletePartnerMutation.mutate()
+              }}
+              disabled={deletePartnerMutation.isPending}
+              className="rounded border border-red-500 px-3 py-1.5 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+            >
+              Partner löschen
+            </button>
+          </div>
         )}
       </div>
+
+      {deleteNotice && (
+        <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          {deleteNotice}
+        </div>
+      )}
 
       {/* IBANs */}
       <Section title="IBANs">
@@ -266,11 +300,16 @@ export function PartnerDetailPage() {
           />
         ))}
         {!isReadOnly && (
-          <InlineAdd
-            value={newIban}
-            onChange={setNewIban}
-            placeholder="IBAN eingeben (z. B. DE89…)"
-            onSubmit={() => addIbanMutation.mutate()}
+          <InlineAddIban
+            iban={newIban}
+            onIbanChange={(value) => {
+              setNewIban(value)
+              setIbanPreview(null)
+            }}
+            onPreview={() => previewIbanMutation.mutate()}
+            previewLoading={previewIbanMutation.isPending}
+            previewLines={ibanPreview}
+            onSubmit={() => addIbanMutation.mutate(!!ibanPreview && ibanPreview.some((line) => !line.already_assigned))}
             loading={addIbanMutation.isPending}
             error={addIbanMutation.isError ? 'IBAN bereits vergeben oder ungültig.' : undefined}
           />
@@ -292,8 +331,25 @@ export function PartnerDetailPage() {
                   {a.bic && <span className="ml-2 text-xs text-gray-400">{a.bic}</span>}
                 </span>
               }
+              onDelete={isReadOnly ? undefined : () => deleteAccountMutation.mutate(a.id)}
             />
           ))
+        )}
+        {!isReadOnly && (
+          <InlineAddAccount
+            accountNumber={newAccountNumber}
+            blz={newBlz}
+            bic={newBic}
+            onAccountNumberChange={(v) => { setNewAccountNumber(v); setAccountPreview(null) }}
+            onBlzChange={(v) => { setNewBlz(v); setAccountPreview(null) }}
+            onBicChange={setNewBic}
+            onPreview={() => previewAccountMutation.mutate()}
+            previewLoading={previewAccountMutation.isPending}
+            previewLines={accountPreview}
+            onSubmit={() => addAccountMutation.mutate(!!accountPreview && accountPreview.some((l) => !l.already_assigned))}
+            loading={addAccountMutation.isPending}
+            error={addAccountMutation.isError ? 'Kontonummer bereits vergeben oder ungültig.' : undefined}
+          />
         )}
       </Section>
 
@@ -321,112 +377,47 @@ export function PartnerDetailPage() {
         )}
       </Section>
 
-      {/* Muster */}
-      <Section title="Match-Muster">
-        {partner.patterns.length === 0 && (
-          <p className="text-sm text-gray-400">Keine Muster hinterlegt.</p>
-        )}
-        {partner.patterns.map((p: PartnerPattern) => (
-          <ItemRow
-            key={p.id}
-            label={
-              <span>
-                <code className="font-mono text-sm">{p.pattern}</code>
-                <span className="ml-2 text-xs text-gray-400">
-                  [{p.pattern_type}] @ {p.match_field}
-                </span>
-              </span>
-            }
-            onDelete={isReadOnly ? undefined : () => deletePatternMutation.mutate(p.id)}
-          />
-        ))}
-        {!isReadOnly && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            <input
-              value={newPattern}
-              onChange={(e) => setNewPattern(e.target.value)}
-              placeholder="Muster eingeben"
-              className="flex-1 rounded border px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <select
-              value={patternType}
-              onChange={(e) => setPatternType(e.target.value as 'string' | 'regex')}
-              className="rounded border px-2 py-1.5 text-sm"
-            >
-              <option value="string">String</option>
-              <option value="regex">Regex</option>
-            </select>
-            <select
-              value={matchField}
-              onChange={(e) =>
-                setMatchField(e.target.value as 'partner_name' | 'partner_iban' | 'description')
-              }
-              className="rounded border px-2 py-1.5 text-sm"
-            >
-              <option value="partner_name">Partnername</option>
-              <option value="partner_iban">Partner-IBAN</option>
-              <option value="description">Beschreibung</option>
-            </select>
-            <button
-              onClick={() => {
-                lastPatternSnapshot.current = { pattern: newPattern.trim(), patternType, matchField }
-                addPatternMutation.mutate()
-              }}
-              disabled={!newPattern.trim() || addPatternMutation.isPending}
-              className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              Hinzufügen
-            </button>
-          </div>
-        )}
-        {addPatternMutation.isError && (
-          <p className="mt-1 text-xs text-red-500">
-            Ungültiges Muster oder Muster bereits vorhanden.
+      <Section title="Leistungen">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <p className="text-sm text-gray-500">
+            Leistungen und Geltungszeiträume werden in einer eigenen Verwaltungsansicht gepflegt.
           </p>
-        )}
-        {/* Muster-Vorschau */}
-        {activePreview && (
-          <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-semibold text-blue-700">
-                Vorschau matchende Partner
-                {savedPreviewQuery && (
-                  <span className="ml-2 font-normal text-green-700">(Muster gespeichert)</span>
-                )}
-              </span>
-              {previewFetching && (
-                <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
-              )}
-            </div>
-            {!previewFetching && previewResults?.length === 0 && (
-              <p className="text-xs text-gray-400">Keine anderen Partner matchen.</p>
-            )}
-            {activePreview.matchField === 'description' && (
-              <p className="text-xs text-gray-400">Vorschau für Beschreibung nicht verfügbar.</p>
-            )}
-            {previewResults && previewResults.length > 0 && (
-              <ul className="space-y-1.5">
-                {previewResults.map((p: PartnerNeighbor) => (
-                  <li key={p.id} className="flex items-center justify-between">
-                    <Link
-                      to={`/partners/${p.id}`}
-                      className="text-sm text-blue-800 hover:underline"
-                    >
-                      {p.name}
-                    </Link>
-                    {!isReadOnly && (
-                      <button
-                        onClick={() => mergeIntoCurrentMutation.mutate(p.id)}
-                        disabled={mergeIntoCurrentMutation.isPending}
-                        className="rounded border border-orange-300 px-2 py-0.5 text-xs text-orange-700 hover:bg-orange-50 disabled:opacity-40"
-                      >
-                        → hierher mergen
-                      </button>
+          <Link
+            to={`/partners/${partnerId}/services`}
+            className="rounded border border-blue-200 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-50"
+          >
+            Leistungen verwalten
+          </Link>
+        </div>
+
+        {(services as ServiceListItem[]).length === 0 ? (
+          <p className="text-sm text-gray-400">Noch keine Leistungen hinterlegt.</p>
+        ) : (
+          <div className="space-y-2">
+            {(services as ServiceListItem[]).map((service) => (
+              <div key={service.id} className="rounded-lg border border-gray-100 px-3 py-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold text-gray-900">{service.name}</p>
+                      {service.is_base_service && (
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          Basis
+                        </span>
+                      )}
+                    </div>
+                    {service.description && (
+                      <p className="mt-1 text-sm text-gray-500">{service.description}</p>
                     )}
-                  </li>
-                ))}
-              </ul>
-            )}
+                  </div>
+                  <div className="text-right text-xs text-gray-500">
+                    <div>Typ: {serviceTypeLabels[service.service_type]}</div>
+                    <div>Steuer: {service.tax_rate}%</div>
+                    <div>Matcher: {service.matchers?.length ?? 0}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </Section>
@@ -519,12 +510,249 @@ function InlineAdd({
   )
 }
 
+function InlineAddIban({
+  iban,
+  onIbanChange,
+  onPreview,
+  previewLoading,
+  previewLines,
+  onSubmit,
+  loading,
+  error,
+}: {
+  iban: string
+  onIbanChange: (v: string) => void
+  onPreview: () => void
+  previewLoading: boolean
+  previewLines: AccountPreviewLineItem[] | null
+  onSubmit: () => void
+  loading: boolean
+  error?: string
+}) {
+  const canAct = iban.trim().length > 0 && !loading && !previewLoading
+
+  return (
+    <div className="mt-3 space-y-2">
+      <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto_auto]">
+        <input
+          aria-label="IBAN"
+          value={iban}
+          onChange={(e) => onIbanChange(e.target.value)}
+          placeholder="IBAN eingeben (z. B. DE89...)"
+          className="rounded border px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <button
+          onClick={onPreview}
+          disabled={!canAct}
+          className="rounded border border-blue-300 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+        >
+          {previewLoading ? '…' : 'Testen'}
+        </button>
+        <button
+          onClick={onSubmit}
+          disabled={!canAct}
+          className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {loading ? '…' : 'Hinzufügen'}
+        </button>
+      </div>
+
+      {previewLines !== null && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+          {previewLines.length === 0 ? (
+            <p className="text-xs text-amber-700">Keine passenden Buchungszeilen gefunden.</p>
+          ) : (
+            <>
+              {(() => {
+                const foreign = previewLines.filter((line) => !line.already_assigned)
+                const own = previewLines.filter((line) => line.already_assigned)
+                return (
+                  <>
+                    {foreign.length > 0 && (
+                      <p className="mb-2 text-xs font-semibold text-amber-800">
+                        {foreign.length} Buchungszeile{foreign.length !== 1 ? 'n' : ''} anderer Partner passen -
+                        {' '}werden beim Hinzufügen diesem Partner zugeordnet:
+                      </p>
+                    )}
+                    {own.length > 0 && (
+                      <p className="mb-2 text-xs font-semibold text-green-700">
+                        {own.length} Buchungszeile{own.length !== 1 ? 'n' : ''} bereits diesem Partner zugeordnet.
+                      </p>
+                    )}
+                    <div className="max-h-48 space-y-1 overflow-y-auto">
+                      {previewLines.map((line) => (
+                        <div
+                          key={line.journal_line_id}
+                          className={`flex items-center justify-between gap-3 rounded px-2 py-1 text-xs ${
+                            line.already_assigned ? 'bg-green-50 text-gray-400' : 'bg-white text-gray-700'
+                          }`}
+                        >
+                          <span className="truncate">{line.text ?? '—'}</span>
+                          <span className="shrink-0">{line.booking_date}</span>
+                          <span className="shrink-0 font-mono">
+                            {Number(line.amount).toLocaleString('de-DE', { style: 'currency', currency: line.currency })}
+                          </span>
+                          {!line.already_assigned && (
+                            <span className="shrink-0 text-amber-700">{line.current_partner_name ?? '—'}</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )
+              })()}
+            </>
+          )}
+        </div>
+      )}
+
+      {error && <p className="text-xs text-red-500">{error}</p>}
+    </div>
+  )
+}
+
+function InlineAddAccount({
+  accountNumber,
+  blz,
+  bic,
+  onAccountNumberChange,
+  onBlzChange,
+  onBicChange,
+  onPreview,
+  previewLoading,
+  previewLines,
+  onSubmit,
+  loading,
+  error,
+}: {
+  accountNumber: string
+  blz: string
+  bic: string
+  onAccountNumberChange: (v: string) => void
+  onBlzChange: (v: string) => void
+  onBicChange: (v: string) => void
+  onPreview: () => void
+  previewLoading: boolean
+  previewLines: AccountPreviewLineItem[] | null
+  onSubmit: () => void
+  loading: boolean
+  error?: string
+}) {
+  const canAct = accountNumber.trim().length > 0 && !loading && !previewLoading
+
+  return (
+    <div className="mt-3 space-y-2">
+      <div className="grid gap-2 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto_auto]">
+        <input
+          aria-label="Kontonummer"
+          value={accountNumber}
+          onChange={(e) => onAccountNumberChange(e.target.value)}
+          placeholder="Kontonummer"
+          className="rounded border px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <input
+          aria-label="BLZ"
+          value={blz}
+          onChange={(e) => onBlzChange(e.target.value)}
+          placeholder="BLZ"
+          className="rounded border px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <input
+          aria-label="BIC"
+          value={bic}
+          onChange={(e) => onBicChange(e.target.value)}
+          placeholder="BIC"
+          className="rounded border px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <button
+          onClick={onPreview}
+          disabled={!canAct}
+          className="rounded border border-blue-300 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+        >
+          {previewLoading ? '…' : 'Testen'}
+        </button>
+        <button
+          onClick={onSubmit}
+          disabled={!canAct}
+          className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {loading ? '…' : 'Hinzufügen'}
+        </button>
+      </div>
+
+      {previewLines !== null && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+          {previewLines.length === 0 ? (
+            <p className="text-xs text-amber-700">Keine passenden Buchungszeilen gefunden.</p>
+          ) : (
+            <>
+              {(() => {
+                const foreign = previewLines.filter((l) => !l.already_assigned)
+                const own = previewLines.filter((l) => l.already_assigned)
+                return (
+                  <>
+                    {foreign.length > 0 && (
+                      <p className="mb-2 text-xs font-semibold text-amber-800">
+                        {foreign.length} Buchungszeile{foreign.length !== 1 ? 'n' : ''} anderer Partner passen –
+                        {' '}werden beim Hinzufügen diesem Partner zugeordnet:
+                      </p>
+                    )}
+                    {own.length > 0 && (
+                      <p className="mb-2 text-xs font-semibold text-green-700">
+                        {own.length} Buchungszeile{own.length !== 1 ? 'n' : ''} bereits diesem Partner zugeordnet.
+                      </p>
+                    )}
+                    <div className="space-y-1 max-h-48 overflow-y-auto">
+                      {previewLines.map((l) => (
+                        <div
+                          key={l.journal_line_id}
+                          className={`flex items-center justify-between gap-3 rounded px-2 py-1 text-xs ${
+                            l.already_assigned ? 'bg-green-50 text-gray-400' : 'bg-white text-gray-700'
+                          }`}
+                        >
+                          <span className="truncate">{l.text ?? '—'}</span>
+                          <span className="shrink-0">{l.booking_date}</span>
+                          <span className="shrink-0 font-mono">
+                            {Number(l.amount).toLocaleString('de-DE', { style: 'currency', currency: l.currency })}
+                          </span>
+                          {!l.already_assigned && (
+                            <span className="shrink-0 text-amber-700">{l.current_partner_name ?? '—'}</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )
+              })()}
+            </>
+          )}
+        </div>
+      )}
+
+      {error && <p className="text-xs text-red-500">{error}</p>}
+    </div>
+  )
+}
+
 // ─── Journal Section ──────────────────────────────────────────────────────────
 
 const PAGE_SIZE = 25
 
+type JournalSortField = 'valuta_date' | 'booking_date' | 'amount' | 'text' | 'service_name'
+
 function JournalSection({ mandantId, partnerId }: { mandantId: string; partnerId: string }) {
   const sentinelRef = useRef<HTMLDivElement>(null)
+  const [sortBy, setSortBy] = useState<JournalSortField>('valuta_date')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+
+  function toggleSort(field: JournalSortField) {
+    if (sortBy === field) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortBy(field)
+      setSortDir('desc')
+    }
+  }
 
   const {
     data,
@@ -533,9 +761,9 @@ function JournalSection({ mandantId, partnerId }: { mandantId: string; partnerId
     isFetchingNextPage,
     isLoading,
   } = useInfiniteQuery({
-    queryKey: ['partner-journal', mandantId, partnerId],
+    queryKey: ['partner-journal', mandantId, partnerId, sortBy, sortDir],
     queryFn: ({ pageParam = 1 }) =>
-      listJournalLines(mandantId, { partner_id: partnerId, page: pageParam as number, size: PAGE_SIZE }),
+      listJournalLines(mandantId, { partner_id: partnerId, page: pageParam as number, size: PAGE_SIZE, sort_by: sortBy, sort_dir: sortDir }),
     initialPageParam: 1,
     getNextPageParam: (lastPage) =>
       lastPage.page < lastPage.pages ? lastPage.page + 1 : undefined,
@@ -558,6 +786,19 @@ function JournalSection({ mandantId, partnerId }: { mandantId: string; partnerId
 
   const lines = data?.pages.flatMap((p) => p.items) ?? []
   const total = data?.pages[0]?.total ?? 0
+
+  function SortTh({ field, label, align = 'left' }: { field: JournalSortField; label: string; align?: 'left' | 'right' }) {
+    const active = sortBy === field
+    return (
+      <th
+        className={`cursor-pointer select-none px-4 py-2 text-${align} hover:bg-gray-100`}
+        onClick={() => toggleSort(field)}
+      >
+        {label}
+        {active ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ' ↕'}
+      </th>
+    )
+  }
 
   return (
     <div className="mb-6 rounded-xl border border-gray-200 bg-white shadow-sm">
@@ -583,12 +824,17 @@ function JournalSection({ mandantId, partnerId }: { mandantId: string; partnerId
       )}
 
       {lines.length > 0 && (
-        <table className="w-full text-sm">
+        <table className="w-full table-fixed text-sm">
           <thead className="bg-gray-50 text-xs font-medium uppercase text-gray-500">
             <tr>
-              <th className="px-4 py-2 text-left">Valuta</th>
-              <th className="px-4 py-2 text-left">Text</th>
-              <th className="px-4 py-2 text-right">Betrag</th>
+              <SortTh field="valuta_date" label="Valuta" />
+              <th className="w-[48%] px-4 py-2 text-left cursor-pointer select-none hover:bg-gray-100" onClick={() => toggleSort('text')}>
+                Text{sortBy === 'text' ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ' ↕'}
+              </th>
+              <th className="w-[22%] px-4 py-2 text-left cursor-pointer select-none hover:bg-gray-100" onClick={() => toggleSort('service_name')}>
+                Leistung{sortBy === 'service_name' ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ' ↕'}
+              </th>
+              <SortTh field="amount" label="Betrag" align="right" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -597,8 +843,13 @@ function JournalSection({ mandantId, partnerId }: { mandantId: string; partnerId
                 <td className="px-4 py-2 font-mono text-xs text-gray-500 whitespace-nowrap">
                   {line.valuta_date}
                 </td>
-                <td className="max-w-xs truncate px-4 py-2 text-gray-700">
+                <td className="px-4 py-2 text-gray-700">
+                  <div className="line-clamp-2 break-words">
                   {line.text ?? line.partner_name_raw ?? <em className="text-gray-400">—</em>}
+                  </div>
+                </td>
+                <td className="px-4 py-2 text-sm text-gray-600">
+                  {line.service_name ?? <span className="text-xs text-gray-400">—</span>}
                 </td>
                 <td className={`px-4 py-2 text-right font-mono text-sm whitespace-nowrap ${
                   Number(line.amount) < 0 ? 'text-red-600' : 'text-green-700'

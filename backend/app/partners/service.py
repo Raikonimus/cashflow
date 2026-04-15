@@ -1,42 +1,63 @@
 import math
-import re
+from enum import Enum
 from datetime import datetime, timezone
 from uuid import UUID
 
 import structlog
 from fastapi import HTTPException, status
-from sqlalchemy import text
+from sqlalchemy import or_, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.partners.models import (
     AuditLog,
-    MatchField,
     Partner,
     PartnerAccount,
     PartnerIban,
     PartnerName,
-    PartnerPattern,
-    PartnerPatternType,
 )
+from app.partners.delete_utils import delete_partner_clean
 from app.partners.schemas import (
-    AddPatternRequest,
     AuditLogEntryResponse,
     MergeResponse,
     PaginatedAuditLogResponse,
     PartnerAccountResponse,
     PartnerDetailResponse,
     PartnerIbanResponse,
+    PartnerNeighbor,
     PartnerListItem,
     PartnerNameResponse,
-    PartnerNeighbor,
     PartnerNeighborsResponse,
-    PartnerPatternResponse,
     PaginatedPartnersResponse,
 )
+from app.services.models import Service, ServiceType
+from app.services.service import ServiceManagementService
 
 log = structlog.get_logger()
+
+SERVICE_TYPE_ORDER: dict[str, int] = {
+    ServiceType.customer.value: 0,
+    ServiceType.supplier.value: 1,
+    ServiceType.employee.value: 2,
+    ServiceType.shareholder.value: 3,
+    ServiceType.authority.value: 4,
+    ServiceType.internal_transfer.value: 5,
+    ServiceType.unknown.value: 6,
+}
+
+
+class PartnerSortField(str, Enum):
+    name = "name"
+    iban_count = "iban_count"
+    name_count = "name_count"
+    journal_line_count = "journal_line_count"
+    status = "status"
+
+
+class SortDirection(str, Enum):
+    asc = "asc"
+    desc = "desc"
 
 
 def _utcnow() -> datetime:
@@ -52,32 +73,39 @@ class PartnerService:
         self._session = session
 
     async def list_partners(
-        self, mandant_id: UUID, page: int = 1, size: int = 20, include_inactive: bool = False, search: str = ""
+        self,
+        mandant_id: UUID,
+        page: int = 1,
+        size: int = 20,
+        include_inactive: bool = False,
+        search: str = "",
+        service_type: ServiceType | None = None,
+        sort_by: PartnerSortField = PartnerSortField.name,
+        sort_dir: SortDirection = SortDirection.asc,
     ) -> PaginatedPartnersResponse:
         size = min(size, 100)
-        offset = (page - 1) * size
 
         base_filter = [Partner.mandant_id == mandant_id]  # type: ignore[list-item]
         if not include_inactive:
             base_filter.append(Partner.is_active == True)  # noqa: E712
         if search:
             term = f"%{search.lower()}%"
-            base_filter.append(
-                (text("lower(coalesce(display_name, name)) LIKE :term").bindparams(term=term))  # type: ignore[arg-type]
+            # IBAN-Suche: Leerzeichen entfernen und Großbuchstaben für normalisierte IBANs
+            iban_term = f"%{search.replace(' ', '').upper()}%"
+            iban_subq = select(PartnerIban.partner_id).where(
+                PartnerIban.iban.like(iban_term)  # type: ignore[union-attr]
             )
-
-        count_result = await self._session.exec(
-            select(Partner.id).where(*base_filter)  # type: ignore[arg-type]
-        )
-        total = len(count_result.all())
-
-        result = await self._session.exec(
-            select(Partner)
-            .where(*base_filter)
-            .order_by(text("lower(name)"))
-            .offset(offset)
-            .limit(size)
-        )
+            account_subq = select(PartnerAccount.partner_id).where(
+                PartnerAccount.account_number.ilike(term)  # type: ignore[union-attr]
+            )
+            base_filter.append(
+                or_(
+                    text("lower(coalesce(display_name, name)) LIKE :term").bindparams(term=term),
+                    Partner.id.in_(iban_subq),  # type: ignore[arg-type]
+                    Partner.id.in_(account_subq),  # type: ignore[arg-type]
+                )  # type: ignore[arg-type]
+            )
+        result = await self._session.exec(select(Partner).where(*base_filter).order_by(text("lower(name)")))
         partners = result.all()
 
         items = []
@@ -92,35 +120,59 @@ class PartnerService:
                     select(PartnerName.id).where(PartnerName.partner_id == p.id)  # type: ignore[arg-type]
                 )
             ).all())
-            pattern_count = len((
-                await self._session.exec(
-                    select(PartnerPattern.id).where(
-                        PartnerPattern.partner_id == p.id
-                    )  # type: ignore[arg-type]
-                )
-            ).all())
             from app.imports.models import JournalLine
             journal_line_count = len((
                 await self._session.exec(
                     select(JournalLine.id).where(JournalLine.partner_id == p.id)  # type: ignore[arg-type]
                 )
             ).all())
+            service_types = sorted(
+                {
+                    service_type
+                    for service_type in (
+                        await self._session.exec(
+                            select(Service.service_type).where(Service.partner_id == p.id)  # type: ignore[arg-type]
+                        )
+                    ).all()
+                    if service_type
+                },
+                key=lambda service_type: SERVICE_TYPE_ORDER.get(service_type, len(SERVICE_TYPE_ORDER)),
+            )
+            if service_type is not None and service_type.value not in service_types:
+                continue
             items.append(
                 PartnerListItem(
                     id=p.id,
                     name=p.name,
                     display_name=p.display_name,
                     is_active=p.is_active,
+                    service_types=service_types,
                     iban_count=iban_count,
                     name_count=name_count,
-                    pattern_count=pattern_count,
                     journal_line_count=journal_line_count,
                     created_at=p.created_at,
                 )
             )
 
+        total = len(items)
+
+        reverse = sort_dir == SortDirection.desc
+        if sort_by == PartnerSortField.name:
+            items.sort(key=lambda item: (item.display_name or item.name).lower(), reverse=reverse)
+        elif sort_by == PartnerSortField.iban_count:
+            items.sort(key=lambda item: (item.iban_count, (item.display_name or item.name).lower()), reverse=reverse)
+        elif sort_by == PartnerSortField.name_count:
+            items.sort(key=lambda item: (item.name_count, (item.display_name or item.name).lower()), reverse=reverse)
+        elif sort_by == PartnerSortField.journal_line_count:
+            items.sort(key=lambda item: (item.journal_line_count, (item.display_name or item.name).lower()), reverse=reverse)
+        elif sort_by == PartnerSortField.status:
+            items.sort(key=lambda item: (item.is_active, (item.display_name or item.name).lower()), reverse=reverse)
+
+        offset = (page - 1) * size
+        paged_items = items[offset:offset + size]
+
         return PaginatedPartnersResponse(
-            items=items,
+            items=paged_items,
             total=total,
             page=page,
             size=size,
@@ -177,9 +229,6 @@ class PartnerService:
         names_result = await self._session.exec(
             select(PartnerName).where(PartnerName.partner_id == partner_id)
         )
-        patterns_result = await self._session.exec(
-            select(PartnerPattern).where(PartnerPattern.partner_id == partner_id)
-        )
 
         return PartnerDetailResponse(
             id=partner.id,
@@ -190,19 +239,19 @@ class PartnerService:
             ibans=[PartnerIbanResponse.model_validate(i) for i in ibans_result.all()],
             accounts=[PartnerAccountResponse.model_validate(a) for a in accounts_result.all()],
             names=[PartnerNameResponse.model_validate(n) for n in names_result.all()],
-            patterns=[
-                PartnerPatternResponse(
-                    id=pp.id,
-                    pattern=pp.pattern,
-                    pattern_type=PartnerPatternType(pp.pattern_type),
-                    match_field=MatchField(pp.match_field),
-                    created_at=pp.created_at,
-                )
-                for pp in patterns_result.all()
-            ],
             created_at=partner.created_at,
             updated_at=partner.updated_at,
         )
+
+    async def delete_partner(self, partner_id: UUID, mandant_id: UUID) -> None:
+        partner = await self.get_partner(partner_id, mandant_id)
+
+        await delete_partner_clean(
+            self._session,
+            partner,
+            detach_journal_lines=not partner.is_active,
+        )
+        await self._session.commit()
 
     async def update_display_name(
         self, partner_id: UUID, mandant_id: UUID, display_name: str | None
@@ -250,6 +299,430 @@ class PartnerService:
         await self.get_partner(partner_id, mandant_id)  # verify ownership
         return await self._add_iban_entity(partner_id, iban, commit=True)
 
+    async def preview_iban(
+        self,
+        partner_id: UUID,
+        mandant_id: UUID,
+        iban: str,
+    ) -> "AccountPreviewResponse":
+        """Gibt alle Buchungszeilen zurück, die zu dieser IBAN passen,
+        aber NICHT zum angegebenen Partner gehören."""
+        from app.imports.models import JournalLine
+        from app.partners.schemas import AccountPreviewLineItem, AccountPreviewResponse
+        from decimal import Decimal
+
+        await self.get_partner(partner_id, mandant_id)
+        normalized_iban = _normalize_iban(iban)
+
+        lines = (
+            await self._session.exec(
+                select(JournalLine)
+                .where(
+                    JournalLine.partner_iban_raw == normalized_iban,
+                )
+            )
+        ).all()
+
+        # Fallback: auch nach Teiltreffer suchen (raw-Vergleich)
+        if not lines:
+            lines = (
+                await self._session.exec(
+                    select(JournalLine)
+                    .where(
+                        JournalLine.partner_iban_raw.ilike(f"%{normalized_iban}%"),  # type: ignore[union-attr]
+                    )
+                )
+            ).all()
+
+        # Nur Zeilen desselben Mandanten
+        from app.tenants.models import Account as _Account
+        account_ids = set(
+            (await self._session.exec(select(_Account.id).where(_Account.mandant_id == mandant_id))).all()
+        )
+        lines = [ln for ln in lines if ln.account_id in account_ids]
+
+        partner_name_cache: dict[UUID | None, str | None] = {}
+        matched: list[AccountPreviewLineItem] = []
+        for line in lines:
+            if line.partner_id not in partner_name_cache:
+                if line.partner_id is None:
+                    partner_name_cache[None] = None
+                else:
+                    p = await self._session.get(Partner, line.partner_id)
+                    partner_name_cache[line.partner_id] = ((p.display_name or p.name) if p else None)
+            matched.append(AccountPreviewLineItem(
+                journal_line_id=line.id,
+                partner_name_raw=line.partner_name_raw,
+                current_partner_name=partner_name_cache.get(line.partner_id),
+                booking_date=line.booking_date,
+                valuta_date=line.valuta_date,
+                amount=Decimal(str(line.amount)),
+                currency=line.currency,
+                text=line.text,
+                already_assigned=line.partner_id == partner_id,
+            ))
+
+        matched.sort(key=lambda x: x.booking_date, reverse=True)
+        return AccountPreviewResponse(matched_lines=matched, total=len(matched))
+
+    async def add_iban_with_reassign(
+        self,
+        partner_id: UUID,
+        mandant_id: UUID,
+        iban: str,
+    ) -> PartnerIban:
+        """Speichert IBAN und weist passende Buchungszeilen dem Partner zu.
+        Identisch zum Kontonummern-Flow: ALLE Zeilen eines gematchten
+        Source-Partners werden verschoben; leere Source-Partner werden gelöscht."""
+        from app.imports.models import JournalLine
+
+        await self.get_partner(partner_id, mandant_id)
+        normalized_iban = _normalize_iban(iban)
+
+        entity = await self._add_iban_entity(partner_id, normalized_iban, commit=False)
+
+        # Buchungszeilen desselben Mandanten mit dieser IBAN suchen (nur fremde)
+        from app.tenants.models import Account as _Account
+        account_ids = set(
+            (await self._session.exec(select(_Account.id).where(_Account.mandant_id == mandant_id))).all()
+        )
+
+        # NULL != UUID ergibt in SQL NULL (falsy) -> explizit IS NULL einschließen
+        not_this_partner = or_(
+            JournalLine.partner_id != partner_id,
+            JournalLine.partner_id.is_(None),  # type: ignore[union-attr]
+        )
+        matching_lines = (
+            await self._session.exec(
+                select(JournalLine)
+                .where(
+                    JournalLine.partner_iban_raw == normalized_iban,
+                    not_this_partner,
+                )
+            )
+        ).all()
+        if not matching_lines:
+            matching_lines = (
+                await self._session.exec(
+                    select(JournalLine)
+                    .where(
+                        JournalLine.partner_iban_raw.ilike(f"%{normalized_iban}%"),  # type: ignore[union-attr]
+                        not_this_partner,
+                    )
+                )
+            ).all()
+
+        matching_lines = [ln for ln in matching_lines if ln.account_id in account_ids]
+
+        # Zeilen ohne Partner direkt zuordnen; Zeilen fremder Partner via vollem Source-Partner-Move
+        unassigned_lines = [ln for ln in matching_lines if ln.partner_id is None]
+        source_partner_ids: set[UUID] = {ln.partner_id for ln in matching_lines if ln.partner_id is not None}
+
+        svc_svc = ServiceManagementService(self._session)
+        needs_revalidation = False
+
+        if unassigned_lines:
+            await svc_svc.prepare_lines_for_partner_change(mandant_id, unassigned_lines, partner_id)
+            needs_revalidation = True
+
+        if source_partner_ids:
+            for src_id in source_partner_ids:
+                # ALLE Zeilen des Source-Partners holen (wie _recheck_new_partner_reviews)
+                all_src_lines = (
+                    await self._session.exec(
+                        select(JournalLine).where(JournalLine.partner_id == src_id)
+                    )
+                ).all()
+                await svc_svc.prepare_lines_for_partner_change(mandant_id, list(all_src_lines), partner_id)
+                needs_revalidation = True
+
+                # Source-Partner löschen wenn leer (wie Service-Matcher-Flow)
+                remaining = (
+                    await self._session.exec(
+                        select(JournalLine.id).where(JournalLine.partner_id == src_id).limit(1)
+                    )
+                ).first()
+                if remaining is None:
+                    src_partner = await self._session.get(Partner, src_id)
+                    if src_partner is not None and src_partner.mandant_id == mandant_id:
+                        await delete_partner_clean(
+                            self._session,
+                            src_partner,
+                            detach_journal_lines=False,
+                        )
+
+        if needs_revalidation:
+            await svc_svc.revalidate_partner_lines(partner_id)
+        else:
+            await self._session.commit()
+
+        await self._session.refresh(entity)
+        return entity
+
+    async def remove_iban(self, iban_id: UUID, partner_id: UUID, mandant_id: UUID) -> None:
+        await self.get_partner(partner_id, mandant_id)  # verify ownership
+        entity = await self._session.get(PartnerIban, iban_id)
+        if entity is None or entity.partner_id != partner_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="IBAN not found")
+        await self._session.delete(entity)
+        await self._session.commit()
+
+    async def add_account(
+        self,
+        partner_id: UUID,
+        mandant_id: UUID,
+        account_number: str,
+        blz: str | None = None,
+        bic: str | None = None,
+    ) -> PartnerAccount:
+        await self.get_partner(partner_id, mandant_id)  # verify ownership
+        normalized_acct, normalized_blz, normalized_bic = self._normalize_account_fields(account_number, blz, bic)
+        await self._ensure_account_available(normalized_acct, normalized_blz)
+        entity = PartnerAccount(
+            partner_id=partner_id,
+            account_number=normalized_acct,
+            blz=normalized_blz,
+            bic=normalized_bic,
+            created_at=_utcnow(),
+        )
+        self._session.add(entity)
+        await self._session.commit()
+        await self._session.refresh(entity)
+        return entity
+
+    async def preview_account(
+        self,
+        partner_id: UUID,
+        mandant_id: UUID,
+        account_number: str,
+        blz: str | None = None,
+    ) -> "AccountPreviewResponse":
+        """Gibt alle Buchungszeilen zurück, die zu dieser Kontonummer passen,
+        aber NICHT zum angegebenen Partner gehören."""
+        from app.imports.models import JournalLine
+        from app.partners.schemas import AccountPreviewLineItem, AccountPreviewResponse
+        from decimal import Decimal
+
+        await self.get_partner(partner_id, mandant_id)
+        normalized_acct, normalized_blz, _ = self._normalize_account_fields(account_number, blz)
+
+        lines = (
+            await self._session.exec(
+                select(JournalLine)
+                .where(
+                    JournalLine.partner_account_raw == normalized_acct,
+                )
+            )
+        ).all()
+
+        # Fallback: auch nach blz-loser Übereinstimmung suchen (raw-Vergleich)
+        if not lines:
+            lines = (
+                await self._session.exec(
+                    select(JournalLine)
+                    .where(
+                        JournalLine.partner_account_raw.ilike(f"%{normalized_acct}%"),  # type: ignore[union-attr]
+                    )
+                )
+            ).all()
+
+        # Nur Zeilen desselben Mandanten
+        from app.tenants.models import Account as _Account
+        account_ids = set(
+            (await self._session.exec(select(_Account.id).where(_Account.mandant_id == mandant_id))).all()
+        )
+        lines = [ln for ln in lines if ln.account_id in account_ids]
+
+        partner_name_cache: dict[UUID | None, str | None] = {}
+        matched: list[AccountPreviewLineItem] = []
+        for line in lines:
+            if line.partner_id not in partner_name_cache:
+                if line.partner_id is None:
+                    partner_name_cache[None] = None
+                else:
+                    p = await self._session.get(Partner, line.partner_id)
+                    partner_name_cache[line.partner_id] = ((p.display_name or p.name) if p else None)
+            matched.append(AccountPreviewLineItem(
+                journal_line_id=line.id,
+                partner_name_raw=line.partner_name_raw,
+                current_partner_name=partner_name_cache.get(line.partner_id),
+                booking_date=line.booking_date,
+                valuta_date=line.valuta_date,
+                amount=Decimal(str(line.amount)),
+                currency=line.currency,
+                text=line.text,
+                already_assigned=line.partner_id == partner_id,
+            ))
+
+        matched.sort(key=lambda x: x.booking_date, reverse=True)
+        return AccountPreviewResponse(matched_lines=matched, total=len(matched))
+
+    async def add_account_with_reassign(
+        self,
+        partner_id: UUID,
+        mandant_id: UUID,
+        account_number: str,
+        blz: str | None = None,
+        bic: str | None = None,
+    ) -> PartnerAccount:
+        """Speichert Kontonummer und weist passende Buchungszeilen dem Partner zu.
+        Identisch zum Service-Matcher-Flow: ALLE Zeilen eines gematchten
+        Source-Partners werden verschoben; leere Source-Partner werden gelöscht."""
+        from app.imports.models import JournalLine
+        from app.services.service import ServiceManagementService
+
+        await self.get_partner(partner_id, mandant_id)
+        normalized_acct, normalized_blz, normalized_bic = self._normalize_account_fields(account_number, blz, bic)
+        await self._ensure_account_available(normalized_acct, normalized_blz)
+
+        entity = PartnerAccount(
+            partner_id=partner_id,
+            account_number=normalized_acct,
+            blz=normalized_blz,
+            bic=normalized_bic,
+            created_at=_utcnow(),
+        )
+        self._session.add(entity)
+        await self._session.flush()
+
+        # Buchungszeilen desselben Mandanten mit dieser Kontonummer suchen (nur fremde)
+        from app.tenants.models import Account as _Account
+        account_ids = set(
+            (await self._session.exec(select(_Account.id).where(_Account.mandant_id == mandant_id))).all()
+        )
+
+        # NULL != UUID ergibt in SQL NULL (falsy) → explizit IS NULL einschließen
+        not_this_partner = or_(
+            JournalLine.partner_id != partner_id,
+            JournalLine.partner_id.is_(None),  # type: ignore[union-attr]
+        )
+        matching_lines = (
+            await self._session.exec(
+                select(JournalLine)
+                .where(
+                    JournalLine.partner_account_raw == normalized_acct,
+                    not_this_partner,
+                )
+            )
+        ).all()
+        if not matching_lines:
+            matching_lines = (
+                await self._session.exec(
+                    select(JournalLine)
+                    .where(
+                        JournalLine.partner_account_raw.ilike(f"%{normalized_acct}%"),  # type: ignore[union-attr]
+                        not_this_partner,
+                    )
+                )
+            ).all()
+
+        matching_lines = [ln for ln in matching_lines if ln.account_id in account_ids]
+
+        # Zeilen ohne Partner direkt zuordnen; Zeilen fremder Partner via vollem Source-Partner-MoveSource_partner_ids
+        unassigned_lines = [ln for ln in matching_lines if ln.partner_id is None]
+        source_partner_ids: set[UUID] = {ln.partner_id for ln in matching_lines if ln.partner_id is not None}
+
+        svc_svc = ServiceManagementService(self._session)
+        needs_revalidation = False
+
+        # Zeilen ohne Partner: direkt diesem Partner zuweisen
+        if unassigned_lines:
+            await svc_svc.prepare_lines_for_partner_change(mandant_id, unassigned_lines, partner_id)
+            needs_revalidation = True
+
+        if source_partner_ids:
+            for src_id in source_partner_ids:
+                # ALLE Zeilen des Source-Partners holen (wie _recheck_new_partner_reviews)
+                all_src_lines = (
+                    await self._session.exec(
+                        select(JournalLine).where(JournalLine.partner_id == src_id)
+                    )
+                ).all()
+                await svc_svc.prepare_lines_for_partner_change(mandant_id, list(all_src_lines), partner_id)
+                needs_revalidation = True
+
+                # Source-Partner löschen wenn leer (wie Service-Matcher-Flow)
+                remaining = (
+                    await self._session.exec(
+                        select(JournalLine.id).where(JournalLine.partner_id == src_id).limit(1)
+                    )
+                ).first()
+                if remaining is None:
+                    src_partner = await self._session.get(Partner, src_id)
+                    if src_partner is not None and src_partner.mandant_id == mandant_id:
+                        await delete_partner_clean(
+                            self._session,
+                            src_partner,
+                            detach_journal_lines=False,
+                        )
+
+        if needs_revalidation:
+            await svc_svc.revalidate_partner_lines(partner_id)
+        else:
+            await self._session.commit()
+
+        await self._session.refresh(entity)
+        return entity
+
+    @staticmethod
+    def _normalize_account_fields(
+        account_number: str,
+        blz: str | None = None,
+        bic: str | None = None,
+    ) -> tuple[str, str | None, str | None]:
+        normalized_acct = account_number.strip().lstrip("0") or account_number.strip()
+        normalized_blz = blz.strip() if blz else None
+        normalized_bic = bic.strip().upper() if bic else None
+        return normalized_acct, normalized_blz, normalized_bic
+
+    async def _ensure_account_available(self, normalized_acct: str, normalized_blz: str | None) -> None:
+        existing = await self._session.exec(
+            select(PartnerAccount).where(
+                PartnerAccount.account_number == normalized_acct,
+                PartnerAccount.blz == normalized_blz,
+            )
+        )
+        if existing.first() is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Account number already assigned to another partner",
+            )
+
+    async def remove_account(self, account_id: UUID, partner_id: UUID, mandant_id: UUID) -> None:
+        await self.get_partner(partner_id, mandant_id)  # verify ownership
+        entity = await self._session.get(PartnerAccount, account_id)
+        if entity is None or entity.partner_id != partner_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+        await self._session.delete(entity)
+        await self._session.commit()
+
+    async def add_name(self, partner_id: UUID, mandant_id: UUID, name: str) -> PartnerName:
+        await self.get_partner(partner_id, mandant_id)  # verify ownership
+        existing = await self._session.exec(
+            select(PartnerName).where(
+                PartnerName.partner_id == partner_id,
+                PartnerName.name == name,
+            )
+        )
+        if existing.first() is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Name already exists for this partner",
+            )
+        entity = PartnerName(partner_id=partner_id, name=name, created_at=_utcnow())
+        self._session.add(entity)
+        await self._session.commit()
+        await self._session.refresh(entity)
+        return entity
+
+    async def remove_name(self, name_id: UUID, partner_id: UUID, mandant_id: UUID) -> None:
+        await self.get_partner(partner_id, mandant_id)  # verify ownership
+        entity = await self._session.get(PartnerName, name_id)
+        if entity is None or entity.partner_id != partner_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Name not found")
+        await self._session.delete(entity)
+        await self._session.commit()
+
     async def _add_iban_entity(
         self, partner_id: UUID, iban: str, commit: bool = False
     ) -> PartnerIban:
@@ -268,195 +741,6 @@ class PartnerService:
             await self._session.commit()
             await self._session.refresh(entity)
         return entity
-
-    async def remove_iban(self, iban_id: UUID, partner_id: UUID, mandant_id: UUID) -> None:
-        await self.get_partner(partner_id, mandant_id)
-        entity = await self._session.get(PartnerIban, iban_id)
-        if entity is None or entity.partner_id != partner_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="IBAN not found")
-        await self._session.delete(entity)
-        await self._session.commit()
-
-    async def add_account(
-        self, partner_id: UUID, mandant_id: UUID, account_number: str, blz: str | None, bic: str | None = None
-    ) -> PartnerAccount:
-        await self.get_partner(partner_id, mandant_id)
-        normalized_acct = account_number.strip().lstrip("0") or account_number.strip()
-        normalized_blz = blz.strip() if blz else None
-        normalized_bic = bic.strip().upper() if bic else None
-        existing = await self._session.exec(
-            select(PartnerAccount).where(
-                PartnerAccount.account_number == normalized_acct,
-                PartnerAccount.blz == normalized_blz,
-            )
-        )
-        if existing.first() is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Kontonummer bereits einem Partner zugeordnet",
-            )
-        entity = PartnerAccount(
-            partner_id=partner_id,
-            blz=normalized_blz,
-            account_number=normalized_acct,
-            bic=normalized_bic,
-            created_at=_utcnow(),
-        )
-        self._session.add(entity)
-        await self._session.commit()
-        await self._session.refresh(entity)
-        return entity
-
-    async def remove_account(self, account_id: UUID, partner_id: UUID, mandant_id: UUID) -> None:
-        await self.get_partner(partner_id, mandant_id)
-        entity = await self._session.get(PartnerAccount, account_id)
-        if entity is None or entity.partner_id != partner_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Kontonummer nicht gefunden")
-        await self._session.delete(entity)
-        await self._session.commit()
-
-    async def add_name(self, partner_id: UUID, mandant_id: UUID, name: str) -> PartnerName:
-        await self.get_partner(partner_id, mandant_id)
-        existing = await self._session.exec(
-            select(PartnerName).where(
-                PartnerName.partner_id == partner_id, PartnerName.name == name
-            )
-        )
-        if existing.first() is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Name variant already exists for this partner",
-            )
-        entity = PartnerName(partner_id=partner_id, name=name, created_at=_utcnow())
-        self._session.add(entity)
-        await self._session.commit()
-        await self._session.refresh(entity)
-        return entity
-
-    async def remove_name(self, name_id: UUID, partner_id: UUID, mandant_id: UUID) -> None:
-        await self.get_partner(partner_id, mandant_id)
-        entity = await self._session.get(PartnerName, name_id)
-        if entity is None or entity.partner_id != partner_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Name not found")
-        await self._session.delete(entity)
-        await self._session.commit()
-
-    async def add_pattern(
-        self, partner_id: UUID, mandant_id: UUID, data: AddPatternRequest
-    ) -> PartnerPattern:
-        await self.get_partner(partner_id, mandant_id)
-
-        if data.pattern_type == PartnerPatternType.regex:
-            try:
-                re.compile(data.pattern)
-            except re.error as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail=f"Invalid regex pattern: {exc}",
-                ) from exc
-
-        existing = await self._session.exec(
-            select(PartnerPattern).where(
-                PartnerPattern.partner_id == partner_id,
-                PartnerPattern.pattern == data.pattern,
-                PartnerPattern.match_field == data.match_field.value,
-            )
-        )
-        if existing.first() is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Pattern already exists for this partner and match field",
-            )
-
-        entity = PartnerPattern(
-            partner_id=partner_id,
-            pattern=data.pattern,
-            pattern_type=data.pattern_type.value,
-            match_field=data.match_field.value,
-            created_at=_utcnow(),
-        )
-        self._session.add(entity)
-        await self._session.commit()
-        await self._session.refresh(entity)
-        return entity
-
-    async def delete_pattern(
-        self, pattern_id: UUID, partner_id: UUID, mandant_id: UUID
-    ) -> None:
-        await self.get_partner(partner_id, mandant_id)
-        entity = await self._session.get(PartnerPattern, pattern_id)
-        if entity is None or entity.partner_id != partner_id:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Pattern not found"
-            )
-        await self._session.delete(entity)
-        await self._session.commit()
-
-    async def preview_pattern(
-        self, partner_id: UUID, mandant_id: UUID, data: AddPatternRequest
-    ) -> list[PartnerNeighbor]:
-        """Return other active partners whose stored identifiers match the given pattern."""
-
-        def _matches(value: str) -> bool:
-            if data.pattern_type == PartnerPatternType.string:
-                return data.pattern.lower() in value.lower()
-            try:
-                return bool(re.search(data.pattern, value, re.IGNORECASE))
-            except re.error:
-                return False
-
-        matched: dict[UUID, str] = {}
-
-        if data.match_field == MatchField.partner_name:
-            partners = (await self._session.exec(
-                select(Partner).where(
-                    Partner.mandant_id == mandant_id,  # type: ignore[arg-type]
-                    Partner.is_active == True,  # noqa: E712
-                    Partner.id != partner_id,
-                )
-            )).all()
-            partner_map = {p.id: p for p in partners}
-            if partner_map:
-                name_entries = (await self._session.exec(
-                    select(PartnerName)
-                    .join(Partner, Partner.id == PartnerName.partner_id)
-                    .where(
-                        Partner.mandant_id == mandant_id,  # type: ignore[arg-type]
-                        Partner.is_active == True,  # noqa: E712
-                        PartnerName.partner_id != partner_id,
-                    )
-                )).all()
-                for pn in name_entries:
-                    if pn.partner_id not in matched and _matches(pn.name):
-                        matched[pn.partner_id] = partner_map[pn.partner_id].name
-                for p in partners:
-                    if p.id not in matched and _matches(p.name):
-                        matched[p.id] = p.name
-
-        elif data.match_field == MatchField.partner_iban:
-            partners = (await self._session.exec(
-                select(Partner).where(
-                    Partner.mandant_id == mandant_id,  # type: ignore[arg-type]
-                    Partner.is_active == True,  # noqa: E712
-                    Partner.id != partner_id,
-                )
-            )).all()
-            partner_map = {p.id: p for p in partners}
-            if partner_map:
-                iban_entries = (await self._session.exec(
-                    select(PartnerIban)
-                    .join(Partner, Partner.id == PartnerIban.partner_id)
-                    .where(
-                        Partner.mandant_id == mandant_id,  # type: ignore[arg-type]
-                        Partner.is_active == True,  # noqa: E712
-                        PartnerIban.partner_id != partner_id,
-                    )
-                )).all()
-                for pi in iban_entries:
-                    if pi.partner_id not in matched and _matches(pi.iban):
-                        matched[pi.partner_id] = partner_map[pi.partner_id].name
-
-        return [PartnerNeighbor(id=pid, name=name) for pid, name in matched.items()]
 
 
 class PartnerMergeService:
@@ -481,8 +765,8 @@ class PartnerMergeService:
 
         # Transfer children (dedup-safe)
         await self._transfer_ibans(source_id, target_id)
+        await self._transfer_accounts(source_id, target_id)
         await self._transfer_names(source_id, target_id)
-        await self._transfer_patterns(source_id, target_id)
 
         # Reassign journal lines (table may not exist before Bolt 006)
         lines_reassigned = await self._reassign_journal_lines(source_id, target_id, mandant_id)
@@ -504,7 +788,12 @@ class PartnerMergeService:
             },
         )
         self._session.add(entry)
-        await self._session.commit()
+
+        if lines_reassigned > 0:
+            service_svc = ServiceManagementService(self._session)
+            await service_svc.revalidate_partner_lines(target_id)
+        else:
+            await self._session.commit()
         await self._session.refresh(target)
         await self._session.refresh(entry)
 
@@ -562,6 +851,29 @@ class PartnerMergeService:
 
         await self._session.flush()
 
+    async def _transfer_accounts(self, source_id: UUID, target_id: UUID) -> None:
+        target_existing = (
+            await self._session.exec(
+                select(PartnerAccount.account_number).where(PartnerAccount.partner_id == target_id)
+            )
+        ).all()
+        target_set = set(target_existing)
+
+        source_accounts = (
+            await self._session.exec(
+                select(PartnerAccount).where(PartnerAccount.partner_id == source_id)
+            )
+        ).all()
+
+        for pa in source_accounts:
+            if pa.account_number in target_set:
+                await self._session.delete(pa)
+            else:
+                pa.partner_id = target_id
+                self._session.add(pa)
+
+        await self._session.flush()
+
     async def _transfer_names(self, source_id: UUID, target_id: UUID) -> None:
         target_existing = (
             await self._session.exec(
@@ -585,35 +897,13 @@ class PartnerMergeService:
 
         await self._session.flush()
 
-    async def _transfer_patterns(self, source_id: UUID, target_id: UUID) -> None:
-        target_existing = (
-            await self._session.exec(
-                select(PartnerPattern).where(PartnerPattern.partner_id == target_id)
-            )
-        ).all()
-        target_keys = {(pp.pattern, pp.match_field) for pp in target_existing}
-
-        source_patterns = (
-            await self._session.exec(
-                select(PartnerPattern).where(PartnerPattern.partner_id == source_id)
-            )
-        ).all()
-
-        for pp in source_patterns:
-            if (pp.pattern, pp.match_field) in target_keys:
-                await self._session.delete(pp)
-            else:
-                pp.partner_id = target_id
-                self._session.add(pp)
-
-        await self._session.flush()
-
     async def _reassign_journal_lines(
         self, source_id: UUID, target_id: UUID, mandant_id: UUID
     ) -> int:
         try:
             from app.imports.models import JournalLine
             from app.tenants.models import Account as _Account
+            service_svc = ServiceManagementService(self._session)
 
             # Collect account IDs scoped to this mandant
             account_ids_result = await self._session.exec(
@@ -631,12 +921,7 @@ class PartnerMergeService:
             ).all()
             lines = [ln for ln in all_lines if ln.account_id in account_ids_set]
 
-            for line in lines:
-                line.partner_id = target_id
-                self._session.add(line)
-
-            await self._session.flush()
-            return len(lines)
+            return await service_svc.prepare_lines_for_partner_change(mandant_id, lines, target_id)
         except (SQLAlchemyError, ImportError):
             # journal_lines table not yet created (Bolt 006 not run)
             return 0
