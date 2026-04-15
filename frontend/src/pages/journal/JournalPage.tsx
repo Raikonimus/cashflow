@@ -17,6 +17,25 @@ const MONTHS = [
   { value: 10, label: 'Okt' }, { value: 11, label: 'Nov' }, { value: 12, label: 'Dez' },
 ]
 
+const INTERNAL_UNMAPPED_DATA_KEYS = new Set(['_cashflow_source_values'])
+
+function formatTooltipValue(value: unknown): string | null {
+  if (value == null) {
+    return null
+  }
+  if (typeof value === 'string') {
+    return value
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value)
+  }
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
 export function JournalPage() {
   const mandantId = useAuthStore((s) => s.user?.mandant_id ?? '')
   const role = useAuthStore((s) => s.user?.role ?? '')
@@ -126,12 +145,8 @@ export function JournalPage() {
       setBulkPartnerResults([])
       return
     }
-    const res = await listPartners(mandantId, 1, 10)
-    setBulkPartnerResults(
-      res.items.filter(
-        (p) => p.is_active && p.name.toLowerCase().includes(q.toLowerCase()),
-      ),
-    )
+    const res = await listPartners(mandantId, 1, 10, false, q)
+    setBulkPartnerResults(res.items)
   }
 
   const lines = data?.items ?? []
@@ -194,7 +209,7 @@ export function JournalPage() {
             >
               ← Zurück
             </button>
-            <span className="px-2 text-sm text-gray-500">{page} / {data.pages} ({data.total} Zeilen)</span>
+            <span className="px-2 text-sm text-gray-500">Seite {page} von {data.pages}</span>
             <button
               onClick={() => setPage((p) => Math.min(data.pages, p + 1))}
               disabled={page === data.pages}
@@ -225,9 +240,19 @@ export function JournalPage() {
         </div>
       )}
 
+      <div className="mb-2 text-sm text-gray-500">
+        Angezeigt: <span className="font-medium text-gray-700">{lines.length}</span>
+        {data ? (
+          <>
+            {' '}
+            von <span className="font-medium text-gray-700">{data.total}</span>
+          </>
+        ) : null}
+      </div>
+
       {/* Table */}
       <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
-        <table className="w-full text-sm">
+        <table className="w-full table-fixed text-sm">
           <thead className="bg-gray-50 text-xs font-medium uppercase text-gray-500">
             <tr>
               {canBulkAssign && (
@@ -241,31 +266,37 @@ export function JournalPage() {
                 </th>
               )}
               <th
-                className="cursor-pointer select-none whitespace-nowrap px-3 py-3 text-left hover:text-gray-700"
+                className="w-[8.5rem] cursor-pointer select-none whitespace-nowrap px-3 py-3 text-left hover:text-gray-700"
                 onClick={() => handleSort('valuta_date')}
               >
                 Valuta<SortIcon col="valuta_date" />
               </th>
               <th
-                className="cursor-pointer select-none px-3 py-3 text-left hover:text-gray-700"
+                className="w-[8.5rem] cursor-pointer select-none px-3 py-3 text-left hover:text-gray-700"
                 onClick={() => handleSort('booking_date')}
               >
                 Buchung<SortIcon col="booking_date" />
               </th>
               <th
-                className="cursor-pointer select-none px-3 py-3 text-left hover:text-gray-700"
+                className="w-[30%] cursor-pointer select-none px-3 py-3 text-left hover:text-gray-700"
                 onClick={() => handleSort('text')}
               >
                 Text<SortIcon col="text" />
               </th>
               <th
-                className="cursor-pointer select-none px-3 py-3 text-left hover:text-gray-700"
+                className="w-[18%] cursor-pointer select-none px-3 py-3 text-left hover:text-gray-700"
+                onClick={() => handleSort('service_name')}
+              >
+                Leistung<SortIcon col="service_name" />
+              </th>
+              <th
+                className="w-[24%] cursor-pointer select-none px-3 py-3 text-left hover:text-gray-700"
                 onClick={() => handleSort('partner_name')}
               >
                 Partner<SortIcon col="partner_name" />
               </th>
               <th
-                className="cursor-pointer select-none px-3 py-3 text-right hover:text-gray-700"
+                className="w-[10rem] cursor-pointer select-none px-3 py-3 text-right hover:text-gray-700"
                 onClick={() => handleSort('amount')}
               >
                 Betrag<SortIcon col="amount" />
@@ -276,14 +307,14 @@ export function JournalPage() {
           <tbody className="divide-y divide-gray-100">
             {isLoading && (
               <tr>
-                <td colSpan={canBulkAssign ? 7 : 6} className="px-3 py-8 text-center">
+                <td colSpan={canBulkAssign ? 8 : 7} className="px-3 py-8 text-center">
                   <div className="inline-block h-6 w-6 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
                 </td>
               </tr>
             )}
             {!isLoading && lines.length === 0 && (
               <tr>
-                <td colSpan={canBulkAssign ? 7 : 6} className="px-3 py-8 text-center text-gray-400">
+                <td colSpan={canBulkAssign ? 8 : 7} className="px-3 py-8 text-center text-gray-400">
                   Keine Buchungszeilen für diesen Filter.
                 </td>
               </tr>
@@ -303,16 +334,24 @@ export function JournalPage() {
                     />
                   </td>
                 )}
-                <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-gray-500">{line.valuta_date}</td>
-                <td className="px-3 py-2 font-mono text-xs text-gray-400">{line.booking_date}</td>
-                <td className="max-w-xs truncate px-3 py-2 text-gray-700">
+                <td className="w-[8.5rem] whitespace-nowrap px-3 py-2 font-mono text-xs text-gray-500">{line.valuta_date}</td>
+                <td className="w-[8.5rem] px-3 py-2 font-mono text-xs text-gray-400">{line.booking_date}</td>
+                <td className="px-3 py-2 text-gray-700">
+                  <div className="line-clamp-2 break-words">
                   {line.text ?? line.partner_name_raw ?? <em className="text-gray-400">—</em>}
+                  </div>
                 </td>
-                <td className="px-3 py-2">
+                <td className="w-[18%] px-3 py-2 text-sm text-gray-600">
+                  <div className="truncate" title={line.service_name ?? undefined}>
+                    {line.service_name ?? <span className="text-xs text-gray-400">—</span>}
+                  </div>
+                </td>
+                <td className="w-[24%] px-3 py-2">
                   {line.partner_id ? (
                     <Link
                       to={`/partners/${line.partner_id}`}
-                      className="rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-700 hover:bg-green-200 hover:underline"
+                      className="inline-block max-w-full truncate rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-700 hover:bg-green-200 hover:underline"
+                      title={line.partner_name ?? line.partner_name_raw ?? undefined}
                       onClick={(e) => e.stopPropagation()}
                     >
                       {line.partner_name ?? line.partner_name_raw ?? line.partner_id.substring(0, 8) + '…'}
@@ -321,7 +360,7 @@ export function JournalPage() {
                     <span className="text-xs text-gray-400">—</span>
                   )}
                 </td>
-                <td className={`px-3 py-2 text-right font-mono text-sm ${Number(line.amount) < 0 ? 'text-red-600' : 'text-green-700'}`}>
+                <td className={`w-[10rem] px-3 py-2 text-right font-mono text-sm ${Number(line.amount) < 0 ? 'text-red-600' : 'text-green-700'}`}>
                   {Number(line.amount).toLocaleString('de-DE', { style: 'currency', currency: line.currency })}
                 </td>
                 <td className="px-3 py-2 text-center">
@@ -413,9 +452,16 @@ export function JournalPage() {
                 ['BLZ (roh)', tooltip.line.partner_blz_raw],
                 ['BIC (roh)', tooltip.line.partner_bic_raw],
                 ['Partner-ID', tooltip.line.partner_id],
+                ['Leistung', tooltip.line.service_name],
+                ['Leistungs-ID', tooltip.line.service_id],
                 ['Erstellt', new Date(tooltip.line.created_at + 'Z').toLocaleString('de-DE', { timeZone: 'Europe/Vienna' })],
-                ...(tooltip.line.unmapped_data ? Object.entries(tooltip.line.unmapped_data).map(([k, v]) => [k, v] as [string, string]) : []),
-              ] as [string, string | null | undefined][]).filter(([, v]) => v).map(([label, value]) => (
+                ...(tooltip.line.unmapped_data
+                  ? Object.entries(tooltip.line.unmapped_data).filter(([key]) => !INTERNAL_UNMAPPED_DATA_KEYS.has(key))
+                  : []),
+              ] as [string, unknown][])
+                .map(([label, value]) => [label, formatTooltipValue(value)] as const)
+                .filter(([, value]) => value)
+                .map(([label, value]) => (
                 <tr key={label}>
                   <td className="py-0.5 pr-3 align-top font-semibold text-gray-500 whitespace-nowrap text-right">{label}</td>
                   <td className="py-0.5 break-all font-mono text-gray-700 text-left">{value}</td>
