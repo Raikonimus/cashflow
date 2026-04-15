@@ -6,6 +6,8 @@ Stories covered:
   004-import-run-tracking
 """
 import io
+from decimal import Decimal
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +15,7 @@ from sqlmodel import select
 
 from app.auth.models import UserRole
 from app.imports.models import ImportRun, ImportStatus, JournalLine
+from app.tenants.models import ColumnMappingConfig
 from tests.imports import (
     assign_user_to_mandant,
     create_account_db,
@@ -238,6 +241,301 @@ class TestCsvUpload:
         assert run["skipped_count"] == 2
         assert run["status"] == ImportStatus.completed.value
 
+    async def test_selected_duplicate_check_columns_control_duplicate_detection(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        user = await create_user(db_session, "acc@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        account = await create_account_db(db_session, mandant.id)
+
+        mapping = ColumnMappingConfig(
+            account_id=account.id,
+            valuta_date_col="Valuta",
+            booking_date_col="Buchungsdatum",
+            amount_col="Betrag",
+            partner_name_col="Auftraggeber",
+            partner_iban_col=None,
+            description_col="Verwendungszweck",
+            column_assignments=[
+                {"source": "Valuta", "target": "valuta_date", "sort_order": 0, "duplicate_check": False},
+                {"source": "Buchungsdatum", "target": "booking_date", "sort_order": 1, "duplicate_check": False},
+                {"source": "Betrag", "target": "amount", "sort_order": 2, "duplicate_check": False},
+                {"source": "Auftraggeber", "target": "partner_name", "sort_order": 3, "duplicate_check": False},
+                {"source": "Verwendungszweck", "target": "description", "sort_order": 4, "duplicate_check": False},
+                {"source": "Referenz", "target": "unused", "sort_order": 5, "duplicate_check": True},
+            ],
+            decimal_separator=".",
+            date_format="%Y-%m-%d",
+            delimiter=",",
+            encoding="utf-8",
+            skip_rows=0,
+        )
+        db_session.add(mapping)
+        await db_session.commit()
+        token = await get_auth_token(client, user, mandant)
+
+        first_csv = make_csv([
+            {
+                "Valuta": "2026-01-15",
+                "Buchungsdatum": "2026-01-15",
+                "Betrag": "123.45",
+                "Auftraggeber": "Amazon EU",
+                "Verwendungszweck": "Erster Import",
+                "Referenz": "REF-001",
+            }
+        ])
+        second_csv = make_csv([
+            {
+                "Valuta": "2026-01-16",
+                "Buchungsdatum": "2026-01-16",
+                "Betrag": "999.99",
+                "Auftraggeber": "Anderer Partner",
+                "Verwendungszweck": "Zweiter Import",
+                "Referenz": "REF-001",
+            }
+        ])
+
+        resp1 = await client.post(
+            f"/api/v1/mandants/{mandant.id}/accounts/{account.id}/imports",
+            files=[("files", ("first.csv", io.BytesIO(first_csv), "text/csv"))],
+            headers=_auth(token),
+        )
+        assert resp1.status_code == 201
+        assert resp1.json()[0]["row_count"] == 1
+
+        resp2 = await client.post(
+            f"/api/v1/mandants/{mandant.id}/accounts/{account.id}/imports",
+            files=[("files", ("second.csv", io.BytesIO(second_csv), "text/csv"))],
+            headers=_auth(token),
+        )
+        assert resp2.status_code == 201
+        run2 = resp2.json()[0]
+        assert run2["row_count"] == 0
+        assert run2["skipped_count"] == 1
+
+        lines = (await db_session.exec(select(JournalLine))).all()
+        assert len(lines) == 1
+
+    async def test_duplicate_detection_uses_selected_columns_for_legacy_rows_without_source_values(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        user = await create_user(db_session, "acc@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        account = await create_account_db(db_session, mandant.id)
+
+        mapping = ColumnMappingConfig(
+            account_id=account.id,
+            valuta_date_col="Valuta",
+            booking_date_col="Buchungsdatum",
+            amount_col="Betrag",
+            partner_name_col="Auftraggeber",
+            partner_iban_col=None,
+            description_col="Verwendungszweck",
+            column_assignments=[
+                {"source": "Valuta", "target": "valuta_date", "sort_order": 0, "duplicate_check": False},
+                {"source": "Buchungsdatum", "target": "booking_date", "sort_order": 1, "duplicate_check": False},
+                {"source": "Betrag", "target": "amount", "sort_order": 2, "duplicate_check": False},
+                {"source": "Auftraggeber", "target": "partner_name", "sort_order": 3, "duplicate_check": False},
+                {"source": "Verwendungszweck", "target": "description", "sort_order": 4, "duplicate_check": False},
+                {"source": "Referenz", "target": "unused", "sort_order": 5, "duplicate_check": True},
+            ],
+            decimal_separator=".",
+            date_format="%Y-%m-%d",
+            delimiter=",",
+            encoding="utf-8",
+            skip_rows=0,
+        )
+        db_session.add(mapping)
+
+        previous_run = ImportRun(
+            account_id=account.id,
+            mandant_id=mandant.id,
+            user_id=user.id,
+            filename="legacy.csv",
+            status=ImportStatus.completed.value,
+            row_count=1,
+        )
+        db_session.add(previous_run)
+        await db_session.flush()
+
+        db_session.add(
+            JournalLine(
+                account_id=account.id,
+                import_run_id=previous_run.id,
+                partner_id=None,
+                service_id=None,
+                service_assignment_mode=None,
+                valuta_date="2026-01-15",
+                booking_date="2026-01-15",
+                amount=Decimal("123.45"),
+                currency="EUR",
+                text="Altbestand",
+                partner_name_raw="Amazon EU",
+                partner_iban_raw=None,
+                partner_account_raw=None,
+                partner_blz_raw=None,
+                partner_bic_raw=None,
+                unmapped_data={"Referenz": "REF-001"},
+            )
+        )
+        await db_session.commit()
+
+        token = await get_auth_token(client, user, mandant)
+
+        duplicate_csv = make_csv([
+            {
+                "Valuta": "2026-01-16",
+                "Buchungsdatum": "2026-01-16",
+                "Betrag": "999.99",
+                "Auftraggeber": "Anderer Partner",
+                "Verwendungszweck": "Neuer Import",
+                "Referenz": "REF-001",
+            }
+        ])
+
+        resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/accounts/{account.id}/imports",
+            files=[("files", ("duplicate.csv", io.BytesIO(duplicate_csv), "text/csv"))],
+            headers=_auth(token),
+        )
+        assert resp.status_code == 201
+        run = resp.json()[0]
+        assert run["row_count"] == 0
+        assert run["skipped_count"] == 1
+
+        lines = (await db_session.exec(select(JournalLine))).all()
+        assert len(lines) == 1
+
+    async def test_import_rejects_missing_duplicate_check_column(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        user = await create_user(db_session, "acc@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        account = await create_account_db(db_session, mandant.id)
+
+        mapping = ColumnMappingConfig(
+            account_id=account.id,
+            valuta_date_col="Valuta",
+            booking_date_col="Buchungsdatum",
+            amount_col="Betrag",
+            partner_name_col="Auftraggeber",
+            partner_iban_col=None,
+            description_col=None,
+            column_assignments=[
+                {"source": "Valuta", "target": "valuta_date", "sort_order": 0, "duplicate_check": False},
+                {"source": "Buchungsdatum", "target": "booking_date", "sort_order": 1, "duplicate_check": False},
+                {"source": "Betrag", "target": "amount", "sort_order": 2, "duplicate_check": False},
+                {"source": "Referenz", "target": "unused", "sort_order": 3, "duplicate_check": True},
+            ],
+            decimal_separator=".",
+            date_format="%Y-%m-%d",
+            delimiter=",",
+            encoding="utf-8",
+            skip_rows=0,
+        )
+        db_session.add(mapping)
+        await db_session.commit()
+        token = await get_auth_token(client, user, mandant)
+
+        csv_bytes = make_csv([
+            {
+                "Valuta": "2026-01-15",
+                "Buchungsdatum": "2026-01-15",
+                "Betrag": "123.45",
+            }
+        ])
+
+        resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/accounts/{account.id}/imports",
+            files=[("files", ("invalid.csv", io.BytesIO(csv_bytes), "text/csv"))],
+            headers=_auth(token),
+        )
+        assert resp.status_code == 422
+        assert "duplicate-check columns" in resp.json()["detail"]
+
+    async def test_duplicate_check_column_misassigned_to_booking_date_does_not_break_parse(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        user = await create_user(db_session, "acc@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        account = await create_account_db(db_session, mandant.id)
+
+        mapping = ColumnMappingConfig(
+            account_id=account.id,
+            valuta_date_col="Valuta",
+            booking_date_col="Buchungsdatum",
+            amount_col="Betrag",
+            partner_name_col="Auftraggeber",
+            partner_iban_col=None,
+            description_col="Verwendungszweck",
+            column_assignments=[
+                {"source": "Valuta", "target": "valuta_date", "sort_order": 0, "duplicate_check": False},
+                {"source": "Buchungsdatum", "target": "booking_date", "sort_order": 1, "duplicate_check": False},
+                {"source": "Betrag", "target": "amount", "sort_order": 2, "duplicate_check": False},
+                {"source": "Auftraggeber", "target": "partner_name", "sort_order": 3, "duplicate_check": False},
+                {"source": "Verwendungszweck", "target": "description", "sort_order": 4, "duplicate_check": False},
+                {"source": "Referenz", "target": "booking_date", "sort_order": 5, "duplicate_check": True},
+            ],
+            decimal_separator=".",
+            date_format="%Y-%m-%d",
+            delimiter=",",
+            encoding="utf-8",
+            skip_rows=0,
+        )
+        db_session.add(mapping)
+        await db_session.commit()
+        token = await get_auth_token(client, user, mandant)
+
+        first_csv = make_csv([
+            {
+                "Valuta": "2026-03-31",
+                "Buchungsdatum": "2026-03-31",
+                "Betrag": "123.45",
+                "Auftraggeber": "Amazon EU",
+                "Verwendungszweck": "Erster Import",
+                "Referenz": "REF-001",
+            }
+        ])
+        second_csv = make_csv([
+            {
+                "Valuta": "2026-04-01",
+                "Buchungsdatum": "2026-04-01",
+                "Betrag": "999.99",
+                "Auftraggeber": "Anderer Partner",
+                "Verwendungszweck": "Zweiter Import",
+                "Referenz": "REF-001",
+            }
+        ])
+
+        resp1 = await client.post(
+            f"/api/v1/mandants/{mandant.id}/accounts/{account.id}/imports",
+            files=[("files", ("first.csv", io.BytesIO(first_csv), "text/csv"))],
+            headers=_auth(token),
+        )
+        assert resp1.status_code == 201
+        run1 = resp1.json()[0]
+        assert run1["row_count"] == 1
+        assert run1["error_count"] == 0
+        assert run1["status"] == ImportStatus.completed.value
+
+        resp2 = await client.post(
+            f"/api/v1/mandants/{mandant.id}/accounts/{account.id}/imports",
+            files=[("files", ("second.csv", io.BytesIO(second_csv), "text/csv"))],
+            headers=_auth(token),
+        )
+        assert resp2.status_code == 201
+        run2 = resp2.json()[0]
+        assert run2["row_count"] == 0
+        assert run2["skipped_count"] == 1
+
+        lines = (await db_session.exec(select(JournalLine))).all()
+        assert len(lines) == 1
+        assert lines[0].booking_date == "2026-03-31"
+
 
 @pytest.mark.asyncio
 class TestMappingApplication:
@@ -251,7 +549,6 @@ class TestMappingApplication:
         This is tested here at the service level by verifying the JournalLine text field.
         """
         from datetime import datetime, timezone
-        from app.tenants.models import ColumnMappingConfig
 
         user = await create_user(db_session, "acc@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)

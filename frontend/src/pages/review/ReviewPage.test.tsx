@@ -81,7 +81,9 @@ const SERVICE_ASSIGNMENT_ITEM = {
   service_id: null,
   context: {
     current_service_id: 'service-base',
+    current_service_name: 'Basisleistung',
     proposed_service_id: 'service-hosting',
+    proposed_service_name: 'Hosting',
     reason: 'single_match',
   },
   status: 'open',
@@ -92,6 +94,7 @@ const SERVICE_ASSIGNMENT_ITEM = {
   journal_line: {
     id: 'line-2',
     partner_id: 'partner-1',
+    partner_name: 'Amazon EU',
     service_id: 'service-base',
     service_assignment_mode: 'auto',
     valuta_date: '2025-03-01',
@@ -217,7 +220,7 @@ describe('ReviewPage', () => {
     await waitFor(() => screen.getByText(/bestätigen/i))
   })
 
-  it('renders service assignment and service type review actions', async () => {
+  it('renders service assignment item and hides service_type_review card', async () => {
     setupUser()
     server.use(
       http.get(`/api/v1/mandants/${MANDANT_ID}/review`, () =>
@@ -228,7 +231,40 @@ describe('ReviewPage', () => {
       renderPage()
     })
     await waitFor(() => expect(screen.getByText(/leistungs-zuordnung/i)).toBeTruthy())
+    expect(screen.getAllByText('Amazon EU').length).toBeGreaterThan(0)
+    expect(screen.getByText('Basisleistung')).toBeTruthy()
+    expect(screen.getByText('Hosting')).toBeTruthy()
     expect(screen.getByText(/vorschlag übernehmen/i)).toBeTruthy()
-    expect(screen.getByText(/typ-review öffnen/i)).toBeTruthy()
+    // service_type_review items are now shown inline with direct actions (no redirect)
+    expect(screen.getByText(/freigeben/i)).toBeTruthy()
+    expect(screen.getByText(/typ korrigieren/i)).toBeTruthy()
+  })
+
+  it('filters items by tab', async () => {
+    setupUser()
+    server.use(
+      http.get(`/api/v1/mandants/${MANDANT_ID}/review`, () =>
+        HttpResponse.json({ items: [OPEN_ITEM, SERVICE_ASSIGNMENT_ITEM], total: 2, page: 1, size: 100, pages: 1 }),
+      ),
+    )
+    await act(async () => {
+      renderPage()
+    })
+    // both items visible in 'Alle' tab by default
+    await waitFor(() => expect(screen.getAllByText('Amazon EU').length).toBeGreaterThan(0))
+    expect(screen.getByText(/vorschlag übernehmen/i)).toBeTruthy()
+
+    // switch to 'Leistung unklar' tab — only service_assignment should show
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /leistung unklar/i }))
+    })
+    await waitFor(() => expect(screen.getByText(/vorschlag übernehmen/i)).toBeTruthy())
+    expect(screen.queryByText(/bestätigen\b(?!.*übernehmen)/i)).toBeNull()
+
+    // switch to 'Kein Partner' tab — nothing matches
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /kein partner/i }))
+    })
+    await waitFor(() => expect(screen.getByText(/keine einträge/i)).toBeTruthy())
   })
 })

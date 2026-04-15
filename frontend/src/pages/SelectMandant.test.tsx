@@ -2,11 +2,12 @@ import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { SelectMandant } from '@/pages/SelectMandant'
 import { useAuthStore } from '@/store/auth-store'
+import { createTestJwt } from '@/test/jwt'
 
 function renderWithMandants() {
   act(() => {
     useAuthStore.setState({
-      token: 'mock-token',
+      token: createTestJwt({ sub: 'u1', role: 'accountant', mandant_id: null }),
       user: { sub: 'u1', role: 'accountant', mandant_id: null },
       mandants: [
         { id: 'mandant-1', name: 'Mandant A' },
@@ -48,6 +49,32 @@ describe('SelectMandant', () => {
     await act(async () => {
       fireEvent.click(screen.getByText('Mandant A'))
     })
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe('/')
+    })
+  })
+
+  it('auto-selects when exactly one mandant is available', async () => {
+    act(() => {
+      useAuthStore.setState({
+        token: createTestJwt({ sub: 'u1', role: 'admin', mandant_id: null }),
+        user: { sub: 'u1', role: 'admin', mandant_id: null },
+        mandants: [{ id: 'mandant-1', name: 'Einziger Mandant' }],
+        selectedMandant: null,
+      })
+    })
+
+    const router = createMemoryRouter(
+      [
+        { path: '/login/select-mandant', element: <SelectMandant /> },
+        { path: '/login', element: <div>Login Page</div> },
+        { path: '/', element: <div>Dashboard</div> },
+      ],
+      { initialEntries: ['/login/select-mandant'] },
+    )
+
+    render(<RouterProvider router={router} />)
+
     await waitFor(() => {
       expect(router.state.location.pathname).toBe('/')
     })

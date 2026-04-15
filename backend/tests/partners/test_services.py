@@ -59,6 +59,35 @@ class TestServices:
         assert body["service_type"] == "supplier"
         assert body["is_base_service"] is False
 
+        reviews = (
+            await db_session.exec(
+                select(ReviewItem).where(
+                    ReviewItem.item_type == "service_type_review",
+                    ReviewItem.service_id == UUID(body["id"]),
+                )
+            )
+        ).all()
+        assert reviews == []
+        assert body["service_type_manual"] is True
+        assert body["tax_rate_manual"] is True
+
+    async def test_create_shareholder_service(self, client: AsyncClient, db_session: AsyncSession):
+        user = await create_user(db_session, "acc2b@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner(client, token, mandant.id)
+
+        resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            json={"name": "Gewinnausschüttung", "service_type": "shareholder", "tax_rate": "0.00"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["service_type"] == "shareholder"
+        assert body["tax_rate"] == "0.00"
+
     async def test_base_service_name_cannot_be_changed(self, client: AsyncClient, db_session: AsyncSession):
         user = await create_user(db_session, "acc3@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
@@ -161,6 +190,9 @@ class TestServices:
         assert len(payload["items"]) == 1
         assert payload["items"][0]["pattern"] == "Lohn"
         assert len(payload["system_defaults"]) >= 1
+        entnahme_rule = next((item for item in payload["system_defaults"] if item["pattern"] == "entnahme"), None)
+        assert entnahme_rule is not None
+        assert entnahme_rule["target_service_type"] == "shareholder"
 
     async def test_matcher_change_revalidates_existing_journal_lines(self, client: AsyncClient, db_session: AsyncSession):
         user = await create_user(db_session, "acc8@test.com", UserRole.accountant)
@@ -224,6 +256,100 @@ class TestServices:
         )
         assert matcher_resp.status_code == 201
 
+        await db_session.refresh(line)
+        assert str(line.service_id) == service_id
+        assert line.service_assignment_mode == "auto"
+
+        review = (
+            await db_session.exec(
+                select(ReviewItem).where(
+                    ReviewItem.item_type == "service_assignment",
+                    ReviewItem.journal_line_id == line.id,
+                )
+            )
+        ).first()
+        assert review is None
+
+    async def test_matcher_change_keeps_review_only_for_ambiguous_assignments(self, client: AsyncClient, db_session: AsyncSession):
+        user = await create_user(db_session, "acc9@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner(client, token, mandant.id)
+
+        services_resp = await client.get(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        base_service_id = services_resp.json()[0]["id"]
+
+        now = utcnow()
+        account = Account(mandant_id=mandant.id, name="Girokonto", created_at=now, updated_at=now)
+        db_session.add(account)
+        await db_session.flush()
+
+        run = ImportRun(
+            account_id=account.id,
+            mandant_id=mandant.id,
+            user_id=user.id,
+            filename="test.csv",
+            status=ImportStatus.completed.value,
+            created_at=now,
+        )
+        db_session.add(run)
+        await db_session.flush()
+
+        line = JournalLine(
+            account_id=account.id,
+            import_run_id=run.id,
+            partner_id=UUID(partner["id"]),
+            service_id=UUID(base_service_id),
+            service_assignment_mode="auto",
+            valuta_date="2026-01-15",
+            booking_date="2026-01-15",
+            amount=Decimal("100.00"),
+            currency="EUR",
+            text="Hosting April",
+            partner_name_raw="Amazon EU",
+            created_at=now,
+        )
+        db_session.add(line)
+        await db_session.commit()
+        await db_session.refresh(line)
+
+        first_service_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            json={"name": "Hosting", "service_type": "unknown", "tax_rate": "20.00"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert first_service_resp.status_code == 201
+        first_service_id = first_service_resp.json()["id"]
+
+        second_service_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            json={"name": "April Service", "service_type": "unknown", "tax_rate": "20.00"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert second_service_resp.status_code == 201
+        second_service_id = second_service_resp.json()["id"]
+
+        first_matcher_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/services/{first_service_id}/matchers",
+            json={"pattern": "hosting", "pattern_type": "string"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert first_matcher_resp.status_code == 201
+
+        second_matcher_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/services/{second_service_id}/matchers",
+            json={"pattern": "april", "pattern_type": "string"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert second_matcher_resp.status_code == 201
+
+        await db_session.refresh(line)
+        assert str(line.service_id) == first_service_id
+
         review = (
             await db_session.exec(
                 select(ReviewItem).where(
@@ -233,5 +359,6 @@ class TestServices:
             )
         ).first()
         assert review is not None
-        assert review.context["current_service_id"] == base_service_id
-        assert review.context["proposed_service_id"] == service_id
+        assert review.context["reason"] == "multiple_matches"
+        assert review.context["current_service_id"] == first_service_id
+        assert set(review.context["matching_services"]) == {first_service_id, second_service_id}

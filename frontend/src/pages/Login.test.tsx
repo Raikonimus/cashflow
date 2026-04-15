@@ -3,6 +3,7 @@ import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { Login } from '@/pages/Login'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/test/msw-server'
+import { createTestJwt } from '@/test/jwt'
 
 function renderLogin(initialPath = '/login') {
   const router = createMemoryRouter(
@@ -92,12 +93,84 @@ describe('Login', () => {
     })
   })
 
+  it('auto-selects the only mandant instead of opening the selection page', async () => {
+    server.use(
+      http.post('/api/v1/auth/login', async () => {
+        return HttpResponse.json({
+          access_token: 'mock.jwt.token.no-mandant',
+          token_type: 'bearer',
+          mandants: [{ id: 'mandant-1', name: 'Test Mandant' }],
+          requires_mandant_selection: true,
+        })
+      }),
+      http.post('/api/v1/auth/select-mandant', async ({ request }) => {
+        const body = (await request.json()) as Record<string, string>
+        expect(body.mandant_id).toBe('mandant-1')
+        return HttpResponse.json({
+          access_token: 'mock.jwt.token.with-mandant',
+          token_type: 'bearer',
+        })
+      }),
+    )
+
+    const { router } = renderLogin()
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(/e-mail/i), {
+        target: { value: 'single-select@example.com' },
+      })
+      fireEvent.change(screen.getByLabelText(/passwort/i), {
+        target: { value: 'password' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: /anmelden/i }))
+    })
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe('/')
+    })
+  })
+
+  it('auto-selects the only mandant for admin login even when login itself does not require selection', async () => {
+    server.use(
+      http.post('/api/v1/auth/login', async () => {
+        return HttpResponse.json({
+          access_token: 'mock.jwt.admin.no-mandant',
+          token_type: 'bearer',
+          mandants: [{ id: 'mandant-1', name: 'Admin Mandant' }],
+          requires_mandant_selection: false,
+        })
+      }),
+      http.post('/api/v1/auth/select-mandant', async ({ request }) => {
+        const body = (await request.json()) as Record<string, string>
+        expect(body.mandant_id).toBe('mandant-1')
+        return HttpResponse.json({
+          access_token: 'mock.jwt.token.with-mandant',
+          token_type: 'bearer',
+        })
+      }),
+    )
+
+    const { router } = renderLogin()
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(/e-mail/i), {
+        target: { value: 'admin-single@example.com' },
+      })
+      fireEvent.change(screen.getByLabelText(/passwort/i), {
+        target: { value: 'password' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: /anmelden/i }))
+    })
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe('/')
+    })
+  })
+
   it('shows loading state while submitting', async () => {
     server.use(
       http.post('/api/v1/auth/login', async () => {
         await new Promise((r) => setTimeout(r, 100))
         return HttpResponse.json({
-          access_token: 't',
+          access_token: createTestJwt({ sub: 'user-1', role: 'accountant', mandant_id: 'm1' }),
           mandants: [{ id: 'm1', name: 'Test' }],
           requires_mandant_selection: false,
         })

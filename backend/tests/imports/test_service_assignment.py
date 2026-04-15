@@ -208,3 +208,56 @@ class TestImportServiceAssignment:
         ).first()
         assert review is not None
         assert review.context["auto_assigned_type"] == ServiceType.employee.value
+
+    async def test_import_detects_shareholder_service_type_from_entnahme_keyword(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+    ):
+        user = await create_user(db_session, "svc-shareholder@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        account = await create_account_db(db_session, mandant.id)
+        await create_mapping_db(db_session, account.id, description_col="Verwendungszweck")
+        token = await get_auth_token(client, user, mandant)
+
+        partner = await create_partner_db(
+            db_session,
+            mandant.id,
+            name="Gesellschafterkonto",
+            iban="DE44500105175407324931",
+        )
+        await ensure_base_service(db_session, partner.id)
+        service = await _create_service(db_session, partner.id, "Privatentnahme", pattern="entnahme")
+
+        csv_bytes = make_csv([
+            {
+                "Valuta": "2026-02-05",
+                "Buchungsdatum": "2026-02-05",
+                "Betrag": "-500.00",
+                "Auftraggeber": "Gesellschafterkonto",
+                "IBAN": "DE44500105175407324931",
+                "Verwendungszweck": "Private Entnahme Februar",
+            }
+        ])
+        resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/accounts/{account.id}/imports",
+            files=[("files", ("test.csv", csv_bytes, "text/csv"))],
+            headers=_auth(token),
+        )
+        assert resp.status_code == 201
+
+        await db_session.refresh(service)
+        assert service.service_type == ServiceType.shareholder.value
+        assert service.tax_rate == Decimal("0.00")
+
+        review = (
+            await db_session.exec(
+                select(ReviewItem).where(
+                    ReviewItem.item_type == "service_type_review",
+                    ReviewItem.service_id == service.id,
+                )
+            )
+        ).first()
+        assert review is not None
+        assert review.context["auto_assigned_type"] == ServiceType.shareholder.value

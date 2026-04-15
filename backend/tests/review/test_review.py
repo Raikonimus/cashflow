@@ -551,6 +551,60 @@ class TestReassignReviewItem:
         )
         assert resp.status_code == 409
 
+    async def test_reassign_deletes_other_open_reviews_for_same_line(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        user = await create_user(db_session, "acc-reassign@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+
+        old_partner = await create_partner_db(db_session, mandant.id, "Wrong Partner")
+        new_partner = await create_partner_db(db_session, mandant.id, "Correct Partner")
+        current_service = await _create_service(db_session, old_partner.id, "Altservice")
+        proposed_service = await _create_service(db_session, old_partner.id, "Vorschlag")
+        line, item = await _create_review_item(
+            db_session, mandant.id, partner_id=old_partner.id
+        )
+        line.service_id = current_service.id
+        line.service_assignment_mode = "auto"
+        db_session.add(line)
+        await db_session.flush()
+        db_session.add(
+            ReviewItem(
+                mandant_id=mandant.id,
+                item_type="service_assignment",
+                journal_line_id=line.id,
+                context={
+                    "current_service_id": str(current_service.id),
+                    "proposed_service_id": str(proposed_service.id),
+                    "reason": "matcher_changed",
+                },
+                status="open",
+                created_at=utcnow(),
+                updated_at=utcnow(),
+            )
+        )
+        await db_session.commit()
+
+        resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/review/{item.id}/reassign",
+            json={"partner_id": str(new_partner.id)},
+            headers=_auth(token),
+        )
+        assert resp.status_code == 200
+
+        remaining = (
+            await db_session.exec(
+                select(ReviewItem).where(
+                    ReviewItem.journal_line_id == line.id,
+                    ReviewItem.item_type == "service_assignment",
+                    ReviewItem.status == "open",
+                )
+            )
+        ).all()
+        assert not any(review.context.get("reason") == "matcher_changed" for review in remaining)
+
 
 # ---------------------------------------------------------------------------
 # POST /review/{id}/new-partner
@@ -666,8 +720,11 @@ class TestServiceAssignmentReviewItem:
         assert resp.status_code == 200
         review_item = next(entry for entry in resp.json()["items"] if entry["id"] == str(item.id))
         assert review_item["context"]["current_service_id"] == str(current_service.id)
+        assert review_item["context"]["current_service_name"] == "Basisleistung"
         assert review_item["context"]["proposed_service_id"] == str(proposed_service.id)
+        assert review_item["context"]["proposed_service_name"] == "Hosting"
         assert review_item["journal_line"]["id"] == str(line.id)
+        assert review_item["journal_line"]["partner_name"] == "Amazon EU"
         assert review_item["journal_line"]["service_id"] == str(current_service.id)
 
     async def test_confirm_assigns_proposed_service_and_sets_manual_mode(
@@ -759,6 +816,98 @@ class TestServiceAssignmentReviewItem:
         )
         assert resp.status_code == 422
 
+    async def test_confirm_keeps_open_service_type_review_for_assigned_service(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        user = await create_user(db_session, "svc-confirm-type@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+
+        partner = await create_partner_db(db_session, mandant.id, "Amazon EU")
+        current_service = await _create_service(db_session, partner.id, "Basisleistung")
+        proposed_service = await _create_service(db_session, partner.id, "Hosting")
+        line, item = await _create_service_assignment_review_item(
+            db_session,
+            mandant.id,
+            partner.id,
+            current_service.id,
+            proposed_service.id,
+        )
+
+        type_review = ReviewItem(
+            mandant_id=mandant.id,
+            item_type="service_type_review",
+            service_id=proposed_service.id,
+            context={
+                "previous_type": ServiceType.unknown.value,
+                "auto_assigned_type": ServiceType.supplier.value,
+                "reason": "amount<=0",
+                "current_journal_line_ids": [str(line.id)],
+            },
+            status="open",
+            created_at=utcnow(),
+            updated_at=utcnow(),
+        )
+        db_session.add(type_review)
+        await db_session.commit()
+
+        resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/review/{item.id}/confirm",
+            headers=_auth(token),
+        )
+        assert resp.status_code == 200
+
+        remaining_type_review = await db_session.get(ReviewItem, type_review.id)
+        assert remaining_type_review is not None
+        assert remaining_type_review.status == "open"
+
+    async def test_confirm_keeps_open_service_type_review_for_previous_service(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        user = await create_user(db_session, "svc-confirm-prev-type@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+
+        partner = await create_partner_db(db_session, mandant.id, "Amazon EU")
+        current_service = await _create_service(db_session, partner.id, "Basisleistung")
+        proposed_service = await _create_service(db_session, partner.id, "Hosting")
+        _, item = await _create_service_assignment_review_item(
+            db_session,
+            mandant.id,
+            partner.id,
+            current_service.id,
+            proposed_service.id,
+        )
+
+        type_review = ReviewItem(
+            mandant_id=mandant.id,
+            item_type="service_type_review",
+            service_id=current_service.id,
+            context={
+                "previous_type": ServiceType.unknown.value,
+                "auto_assigned_type": ServiceType.supplier.value,
+                "reason": "amount<=0",
+                "current_journal_line_ids": [],
+            },
+            status="open",
+            created_at=utcnow(),
+            updated_at=utcnow(),
+        )
+        db_session.add(type_review)
+        await db_session.commit()
+
+        resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/review/{item.id}/confirm",
+            headers=_auth(token),
+        )
+        assert resp.status_code == 200
+
+        remaining_type_review = await db_session.get(ReviewItem, type_review.id)
+        assert remaining_type_review is not None
+        assert remaining_type_review.status == "open"
+
     async def test_reject_keeps_assignment_unchanged(
         self, client: AsyncClient, db_session: AsyncSession
     ):
@@ -791,6 +940,65 @@ class TestServiceAssignmentReviewItem:
 
 
 class TestServiceTypeReviewItem:
+    async def test_list_can_filter_service_type_reviews_only(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        user = await create_user(db_session, "svc-type-filter@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+
+        partner = await create_partner_db(db_session, mandant.id, "Payroll GmbH")
+        service, type_item, _ = await _create_service_type_review_item(db_session, mandant.id, partner.id)
+        current_service = await _create_service(db_session, partner.id, "Basisleistung")
+        _, assignment_item = await _create_service_assignment_review_item(
+            db_session,
+            mandant.id,
+            partner.id,
+            current_service.id,
+            service.id,
+        )
+
+        resp = await client.get(
+            f"/api/v1/mandants/{mandant.id}/review?item_type=service_type_review",
+            headers=_auth(token),
+        )
+
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert [item["id"] for item in payload["items"]] == [str(type_item.id)]
+        assert str(assignment_item.id) not in {item["id"] for item in payload["items"]}
+
+    async def test_list_hides_legacy_open_service_type_reviews_without_context(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        user = await create_user(db_session, "svc-type-legacy@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+
+        partner = await create_partner_db(db_session, mandant.id, "Payroll GmbH")
+        service = await _create_service(db_session, partner.id, "Altbestand")
+        legacy_item = ReviewItem(
+            mandant_id=mandant.id,
+            item_type="service_type_review",
+            service_id=service.id,
+            context={},
+            status="open",
+            created_at=utcnow(),
+            updated_at=utcnow(),
+        )
+        db_session.add(legacy_item)
+        await db_session.commit()
+
+        resp = await client.get(
+            f"/api/v1/mandants/{mandant.id}/review?item_type=service_type_review",
+            headers=_auth(token),
+        )
+
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["items"] == []
     async def test_get_review_detail_includes_service_and_assigned_lines(
         self, client: AsyncClient, db_session: AsyncSession
     ):
@@ -809,6 +1017,7 @@ class TestServiceTypeReviewItem:
         assert resp.status_code == 200
         payload = resp.json()
         assert payload["service_id"] == str(service.id)
+        assert payload["service"]["partner_name"] == "Payroll GmbH"
         assert payload["context"]["previous_type"] == ServiceType.unknown.value
         assert payload["context"]["auto_assigned_type"] == ServiceType.employee.value
         assert payload["service"]["tax_rate"] == "0.00"

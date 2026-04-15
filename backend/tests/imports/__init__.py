@@ -14,7 +14,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.auth.models import MandantUser, User, UserRole
 from app.auth.security import hash_password
 from app.main import app
-from app.partners.models import Partner, PartnerIban, PartnerName
+from app.partners.models import Partner, PartnerAccount, PartnerIban, PartnerName
 from app.tenants.models import Account, ColumnMappingConfig, Mandant
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
@@ -112,6 +112,8 @@ async def create_partner_db(
     mandant_id: UUID,
     name: str = "Test Partner",
     iban: str | None = None,
+    account_number: str | None = None,
+    blz: str | None = None,
 ) -> Partner:
     now = utcnow()
     partner = Partner(mandant_id=mandant_id, name=name, created_at=now, updated_at=now)
@@ -120,6 +122,9 @@ async def create_partner_db(
     if iban:
         pi = PartnerIban(partner_id=partner.id, iban=iban, created_at=now)
         session.add(pi)
+    if account_number:
+        pa = PartnerAccount(partner_id=partner.id, account_number=account_number, blz=blz, created_at=now)
+        session.add(pa)
     await session.commit()
     await session.refresh(partner)
     return partner

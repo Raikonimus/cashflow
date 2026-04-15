@@ -1,9 +1,17 @@
 """Tests for Mandant CRUD and Account management (Bolt 003)."""
+from datetime import datetime, timezone
+from decimal import Decimal
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 
 from app.auth.models import UserRole
+from app.imports.models import ImportRun, JournalLine, ReviewItem, utcnow
+from app.partners.models import AuditLog, Partner, PartnerName
+from app.services.models import Service, ServiceMatcher, ServiceTypeKeyword
+from app.tenants.models import Account, ColumnMappingConfig, Mandant
 from tests.tenants.conftest import (
     assign_user_to_mandant,
     create_mandant,
@@ -107,6 +115,155 @@ class TestMandantCRUD:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 404
+
+    async def test_cleanup_preview_lists_concrete_mandant_data(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        admin = await create_user(db_session, "cleanup-preview@test.com", UserRole.admin)
+        token = await get_auth_token(client, admin)
+        mandant = await create_mandant(db_session, "Cleanup GmbH")
+        user = await create_user(db_session, "cleanup-user@test.com", UserRole.accountant)
+        await assign_user_to_mandant(db_session, user, mandant)
+
+        now = datetime.now(timezone.utc)
+        account = Account(mandant_id=mandant.id, name="Main", currency="EUR", created_at=now, updated_at=now)
+        db_session.add(account)
+        await db_session.flush()
+
+        db_session.add(ColumnMappingConfig(account_id=account.id, valuta_date_col="A", booking_date_col="B", amount_col="C", created_at=now, updated_at=now))
+
+        partner = Partner(mandant_id=mandant.id, name="Partner A", created_at=utcnow(), updated_at=utcnow())
+        db_session.add(partner)
+        await db_session.flush()
+        db_session.add(PartnerName(partner_id=partner.id, name="Partner Alias", created_at=utcnow()))
+
+        service = Service(partner_id=partner.id, name="Beratung", service_type="supplier", tax_rate=Decimal("20.00"), created_at=utcnow(), updated_at=utcnow())
+        db_session.add(service)
+        await db_session.flush()
+        db_session.add(ServiceMatcher(service_id=service.id, pattern="consulting", pattern_type="string", created_at=utcnow(), updated_at=utcnow()))
+
+        run = ImportRun(account_id=account.id, mandant_id=mandant.id, user_id=user.id, filename="import.csv", status="completed", created_at=utcnow())
+        db_session.add(run)
+        await db_session.flush()
+
+        line = JournalLine(
+            account_id=account.id,
+            import_run_id=run.id,
+            partner_id=partner.id,
+            service_id=service.id,
+            valuta_date="2026-04-01",
+            booking_date="2026-04-01",
+            amount=Decimal("10.00"),
+            currency="EUR",
+            text="Consulting",
+            partner_name_raw="Partner A",
+            created_at=utcnow(),
+        )
+        db_session.add(line)
+        await db_session.flush()
+
+        db_session.add(ReviewItem(mandant_id=mandant.id, item_type="service_assignment", journal_line_id=line.id, context={"reason": "multiple_matches"}, status="open", created_at=utcnow(), updated_at=utcnow()))
+        db_session.add(AuditLog(mandant_id=mandant.id, event_type="journal.bulk_assign", actor_id=admin.id, payload={}, created_at=utcnow()))
+        db_session.add(ServiceTypeKeyword(mandant_id=mandant.id, pattern="lohn", pattern_type="string", target_service_type="employee", created_at=utcnow(), updated_at=utcnow()))
+        await db_session.commit()
+
+        resp = await client.get(
+            f"/api/v1/mandants/{mandant.id}/cleanup-preview",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert any(item["label"] == "Mandant" and item["count"] == 1 for item in body["delete_mandant"]["items"])
+        assert any(item["label"] == "Buchungszeilen" and item["count"] == 1 for item in body["delete_data"]["items"])
+        assert any(section["key"] == "journal_data" for section in body["selectable_sections"])
+
+    async def test_cleanup_selected_journal_data_only_affects_target_mandant(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        admin = await create_user(db_session, "cleanup-journal@test.com", UserRole.admin)
+        token = await get_auth_token(client, admin)
+        mandant = await create_mandant(db_session, "Scope GmbH")
+        other = await create_mandant(db_session, "Other GmbH")
+        user = await create_user(db_session, "scope-user@test.com", UserRole.accountant)
+        await assign_user_to_mandant(db_session, user, mandant)
+
+        now = datetime.now(timezone.utc)
+        account = Account(mandant_id=mandant.id, name="Main", currency="EUR", created_at=now, updated_at=now)
+        other_account = Account(mandant_id=other.id, name="Other", currency="EUR", created_at=now, updated_at=now)
+        db_session.add(account)
+        db_session.add(other_account)
+        await db_session.flush()
+
+        run = ImportRun(account_id=account.id, mandant_id=mandant.id, user_id=user.id, filename="import.csv", status="completed", created_at=utcnow())
+        other_run = ImportRun(account_id=other_account.id, mandant_id=other.id, user_id=admin.id, filename="other.csv", status="completed", created_at=utcnow())
+        db_session.add(run)
+        db_session.add(other_run)
+        await db_session.flush()
+
+        line = JournalLine(account_id=account.id, import_run_id=run.id, valuta_date="2026-04-01", booking_date="2026-04-01", amount=Decimal("10.00"), currency="EUR", created_at=utcnow())
+        other_line = JournalLine(account_id=other_account.id, import_run_id=other_run.id, valuta_date="2026-04-01", booking_date="2026-04-01", amount=Decimal("20.00"), currency="EUR", created_at=utcnow())
+        db_session.add(line)
+        db_session.add(other_line)
+        await db_session.flush()
+        db_session.add(ReviewItem(mandant_id=mandant.id, item_type="name_match_with_iban", journal_line_id=line.id, context={}, status="open", created_at=utcnow(), updated_at=utcnow()))
+        db_session.add(ReviewItem(mandant_id=other.id, item_type="name_match_with_iban", journal_line_id=other_line.id, context={}, status="open", created_at=utcnow(), updated_at=utcnow()))
+        await db_session.commit()
+
+        resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/cleanup",
+            json={"mode": "selected", "scopes": ["journal_data"]},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 200
+
+        assert (await db_session.exec(select(JournalLine).where(JournalLine.account_id == account.id))).all() == []
+        assert len((await db_session.exec(select(JournalLine).where(JournalLine.account_id == other_account.id))).all()) == 1
+
+    async def test_cleanup_delete_data_keeps_mandant_but_removes_scoped_data(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        admin = await create_user(db_session, "cleanup-data@test.com", UserRole.admin)
+        token = await get_auth_token(client, admin)
+        mandant = await create_mandant(db_session, "Data GmbH")
+
+        now = datetime.now(timezone.utc)
+        account = Account(mandant_id=mandant.id, name="Main", currency="EUR", created_at=now, updated_at=now)
+        db_session.add(account)
+        await db_session.flush()
+        db_session.add(ServiceTypeKeyword(mandant_id=mandant.id, pattern="steuer", pattern_type="string", target_service_type="authority", created_at=utcnow(), updated_at=utcnow()))
+        db_session.add(AuditLog(mandant_id=mandant.id, event_type="x", actor_id=admin.id, payload={}, created_at=utcnow()))
+        await db_session.commit()
+
+        resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/cleanup",
+            json={"mode": "delete_data"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 200
+
+        assert await db_session.get(Mandant, mandant.id) is not None
+        assert (await db_session.exec(select(Account).where(Account.mandant_id == mandant.id))).all() == []
+        assert (await db_session.exec(select(ServiceTypeKeyword).where(ServiceTypeKeyword.mandant_id == mandant.id))).all() == []
+        assert (await db_session.exec(select(AuditLog).where(AuditLog.mandant_id == mandant.id))).all() == []
+
+    async def test_cleanup_delete_mandant_removes_only_target_mandant(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        admin = await create_user(db_session, "cleanup-delete@test.com", UserRole.admin)
+        token = await get_auth_token(client, admin)
+        target = await create_mandant(db_session, "Delete Me")
+        survivor = await create_mandant(db_session, "Keep Me")
+        user = await create_user(db_session, "target-user@test.com", UserRole.viewer)
+        await assign_user_to_mandant(db_session, user, target)
+
+        resp = await client.post(
+            f"/api/v1/mandants/{target.id}/cleanup",
+            json={"mode": "delete_mandant"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 200
+        assert await db_session.get(Mandant, target.id) is None
+        assert await db_session.get(Mandant, survivor.id) is not None
 
 
 @pytest.mark.asyncio
