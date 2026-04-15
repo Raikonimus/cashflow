@@ -36,10 +36,10 @@ const TARGET_KEYWORDS: Record<string, string[]> = {
 
 /** Gibt das passende Zielfeld zurück, wenn der Spaltenname einem Keyword entspricht oder es enthält. */
 function autoSuggestTarget(colName: string): string {
-  const col = colName.toLowerCase().replace(/[^a-z0-9äöüß]/g, '')
+  const col = colName.toLowerCase().replaceAll(/[^a-z0-9äöüß]/g, '')
   for (const [target, keywords] of Object.entries(TARGET_KEYWORDS)) {
     for (const kw of keywords) {
-      const kwNorm = kw.replace(/[^a-z0-9äöüß]/g, '')
+      const kwNorm = kw.replaceAll(/[^a-z0-9äöüß]/g, '')
       if (col.includes(kwNorm) || kwNorm.includes(col)) return target
     }
   }
@@ -72,7 +72,7 @@ interface MappingEditorProps {
 
 // ─── Komponente ───────────────────────────────────────────────────────────────
 
-export function MappingEditor({ accountId, onSaved }: MappingEditorProps) {
+export function MappingEditor({ accountId, onSaved }: Readonly<MappingEditorProps>) {
   const mandantId = useAuthStore((s) => s.user?.mandant_id ?? '')
   const queryClient = useQueryClient()
 
@@ -88,6 +88,7 @@ export function MappingEditor({ accountId, onSaved }: MappingEditorProps) {
   // Assignment-Modus: erkannte CSV-Spalten + ihre Zuordnung
   const [csvColumns, setCsvColumns] = useState<string[] | null>(null)
   const [assignments, setAssignments] = useState<Record<string, string>>({})
+  const [duplicateChecks, setDuplicateChecks] = useState<Record<string, boolean>>({})
   const [sampleRows, setSampleRows] = useState<Record<string, string>[]>([])
   const [previewRowIdx, setPreviewRowIdx] = useState(0)
   const [previewLoading, setPreviewLoading] = useState(false)
@@ -127,9 +128,12 @@ export function MappingEditor({ accountId, onSaved }: MappingEditorProps) {
       const sorted = [...mapping.column_assignments].sort((a, b) => a.sort_order - b.sort_order)
       const cols = [...new Set(sorted.map((a) => a.source))]
       const assn: Record<string, string> = {}
+      const duplicateFlags: Record<string, boolean> = {}
       for (const a of sorted) assn[a.source] = a.target
+      for (const a of sorted) duplicateFlags[a.source] = a.duplicate_check ?? false
       setCsvColumns(cols)
       setAssignments(assn)
+      setDuplicateChecks(duplicateFlags)
     } else {
       setLegacy({
         valuta_date_col: mapping.valuta_date_col ?? '',
@@ -166,9 +170,12 @@ export function MappingEditor({ accountId, onSaved }: MappingEditorProps) {
       const cols = result.columns
       // Bestehende Zuordnungen erhalten; neue Spalten auto-vorschlagen oder leer
       const newAssn: Record<string, string> = {}
+      const newDuplicateChecks: Record<string, boolean> = {}
       for (const col of cols) newAssn[col] = assignments[col] || autoSuggestTarget(col)
+      for (const col of cols) newDuplicateChecks[col] = duplicateChecks[col] ?? false
       setCsvColumns(cols)
       setAssignments(newAssn)
+      setDuplicateChecks(newDuplicateChecks)
       setSampleRows(result.sample_rows ?? [])
       setPreviewRowIdx(0)
     } catch {
@@ -187,6 +194,7 @@ export function MappingEditor({ accountId, onSaved }: MappingEditorProps) {
           source: col,
           target: assignments[col] || 'unused',
           sort_order: i,
+          duplicate_check: duplicateChecks[col] ?? false,
         }))
         return saveMapping(mandantId, accountId, { column_assignments, ...parser })
       }
@@ -206,13 +214,19 @@ export function MappingEditor({ accountId, onSaved }: MappingEditorProps) {
   })
 
   // Validierung
-  const canSave =
-    csvColumns !== null
-      ? csvColumns.length > 0 && csvColumns.every((col) => !!assignments[col])
-      : !!legacy.valuta_date_col && !!legacy.booking_date_col && !!legacy.amount_col
+  const isAssignmentMode = csvColumns === null
+  const canSave = isAssignmentMode
+    ? !!legacy.valuta_date_col && !!legacy.booking_date_col && !!legacy.amount_col
+    : csvColumns.length > 0
+      && csvColumns.every((col) => !!assignments[col])
+      && csvColumns.some((col) => duplicateChecks[col])
 
-  const unassignedCount =
-    csvColumns !== null ? csvColumns.filter((c) => !assignments[c]).length : 0
+  const unassignedCount = isAssignmentMode
+    ? 0
+    : csvColumns.filter((col) => !assignments[col]).length
+  const duplicateCheckCount = isAssignmentMode
+    ? 0
+    : csvColumns.filter((col) => duplicateChecks[col]).length
 
   if (isLoading) {
     return <div className="text-sm text-gray-400">Lade Mapping-Konfiguration …</div>
@@ -297,11 +311,17 @@ export function MappingEditor({ accountId, onSaved }: MappingEditorProps) {
         <section className="rounded-xl border border-gray-200 p-4">
           <h3 className="mb-3 text-sm font-semibold text-gray-700">
             Spaltenzuordnung
+            {' '}
             <span className="ml-2 text-xs font-normal text-gray-400">
               {csvColumns.length} Spalten erkannt · * Pflichtfeld
               {unassignedCount > 0 && (
                 <span className="ml-2 font-medium text-amber-600">
                   {unassignedCount} noch nicht zugeordnet
+                </span>
+              )}
+              {duplicateCheckCount === 0 && (
+                <span className="ml-2 font-medium text-amber-600">
+                  keine Dubletten-Spalte ausgewählt
                 </span>
               )}
             </span>
@@ -330,6 +350,7 @@ export function MappingEditor({ accountId, onSaved }: MappingEditorProps) {
                 <tr>
                   <th className="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">CSV-Spalte</th>
                   <th className="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">Beispielwert</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">Dublettenprüfung</th>
                   <th className="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">Zielfeld</th>
                 </tr>
               </thead>
@@ -356,6 +377,21 @@ export function MappingEditor({ accountId, onSaved }: MappingEditorProps) {
                         </span>
                       </td>
                       <td className="px-3 py-2">
+                        <label className="inline-flex items-center gap-2 text-xs text-gray-600">
+                          <input
+                            type="checkbox"
+                            checked={duplicateChecks[col] ?? false}
+                            onChange={(e) => setDuplicateChecks((current) => ({
+                              ...current,
+                              [col]: e.target.checked,
+                            }))}
+                            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          {' '}
+                          verwenden
+                        </label>
+                      </td>
+                      <td className="px-3 py-2">
                         <select
                           value={val}
                           onChange={(e) => setAssignments((a) => ({ ...a, [col]: e.target.value }))}
@@ -377,7 +413,7 @@ export function MappingEditor({ accountId, onSaved }: MappingEditorProps) {
           </div>
           {!canSave && (
             <p className="mt-2 text-xs text-amber-600">
-              Bitte jeder Spalte ein Zielfeld zuweisen oder „Nicht verwendet" wählen.
+              Bitte jeder Spalte ein Zielfeld zuweisen oder „Nicht verwendet" wählen und mindestens eine Dubletten-Spalte markieren.
             </p>
           )}
         </section>

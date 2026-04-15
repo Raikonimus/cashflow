@@ -1,8 +1,9 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useAuthStore } from '@/store/auth-store'
 import { listReviewArchive } from '@/api/review'
-import { EmptyReviewState, formatCurrency, formatReviewReason, ReviewSubnav, reviewStatusLabels, reviewTypeLabels, serviceTypeLabels } from './reviewShared'
+import { EmptyReviewState, formatCurrency, formatReviewReason, reviewStatusLabels, reviewTypeLabels, serviceTypeLabels } from './reviewShared'
 
 export function ReviewArchivePage() {
   const mandantId = useAuthStore((s) => s.user?.mandant_id ?? '')
@@ -29,13 +30,14 @@ export function ReviewArchivePage() {
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
       <div className="mb-4">
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Review</p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">Archiv</h1>
+        <div className="mt-2 flex items-start justify-between gap-4">
+          <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Archiv</h1>
+          <Link to="/review" className="shrink-0 rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">← Offene Entscheidungen</Link>
+        </div>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
           Bereits bestätigte, korrigierte oder abgelehnte Prüfentscheidungen mit Filtern für Typ, Bearbeiter und Zeitraum.
         </p>
       </div>
-
-      <ReviewSubnav />
 
       <section className="mb-6 grid gap-3 rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm md:grid-cols-4">
         <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -45,6 +47,8 @@ export function ReviewArchivePage() {
             <option value="service_assignment">Leistungs-Zuordnung</option>
             <option value="service_type_review">Leistungstyp</option>
             <option value="name_match_with_iban">Partner-Prüfung</option>
+            <option value="no_partner_identified">Kein Partner erkannt</option>
+            <option value="service_matcher_ambiguous">Mehrdeutige Leistung</option>
           </select>
         </label>
         <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">

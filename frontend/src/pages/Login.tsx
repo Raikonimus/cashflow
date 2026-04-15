@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useNavigate, Link } from 'react-router-dom'
 import { z } from 'zod'
-import { loginUser } from '@/api/auth'
+import { loginUser, selectMandant } from '@/api/auth'
 import { useAuthStore } from '@/store/auth-store'
 
 const schema = z.object({
@@ -16,6 +16,7 @@ type FormValues = z.infer<typeof schema>
 export function Login() {
   const navigate = useNavigate()
   const login = useAuthStore((s) => s.login)
+  const storeSelectMandant = useAuthStore((s) => s.selectMandant)
   const [error, setError] = useState<string | null>(null)
 
   const {
@@ -29,6 +30,20 @@ export function Login() {
     try {
       const data = await loginUser(values.email, values.password)
       login(data.access_token, data.mandants)
+      const currentUser = useAuthStore.getState().user
+      if (data.mandants.length === 1 && !currentUser?.mandant_id) {
+        try {
+          const mandant = data.mandants[0]
+          const selection = await selectMandant(mandant.id)
+          storeSelectMandant(mandant, selection.access_token)
+          navigate('/')
+          return
+        } catch {
+          setError('Mandant konnte nicht automatisch ausgewählt werden.')
+          return
+        }
+      }
+
       if (data.requires_mandant_selection) {
         navigate('/login/select-mandant')
       } else {

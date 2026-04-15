@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import axios from 'axios'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '@/store/auth-store'
@@ -7,6 +8,61 @@ import type { ImportRunDetail, ImportDuplicateInfo } from '@/api/imports'
 import { listAccounts } from '@/api/accounts'
 
 type Step = 'upload' | 'result'
+
+function getUploadErrorMessage(error: unknown): string {
+  if (!axios.isAxiosError(error)) {
+    return 'Der Upload konnte nicht verarbeitet werden.'
+  }
+
+  if (!error.response) {
+    return 'Der Server ist nicht erreichbar. Bitte prüfen Sie, ob Backend und API laufen.'
+  }
+
+  const responseData = error.response.data
+  if (typeof responseData === 'string') {
+    const plainMessage = responseData.trim()
+    if (plainMessage && !plainMessage.startsWith('<')) {
+      return plainMessage
+    }
+  }
+
+  const detail = error.response?.data?.detail
+  if (typeof detail === 'string' && detail.trim()) {
+    return detail.trim()
+  }
+
+  if (Array.isArray(detail) && detail.length > 0) {
+    const messages = detail
+      .map((item) => {
+        if (typeof item === 'string') {
+          return item
+        }
+        if (item && typeof item === 'object') {
+          const msg = typeof item.msg === 'string' ? item.msg : ''
+          const loc = Array.isArray(item.loc) ? item.loc.join(' -> ') : ''
+          return [loc, msg].filter(Boolean).join(': ')
+        }
+        return ''
+      })
+      .filter(Boolean)
+
+    if (messages.length > 0) {
+      return messages.join(' | ')
+    }
+  }
+
+  const statusText = error.response.statusText?.trim()
+  if (statusText) {
+    return `${error.response.status}: ${statusText}`
+  }
+
+  const message = error.message?.trim()
+  if (message) {
+    return message
+  }
+
+  return 'Der Upload konnte nicht verarbeitet werden.'
+}
 
 export function ImportPage() {
   const { accountId } = useParams<{ accountId: string }>()
@@ -27,20 +83,25 @@ export function ImportPage() {
 
   const { data: history } = useQuery({
     queryKey: ['import-runs', mandantId, accountId],
-    queryFn: () => listImportRuns(mandantId, accountId!),
+    queryFn: () => listImportRuns(mandantId, accountId),
     enabled: !!mandantId && !!accountId,
   })
 
   const account = accounts.find((a) => a.id === accountId)
 
   const mutation = useMutation({
-    mutationFn: () => uploadCsv(mandantId, accountId!, selectedFiles),
+    mutationFn: () => uploadCsv(mandantId, accountId, selectedFiles),
     onSuccess: (data) => {
       setResults(data)
       setStep('result')
       queryClient.invalidateQueries({ queryKey: ['import-runs', mandantId, accountId] })
+      queryClient.invalidateQueries({ queryKey: ['review-badge'] })
     },
   })
+
+  const uploadErrorMessage = mutation.isError
+    ? getUploadErrorMessage(mutation.error)
+    : null
 
   if (!accountId) {
     return (
@@ -78,10 +139,7 @@ export function ImportPage() {
             <strong>{account?.name ?? accountId}</strong>.
           </p>
 
-          <div
-            className="mb-4 flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 p-8 hover:border-blue-400"
-            onClick={() => fileInputRef.current?.click()}
-          >
+          <label className="mb-4 flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 p-8 hover:border-blue-400">
             <svg className="mb-2 h-10 w-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
@@ -101,7 +159,7 @@ export function ImportPage() {
                 setSelectedFiles(files)
               }}
             />
-          </div>
+          </label>
 
           {selectedFiles.length > 0 && (
             <ul className="mb-4 space-y-1 text-sm text-gray-600">
@@ -116,7 +174,7 @@ export function ImportPage() {
 
           {mutation.isError && (
             <p className="mb-4 text-sm text-red-500">
-              Fehler beim Hochladen. Bitte prüfen Sie die Dateien und das Spalten-Mapping.
+              Fehler beim Hochladen. {uploadErrorMessage}
             </p>
           )}
 
@@ -203,10 +261,21 @@ export function ImportPage() {
   )
 }
 
-function ImportRunCard({ run }: { run: ImportRunDetail }) {
+function ImportRunCard({ run }: Readonly<{ run: ImportRunDetail }>) {
   const [showDuplicates, setShowDuplicates] = useState(false)
   const hasErrors = run.error_count > 0
   const duplicates: ImportDuplicateInfo[] = run.error_details?.duplicates ?? []
+  const zeroAmountSkipped: number = run.error_details?.zero_amount_skipped ?? 0
+  const realDuplicateCount = duplicates.length
+  let skippedLabel: string
+  if (realDuplicateCount > 0 && zeroAmountSkipped > 0) {
+    const pluralSuffix = realDuplicateCount === 1 ? '' : 'e'
+    skippedLabel = `Übersprungen: ${run.skipped_count} (${realDuplicateCount} Duplikat${pluralSuffix}, ${zeroAmountSkipped} Betrag 0)`
+  } else if (realDuplicateCount > 0) {
+    skippedLabel = `Duplikate: ${realDuplicateCount}`
+  } else {
+    skippedLabel = `Übersprungen: ${zeroAmountSkipped} (Betrag 0)`
+  }
 
   return (
     <div
@@ -221,12 +290,16 @@ function ImportRunCard({ run }: { run: ImportRunDetail }) {
       <div className="mt-2 flex flex-wrap gap-4 text-sm text-gray-600">
         <span>Importiert: <strong>{run.row_count}</strong></span>
         {run.skipped_count > 0 && (
-          <button
-            onClick={() => setShowDuplicates((v) => !v)}
-            className="text-amber-600 hover:underline"
-          >
-            Duplikate: <strong>{run.skipped_count}</strong> {showDuplicates ? '▲' : '▼'}
-          </button>
+          realDuplicateCount > 0 ? (
+            <button
+              onClick={() => setShowDuplicates((v) => !v)}
+              className="text-amber-600 hover:underline"
+            >
+              <strong>{skippedLabel}</strong> {showDuplicates ? '▲' : '▼'}
+            </button>
+          ) : (
+            <span className="text-gray-500">{skippedLabel}</span>
+          )
         )}
         {hasErrors && (
           <span className="text-orange-600">Parse-Fehler: <strong>{run.error_count}</strong></span>
@@ -248,8 +321,11 @@ function ImportRunCard({ run }: { run: ImportRunDetail }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-amber-50">
-              {duplicates.map((d, i) => (
-                <tr key={i} className="hover:bg-amber-50">
+              {duplicates.map((d) => (
+                <tr
+                  key={`${d.row ?? 'na'}-${d.valuta_date}-${d.amount}-${d.text ?? d.partner_name_raw ?? 'na'}`}
+                  className="hover:bg-amber-50"
+                >
                   <td className="px-3 py-1.5 font-mono text-gray-400">{d.row ?? '–'}</td>
                   <td className="px-3 py-1.5 font-mono text-gray-600">{d.valuta_date}</td>
                   <td className="px-3 py-1.5 text-right font-mono text-gray-800">
@@ -268,7 +344,7 @@ function ImportRunCard({ run }: { run: ImportRunDetail }) {
   )
 }
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status }: Readonly<{ status: string }>) {
   const styles: Record<string, string> = {
     completed: 'bg-green-100 text-green-700',
     processing: 'bg-blue-100 text-blue-700',
@@ -287,22 +363,23 @@ function StepBadge({
   label,
   active,
   done,
-}: {
+}: Readonly<{
   number: number
   label: string
   active: boolean
   done: boolean
-}) {
+}>) {
+  let badgeClass = 'bg-gray-200 text-gray-500'
+  if (done) {
+    badgeClass = 'bg-green-500 text-white'
+  } else if (active) {
+    badgeClass = 'bg-blue-600 text-white'
+  }
+
   return (
     <div className="flex items-center gap-2">
       <div
-        className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${
-          done
-            ? 'bg-green-500 text-white'
-            : active
-            ? 'bg-blue-600 text-white'
-            : 'bg-gray-200 text-gray-500'
-        }`}
+        className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${badgeClass}`}
       >
         {done ? '✓' : number}
       </div>

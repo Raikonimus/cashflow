@@ -1,10 +1,12 @@
-import { NavLink } from 'react-router-dom'
 
 export const reviewTypeLabels: Record<string, string> = {
   name_match: 'Partner-Prüfung',
-  name_match_with_iban: 'Partner-Prüfung',
+  name_match_with_iban: 'IBAN-Abweichung',
   partner_name_match: 'Partner-Prüfung',
+  no_partner_identified: 'Kein Partner',
+  new_partner: 'Neuer Partner',
   service_assignment: 'Leistungs-Zuordnung',
+  service_matcher_ambiguous: 'Mehrdeutiger Matcher',
   service_type_review: 'Leistungstyp',
 }
 
@@ -12,7 +14,9 @@ export const serviceTypeLabels: Record<string, string> = {
   customer: 'Kunde',
   supplier: 'Lieferant',
   employee: 'Mitarbeiter',
+  shareholder: 'Gesellschafter',
   authority: 'Behörde',
+  internal_transfer: 'Interne Umbuchung',
   unknown: 'Unbekannt',
 }
 
@@ -38,41 +42,6 @@ export function formatReviewReason(reason: string | undefined) {
   if (reason === 'amount<=0') return 'Automatisch aus negativem Betrag abgeleitet.'
   if (reason === 'amount>0') return 'Automatisch aus positivem Betrag abgeleitet.'
   return reason.replaceAll('_', ' ')
-}
-
-export function ReviewSubnav({
-  queueCount,
-  typeCount,
-}: {
-  queueCount?: number
-  typeCount?: number
-}) {
-  const linkBase = 'inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-colors'
-  return (
-    <div className="mb-8 flex flex-wrap gap-3">
-      <NavLink
-        to="/review"
-        end
-        className={({ isActive }) => `${linkBase} ${isActive ? 'bg-amber-500 text-white' : 'bg-white text-slate-700 shadow-sm ring-1 ring-slate-200 hover:bg-amber-50'}`}
-      >
-        Queue
-        {queueCount !== undefined && queueCount > 0 ? <Badge count={queueCount} inverted /> : null}
-      </NavLink>
-      <NavLink
-        to="/review/service-types"
-        className={({ isActive }) => `${linkBase} ${isActive ? 'bg-teal-600 text-white' : 'bg-white text-slate-700 shadow-sm ring-1 ring-slate-200 hover:bg-teal-50'}`}
-      >
-        Leistungstypen
-        {typeCount !== undefined && typeCount > 0 ? <Badge count={typeCount} inverted /> : null}
-      </NavLink>
-      <NavLink
-        to="/review/archive"
-        className={({ isActive }) => `${linkBase} ${isActive ? 'bg-slate-800 text-white' : 'bg-white text-slate-700 shadow-sm ring-1 ring-slate-200 hover:bg-slate-100'}`}
-      >
-        Archiv
-      </NavLink>
-    </div>
-  )
 }
 
 export function InlineNotice({
@@ -102,13 +71,5 @@ export function EmptyReviewState({
       <h2 className="text-xl font-semibold text-slate-900">{title}</h2>
       <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-500">{text}</p>
     </div>
-  )
-}
-
-function Badge({ count, inverted = false }: { count: number; inverted?: boolean }) {
-  return (
-    <span className={`inline-flex min-w-6 items-center justify-center rounded-full px-1.5 py-0.5 text-xs font-semibold ${inverted ? 'bg-white/20 text-current' : 'bg-amber-500 text-white'}`}>
-      {count}
-    </span>
   )
 }

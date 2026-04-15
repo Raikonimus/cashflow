@@ -23,6 +23,7 @@ export interface ColumnAssignment {
   source: string      // Name der CSV-Spalte
   target: string      // valuta_date | booking_date | amount | partner_iban | partner_name | description | unused
   sort_order: number  // Reihenfolge bei Mehrfach-Belegung
+  duplicate_check: boolean
 }
 
 export interface ColumnMapping {

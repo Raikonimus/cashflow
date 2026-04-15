@@ -5,6 +5,7 @@ export type ReviewStatus = 'open' | 'confirmed' | 'adjusted' | 'rejected' | 'all
 export interface ReviewJournalLine {
   id: string
   partner_id: string | null
+  partner_name: string | null
   service_id: string | null
   service_assignment_mode: 'auto' | 'manual' | null
   valuta_date: string
@@ -18,13 +19,26 @@ export interface ReviewJournalLine {
 export interface ReviewServiceSummary {
   id: string
   partner_id: string
+  partner_name: string | null
   name: string
-  service_type: 'customer' | 'supplier' | 'employee' | 'authority' | 'unknown'
+  service_type: 'customer' | 'supplier' | 'employee' | 'shareholder' | 'authority' | 'unknown'
   tax_rate: string
   valid_from: string | null
   valid_to: string | null
   service_type_manual: boolean
   tax_rate_manual: boolean
+}
+
+export interface NoPartnerDiagnosis {
+  iban?: { provided: boolean; excluded?: boolean; found?: boolean; normalized?: string }
+  account?: { provided: boolean; excluded?: boolean; found?: boolean; normalized?: string }
+  name?: { provided: boolean; found?: boolean; value?: string }
+  service_matchers?: {
+    skipped?: boolean
+    reason?: string
+    total_matchers?: number
+    matched?: number
+  }
 }
 
 export interface ReviewItem {
@@ -44,12 +58,20 @@ export interface ReviewItem {
     amount?: string
     text?: string
     current_service_id?: string | null
+    current_service_name?: string | null
     proposed_service_id?: string | null
+    proposed_service_name?: string | null
     reason?: string
     matching_services?: string[]
+    matching_service_names?: string[]
     previous_type?: string
     auto_assigned_type?: string
+    auto_assigned_tax_rate?: string
     current_journal_line_ids?: string[]
+    diagnosis?: NoPartnerDiagnosis
+    raw_text?: string
+    raw_iban?: string
+    raw_account?: string
   }
   status: Exclude<ReviewStatus, 'all'>
   created_at: string

@@ -1,11 +1,14 @@
 import { apiClient } from './client'
 
+export type ServiceType = 'customer' | 'supplier' | 'employee' | 'shareholder' | 'authority' | 'internal_transfer' | 'unknown'
+export type KeywordTargetType = 'employee' | 'shareholder' | 'authority'
+
 export interface ServiceListItem {
   id: string
   partner_id: string
   name: string
   description: string | null
-  service_type: 'customer' | 'supplier' | 'employee' | 'authority' | 'unknown'
+  service_type: ServiceType
   tax_rate: string
   valid_from: string | null
   valid_to: string | null
@@ -14,6 +17,76 @@ export interface ServiceListItem {
   tax_rate_manual: boolean
   created_at: string
   updated_at: string
+  matchers: ServiceMatcherItem[]
+}
+
+export interface ServiceMatcherItem {
+  id: string
+  pattern: string
+  pattern_type: 'string' | 'regex'
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateServicePayload {
+  name: string
+  description?: string | null
+  service_type?: ServiceType
+  tax_rate?: string
+  valid_from?: string | null
+  valid_to?: string | null
+}
+
+export interface UpdateServicePayload {
+  name?: string
+  description?: string | null
+  service_type?: ServiceType
+  tax_rate?: string
+  valid_from?: string | null
+  valid_to?: string | null
+}
+
+export interface CreateServiceMatcherPayload {
+  pattern: string
+  pattern_type: 'string' | 'regex'
+}
+
+export interface UpdateServiceMatcherPayload {
+  pattern?: string
+  pattern_type?: 'string' | 'regex'
+}
+
+export interface ServiceTypeKeywordItem {
+  id: string
+  mandant_id: string | null
+  pattern: string
+  pattern_type: 'string' | 'regex'
+  target_service_type: KeywordTargetType
+  created_at: string
+  updated_at: string
+}
+
+export interface SystemServiceTypeKeywordItem {
+  pattern: string
+  pattern_type: 'string' | 'regex'
+  target_service_type: KeywordTargetType
+}
+
+export interface ServiceTypeKeywordListResponse {
+  items: ServiceTypeKeywordItem[]
+  system_defaults: SystemServiceTypeKeywordItem[]
+}
+
+export interface CreateServiceTypeKeywordPayload {
+  pattern: string
+  pattern_type: 'string' | 'regex'
+  target_service_type: KeywordTargetType
+}
+
+export interface UpdateServiceTypeKeywordPayload {
+  pattern?: string
+  pattern_type?: 'string' | 'regex'
+  target_service_type?: KeywordTargetType
 }
 
 export async function listPartnerServices(
@@ -24,4 +97,135 @@ export async function listPartnerServices(
     `/mandants/${mandantId}/partners/${partnerId}/services`,
   )
   return resp.data
+}
+
+export async function createPartnerService(
+  mandantId: string,
+  partnerId: string,
+  payload: CreateServicePayload,
+): Promise<ServiceListItem> {
+  const resp = await apiClient.post<ServiceListItem>(
+    `/mandants/${mandantId}/partners/${partnerId}/services`,
+    payload,
+  )
+  return resp.data
+}
+
+export async function updateService(
+  mandantId: string,
+  serviceId: string,
+  payload: UpdateServicePayload,
+): Promise<ServiceListItem> {
+  const resp = await apiClient.patch<ServiceListItem>(
+    `/mandants/${mandantId}/services/${serviceId}`,
+    payload,
+  )
+  return resp.data
+}
+
+export async function deleteService(
+  mandantId: string,
+  serviceId: string,
+): Promise<void> {
+  await apiClient.delete(`/mandants/${mandantId}/services/${serviceId}`)
+}
+
+export async function createServiceMatcher(
+  mandantId: string,
+  serviceId: string,
+  payload: CreateServiceMatcherPayload,
+): Promise<ServiceMatcherItem> {
+  const resp = await apiClient.post<ServiceMatcherItem>(
+    `/mandants/${mandantId}/services/${serviceId}/matchers`,
+    payload,
+  )
+  return resp.data
+}
+
+export async function updateServiceMatcher(
+  mandantId: string,
+  serviceId: string,
+  matcherId: string,
+  payload: UpdateServiceMatcherPayload,
+): Promise<ServiceMatcherItem> {
+  const resp = await apiClient.patch<ServiceMatcherItem>(
+    `/mandants/${mandantId}/services/${serviceId}/matchers/${matcherId}`,
+    payload,
+  )
+  return resp.data
+}
+
+export async function deleteServiceMatcher(
+  mandantId: string,
+  serviceId: string,
+  matcherId: string,
+): Promise<void> {
+  await apiClient.delete(`/mandants/${mandantId}/services/${serviceId}/matchers/${matcherId}`)
+}
+
+export interface MatcherPreviewLineItem {
+  journal_line_id: string
+  partner_name_raw: string | null
+  current_partner_name: string | null
+  booking_date: string
+  valuta_date: string
+  amount: string
+  currency: string
+  text: string | null
+}
+
+export interface MatcherPreviewResponse {
+  matched_lines: MatcherPreviewLineItem[]
+  total: number
+}
+
+export async function previewServiceMatcher(
+  mandantId: string,
+  serviceId: string,
+  payload: CreateServiceMatcherPayload,
+): Promise<MatcherPreviewResponse> {
+  const resp = await apiClient.post<MatcherPreviewResponse>(
+    `/mandants/${mandantId}/services/${serviceId}/matchers/preview`,
+    payload,
+  )
+  return resp.data
+}
+
+export async function listServiceKeywords(
+  mandantId: string,
+): Promise<ServiceTypeKeywordListResponse> {
+  const resp = await apiClient.get<ServiceTypeKeywordListResponse>(
+    `/mandants/${mandantId}/settings/service-keywords`,
+  )
+  return resp.data
+}
+
+export async function createServiceKeyword(
+  mandantId: string,
+  payload: CreateServiceTypeKeywordPayload,
+): Promise<ServiceTypeKeywordItem> {
+  const resp = await apiClient.post<ServiceTypeKeywordItem>(
+    `/mandants/${mandantId}/settings/service-keywords`,
+    payload,
+  )
+  return resp.data
+}
+
+export async function updateServiceKeyword(
+  mandantId: string,
+  keywordId: string,
+  payload: UpdateServiceTypeKeywordPayload,
+): Promise<ServiceTypeKeywordItem> {
+  const resp = await apiClient.patch<ServiceTypeKeywordItem>(
+    `/mandants/${mandantId}/settings/service-keywords/${keywordId}`,
+    payload,
+  )
+  return resp.data
+}
+
+export async function deleteServiceKeyword(
+  mandantId: string,
+  keywordId: string,
+): Promise<void> {
+  await apiClient.delete(`/mandants/${mandantId}/settings/service-keywords/${keywordId}`)
 }

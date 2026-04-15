@@ -26,6 +26,39 @@ export interface MandantListItem {
   created_at: string
 }
 
+export interface CleanupPreviewItem {
+  key: string
+  label: string
+  count: number
+}
+
+export interface CleanupPreviewSection {
+  key: string
+  label: string
+  description: string
+  items: CleanupPreviewItem[]
+}
+
+export interface MandantCleanupPreview {
+  mandant_id: string
+  mandant_name: string
+  delete_mandant: CleanupPreviewSection
+  delete_data: CleanupPreviewSection
+  selectable_sections: CleanupPreviewSection[]
+}
+
+export interface ExecuteMandantCleanupPayload {
+  mode: 'delete_mandant' | 'delete_data' | 'selected'
+  scopes?: Array<'journal_data' | 'partner_service_data' | 'audit_data' | 'review_data'>
+}
+
+export interface ExecuteMandantCleanupResult {
+  mode: 'delete_mandant' | 'delete_data' | 'selected'
+  deleted_mandant: boolean
+  executed_sections: string[]
+  items: CleanupPreviewItem[]
+}
+
 export interface CreateMandantRequest {
   name: string
 }
@@ -61,6 +94,19 @@ export async function listMandants(): Promise<MandantListItem[]> {
 
 export async function createMandant(data: CreateMandantRequest): Promise<MandantListItem> {
   const resp = await apiClient.post<MandantListItem>('/mandants', data)
+  return resp.data
+}
+
+export async function getMandantCleanupPreview(mandantId: string): Promise<MandantCleanupPreview> {
+  const resp = await apiClient.get<MandantCleanupPreview>(`/mandants/${mandantId}/cleanup-preview`)
+  return resp.data
+}
+
+export async function executeMandantCleanup(
+  mandantId: string,
+  data: ExecuteMandantCleanupPayload,
+): Promise<ExecuteMandantCleanupResult> {
+  const resp = await apiClient.post<ExecuteMandantCleanupResult>(`/mandants/${mandantId}/cleanup`, data)
   return resp.data
 }
 

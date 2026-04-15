@@ -6,6 +6,7 @@ export interface JournalLine {
   import_run_id: string
   partner_id: string | null
   partner_name: string | null
+  service_name: string | null
   valuta_date: string
   booking_date: string
   amount: string
@@ -16,7 +17,7 @@ export interface JournalLine {
   partner_account_raw: string | null
   partner_blz_raw: string | null
   partner_bic_raw: string | null
-  unmapped_data: Record<string, string> | null
+  unmapped_data: Record<string, unknown> | null
   created_at: string
 }
 

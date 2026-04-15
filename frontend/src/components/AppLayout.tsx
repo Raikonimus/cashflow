@@ -1,5 +1,6 @@
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { listReviewItems } from '@/api/review'
 import { useAuthStore } from '@/store/auth-store'
 import { logoutUser } from '@/api/auth'
@@ -21,15 +22,18 @@ const linkActive = 'bg-gray-900 text-white'
 
 export function AppLayout() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user, selectedMandant, logout } = useAuthStore()
   const role = user?.role
   const mandantId = user?.mandant_id ?? ''
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const { data: reviewBadge } = useQuery({
     queryKey: ['review-badge', mandantId],
     queryFn: () => listReviewItems(mandantId, { status: 'open', size: 1 }),
     enabled: hasRole(role, 'accountant') && !!mandantId,
-    staleTime: 20_000,
+    staleTime: 10_000,
+    refetchInterval: 30_000,
   })
 
   async function handleLogout() {
@@ -37,6 +41,33 @@ export function AppLayout() {
     logout()
     navigate('/login', { replace: true })
   }
+
+  const settingsItems = useMemo(() => {
+    let items: Array<{ to: string; label: string }> = []
+
+    if (hasRole(role, 'accountant') && mandantId) {
+      items = [
+        ...items,
+        { to: '/accounts', label: 'Konten' },
+        { to: '/settings/service-keywords', label: 'Service-Keywords' },
+        { to: '/settings/testing', label: 'Testen' },
+      ]
+    }
+    if (hasRole(role, 'mandant_admin') && mandantId) {
+      items = [...items, { to: '/admin/audit', label: 'Audit-Log' }]
+    }
+    if (hasRole(role, 'admin')) {
+      items = [...items, { to: '/admin/mandants', label: 'Mandanten' }, { to: '/admin/users', label: 'Benutzer' }]
+    }
+
+    return items
+  }, [mandantId, role])
+
+  const settingsActive = settingsItems.some((item) => location.pathname.startsWith(item.to))
+
+  useEffect(() => {
+    setSettingsOpen(false)
+  }, [location.pathname])
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -60,14 +91,6 @@ export function AppLayout() {
 
               {hasRole(role, 'accountant') && (
                 <>
-                  <NavLink
-                    to="/accounts"
-                    className={({ isActive }) =>
-                      `${linkBase} ${isActive ? linkActive : ''}`
-                    }
-                  >
-                    Konten
-                  </NavLink>
                   <NavLink
                     to="/review"
                     className={({ isActive }) =>
@@ -100,37 +123,37 @@ export function AppLayout() {
                 </>
               )}
 
-              {hasRole(role, 'mandant_admin') && (
-                <NavLink
-                  to="/admin/audit"
-                  className={({ isActive }) =>
-                    `${linkBase} ${isActive ? linkActive : ''}`
-                  }
-                >
-                  Audit-Log
-                </NavLink>
-              )}
-
-              {hasRole(role, 'admin') && (
-                <>
-                  <NavLink
-                    to="/admin/mandants"
-                    className={({ isActive }) =>
-                      `${linkBase} ${isActive ? linkActive : ''}`
-                    }
+              {settingsItems.length > 0 ? (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setSettingsOpen((current) => !current)}
+                    className={`${linkBase} ${settingsActive || settingsOpen ? linkActive : ''} inline-flex items-center gap-2`}
+                    aria-haspopup="menu"
+                    aria-expanded={settingsOpen}
+                    aria-label="Einstellungen"
                   >
-                    Mandanten
-                  </NavLink>
-                  <NavLink
-                    to="/admin/users"
-                    className={({ isActive }) =>
-                      `${linkBase} ${isActive ? linkActive : ''}`
-                    }
-                  >
-                    Benutzer
-                  </NavLink>
-                </>
-              )}
+                    <SettingsIcon />
+                    <span>Einstellungen</span>
+                  </button>
+                  {settingsOpen ? (
+                    <div className="absolute left-0 top-full z-20 mt-2 min-w-56 overflow-hidden rounded-xl border border-gray-700 bg-gray-800 shadow-lg">
+                      <div className="py-2">
+                        {settingsItems.map((item) => (
+                          <NavLink
+                            key={item.to}
+                            to={item.to}
+                            onClick={() => setSettingsOpen(false)}
+                            className={({ isActive }) => `block px-4 py-2 text-sm ${isActive ? 'bg-gray-900 text-white' : 'text-gray-200 hover:bg-gray-700 hover:text-white'}`}
+                          >
+                            {item.label}
+                          </NavLink>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
 
             {/* Rechts: Mandant + Logout */}
@@ -156,5 +179,14 @@ export function AppLayout() {
         <Outlet />
       </main>
     </div>
+  )
+}
+
+function SettingsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4 fill-none stroke-current" strokeWidth="1.8">
+      <path d="M10.325 4.317a1 1 0 0 1 1.35-.936l.626.273a1 1 0 0 0 .798 0l.626-.273a1 1 0 0 1 1.35.936l.056.68a1 1 0 0 0 .51.78l.587.334a1 1 0 0 1 .364 1.364l-.33.597a1 1 0 0 0 0 .798l.33.597a1 1 0 0 1-.364 1.364l-.587.334a1 1 0 0 0-.51.78l-.055.68a1 1 0 0 1-1.351.936l-.626-.273a1 1 0 0 0-.798 0l-.626.273a1 1 0 0 1-1.35-.936l-.056-.68a1 1 0 0 0-.51-.78l-.587-.334a1 1 0 0 1-.364-1.364l.33-.597a1 1 0 0 0 0-.798l-.33-.597a1 1 0 0 1 .364-1.364l.587-.334a1 1 0 0 0 .51-.78l.056-.68Z" />
+      <circle cx="12" cy="12" r="3.2" />
+    </svg>
   )
 }

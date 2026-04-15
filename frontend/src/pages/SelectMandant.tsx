@@ -13,7 +13,20 @@ export function SelectMandant() {
     }
   }, [mandants.length, navigate, token])
 
+  useEffect(() => {
+    if (!token || mandants.length !== 1) {
+      return
+    }
+
+    void handleSelect(mandants[0])
+  }, [mandants, token])
+
   if (!token || mandants.length === 0) {
+    return null
+  }
+
+  // Single-mandant: auto-select is running in the effect above — show nothing
+  if (mandants.length === 1) {
     return null
   }
 
@@ -21,7 +34,7 @@ export function SelectMandant() {
     try {
       const data = await selectMandant(mandant.id)
       storeSelectMandant(mandant, data.access_token)
-      navigate('/')
+      navigate('/', { replace: true })
     } catch {
       // stay on page, user can retry
     }

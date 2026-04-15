@@ -23,6 +23,7 @@ export interface ImportDuplicateInfo {
 export interface ImportErrorDetails {
   parse_errors?: Array<{ row: number; error: string }>
   duplicates?: ImportDuplicateInfo[]
+  zero_amount_skipped?: number
 }
 
 export interface ImportRunDetail extends ImportRunListItem {
