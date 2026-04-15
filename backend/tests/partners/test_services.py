@@ -58,6 +58,7 @@ class TestServices:
         assert body["name"] == "Hosting"
         assert body["service_type"] == "supplier"
         assert body["is_base_service"] is False
+        assert body["erfolgsneutral"] is False
 
         reviews = (
             await db_session.exec(
@@ -70,6 +71,14 @@ class TestServices:
         assert reviews == []
         assert body["service_type_manual"] is True
         assert body["tax_rate_manual"] is True
+
+        patch_resp = await client.patch(
+            f"/api/v1/mandants/{mandant.id}/services/{body['id']}",
+            json={"erfolgsneutral": True},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert patch_resp.status_code == 200
+        assert patch_resp.json()["erfolgsneutral"] is True
 
     async def test_create_shareholder_service(self, client: AsyncClient, db_session: AsyncSession):
         user = await create_user(db_session, "acc2b@test.com", UserRole.accountant)
@@ -255,6 +264,7 @@ class TestServices:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert matcher_resp.status_code == 201
+        assert matcher_resp.json()["internal_only"] is False
 
         await db_session.refresh(line)
         assert str(line.service_id) == service_id
@@ -269,6 +279,66 @@ class TestServices:
             )
         ).first()
         assert review is None
+
+    async def test_preview_matcher_excludes_lines_already_assigned_to_same_service(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        user = await create_user(db_session, "acc-preview@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner(client, token, mandant.id)
+
+        create_service_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            json={"name": "Hosting", "service_type": "unknown", "tax_rate": "20.00"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert create_service_resp.status_code == 201
+        service_id = create_service_resp.json()["id"]
+
+        now = utcnow()
+        account = Account(mandant_id=mandant.id, name="Girokonto", created_at=now, updated_at=now)
+        db_session.add(account)
+        await db_session.flush()
+
+        run = ImportRun(
+            account_id=account.id,
+            mandant_id=mandant.id,
+            user_id=user.id,
+            filename="test.csv",
+            status=ImportStatus.completed.value,
+            created_at=now,
+        )
+        db_session.add(run)
+        await db_session.flush()
+
+        line = JournalLine(
+            account_id=account.id,
+            import_run_id=run.id,
+            partner_id=UUID(partner["id"]),
+            service_id=UUID(service_id),
+            service_assignment_mode="auto",
+            valuta_date="2026-02-15",
+            booking_date="2026-02-15",
+            amount=Decimal("100.00"),
+            currency="EUR",
+            text="Hosting April",
+            partner_name_raw="Amazon EU",
+            created_at=now,
+        )
+        db_session.add(line)
+        await db_session.commit()
+
+        preview_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/services/{service_id}/matchers/preview",
+            json={"pattern": "hosting", "pattern_type": "string"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert preview_resp.status_code == 200
+        payload = preview_resp.json()
+        assert payload["total"] == 0
+        assert payload["matched_lines"] == []
 
     async def test_matcher_change_keeps_review_only_for_ambiguous_assignments(self, client: AsyncClient, db_session: AsyncSession):
         user = await create_user(db_session, "acc9@test.com", UserRole.accountant)
@@ -362,3 +432,73 @@ class TestServices:
         assert review.context["reason"] == "multiple_matches"
         assert review.context["current_service_id"] == first_service_id
         assert set(review.context["matching_services"]) == {first_service_id, second_service_id}
+
+    async def test_internal_only_matcher_does_not_move_lines_from_other_partners(self, client: AsyncClient, db_session: AsyncSession):
+        user = await create_user(db_session, "acc10@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+
+        target_partner = await create_partner(client, token, mandant.id, name="Target Partner")
+        source_partner = await create_partner(client, token, mandant.id, name="Source Partner")
+
+        create_service_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/partners/{target_partner['id']}/services",
+            json={"name": "Hosting", "service_type": "unknown", "tax_rate": "20.00"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert create_service_resp.status_code == 201
+        service_id = create_service_resp.json()["id"]
+
+        source_services_resp = await client.get(
+            f"/api/v1/mandants/{mandant.id}/partners/{source_partner['id']}/services",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert source_services_resp.status_code == 200
+        source_base_service_id = source_services_resp.json()[0]["id"]
+
+        now = utcnow()
+        account = Account(mandant_id=mandant.id, name="Girokonto", created_at=now, updated_at=now)
+        db_session.add(account)
+        await db_session.flush()
+
+        run = ImportRun(
+            account_id=account.id,
+            mandant_id=mandant.id,
+            user_id=user.id,
+            filename="test.csv",
+            status=ImportStatus.completed.value,
+            created_at=now,
+        )
+        db_session.add(run)
+        await db_session.flush()
+
+        foreign_line = JournalLine(
+            account_id=account.id,
+            import_run_id=run.id,
+            partner_id=UUID(source_partner["id"]),
+            service_id=UUID(source_base_service_id),
+            service_assignment_mode="auto",
+            valuta_date="2026-03-10",
+            booking_date="2026-03-10",
+            amount=Decimal("42.00"),
+            currency="EUR",
+            text="Hosting Gebühren",
+            partner_name_raw="Source Partner",
+            created_at=now,
+        )
+        db_session.add(foreign_line)
+        await db_session.commit()
+        await db_session.refresh(foreign_line)
+
+        matcher_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/services/{service_id}/matchers",
+            json={"pattern": "hosting", "pattern_type": "string", "internal_only": True},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert matcher_resp.status_code == 201
+        assert matcher_resp.json()["internal_only"] is True
+
+        await db_session.refresh(foreign_line)
+        assert str(foreign_line.partner_id) == source_partner["id"]
+        assert str(foreign_line.service_id) == source_base_service_id

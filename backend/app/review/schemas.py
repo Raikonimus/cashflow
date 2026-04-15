@@ -20,6 +20,7 @@ class ReviewJournalLineSummary(BaseModel):
     currency: str
     text: str | None
     partner_name_raw: str | None
+    partner_iban_raw: str | None
 
     model_config = {"from_attributes": True}
 
@@ -31,6 +32,7 @@ class ReviewServiceSummary(BaseModel):
     name: str
     service_type: ServiceType
     tax_rate: Decimal
+    erfolgsneutral: bool = False
     valid_from: date | None
     valid_to: date | None
     service_type_manual: bool
@@ -78,11 +80,12 @@ class AdjustReviewRequest(BaseModel):
     service_id: UUID | None = None
     service_type: ServiceType | None = None
     tax_rate: Decimal | None = Field(default=None, ge=Decimal("0.00"), le=Decimal("100.00"))
+    erfolgsneutral: bool | None = None
 
     @model_validator(mode="after")
     def validate_payload(self) -> "AdjustReviewRequest":
-        if self.service_id is not None and (self.service_type is not None or self.tax_rate is not None):
-            raise ValueError("service_id cannot be combined with service_type or tax_rate")
+        if self.service_id is not None and (self.service_type is not None or self.tax_rate is not None or self.erfolgsneutral is not None):
+            raise ValueError("service_id cannot be combined with service_type, tax_rate or erfolgsneutral")
         if self.service_id is None and self.service_type is None:
             raise ValueError("either service_id or service_type must be provided")
         return self

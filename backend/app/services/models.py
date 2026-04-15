@@ -48,6 +48,7 @@ class Service(SQLModel, table=True):
     description: str | None = Field(default=None, max_length=1000)
     service_type: str = Field(default=ServiceType.unknown.value, max_length=20)
     tax_rate: Decimal = Field(default=Decimal("20.00"), sa_column=Column(Numeric(5, 2), nullable=False))
+    erfolgsneutral: bool = Field(default=False)
     valid_from: date | None = Field(default=None)
     valid_to: date | None = Field(default=None)
     is_base_service: bool = Field(default=False)
@@ -67,6 +68,7 @@ class ServiceMatcher(SQLModel, table=True):
     service_id: UUID = Field(foreign_key="services.id", index=True)
     pattern: str = Field(max_length=500)
     pattern_type: str = Field(max_length=10)
+    internal_only: bool = Field(default=False)
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 

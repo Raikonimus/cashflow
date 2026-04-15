@@ -93,6 +93,7 @@ describe('ServiceManagementPage', () => {
             id: 'matcher-existing',
             pattern: 'hosting',
             pattern_type: 'string',
+            internal_only: false,
             created_at: '2026-04-01T00:00:00Z',
             updated_at: '2026-04-01T00:00:00Z',
           },
@@ -141,22 +142,24 @@ describe('ServiceManagementPage', () => {
         return new HttpResponse(null, { status: 204 })
       }),
       http.post(`/api/v1/mandants/${MANDANT_ID}/services/service-hosting/matchers`, async ({ request }) => {
-        const body = (await request.json()) as Record<string, string>
+        const body = (await request.json()) as Record<string, string | boolean>
         services[1].matchers.push({
           id: 'matcher-new',
-          pattern: body.pattern,
+          pattern: String(body.pattern),
           pattern_type: body.pattern_type as 'string' | 'regex',
+          internal_only: Boolean(body.internal_only),
           created_at: '2026-04-02T00:00:00Z',
           updated_at: '2026-04-02T00:00:00Z',
         })
         return HttpResponse.json(services[1].matchers[services[1].matchers.length - 1], { status: 201 })
       }),
       http.patch(`/api/v1/mandants/${MANDANT_ID}/services/service-hosting/matchers/matcher-existing`, async ({ request }) => {
-        const body = (await request.json()) as Record<string, string>
+        const body = (await request.json()) as Record<string, string | boolean>
         services[1].matchers[0] = {
           ...services[1].matchers[0],
-          pattern: body.pattern,
+          pattern: String(body.pattern),
           pattern_type: body.pattern_type as 'string' | 'regex',
+          internal_only: body.internal_only === undefined ? services[1].matchers[0].internal_only : Boolean(body.internal_only),
         }
         return HttpResponse.json(services[1].matchers[0])
       }),

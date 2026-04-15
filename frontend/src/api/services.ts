@@ -10,6 +10,7 @@ export interface ServiceListItem {
   description: string | null
   service_type: ServiceType
   tax_rate: string
+  erfolgsneutral: boolean
   valid_from: string | null
   valid_to: string | null
   is_base_service: boolean
@@ -24,6 +25,7 @@ export interface ServiceMatcherItem {
   id: string
   pattern: string
   pattern_type: 'string' | 'regex'
+  internal_only: boolean
   created_at: string
   updated_at: string
 }
@@ -33,6 +35,7 @@ export interface CreateServicePayload {
   description?: string | null
   service_type?: ServiceType
   tax_rate?: string
+  erfolgsneutral?: boolean
   valid_from?: string | null
   valid_to?: string | null
 }
@@ -42,6 +45,7 @@ export interface UpdateServicePayload {
   description?: string | null
   service_type?: ServiceType
   tax_rate?: string
+  erfolgsneutral?: boolean
   valid_from?: string | null
   valid_to?: string | null
 }
@@ -49,11 +53,13 @@ export interface UpdateServicePayload {
 export interface CreateServiceMatcherPayload {
   pattern: string
   pattern_type: 'string' | 'regex'
+  internal_only?: boolean
 }
 
 export interface UpdateServiceMatcherPayload {
   pattern?: string
   pattern_type?: 'string' | 'regex'
+  internal_only?: boolean
 }
 
 export interface ServiceTypeKeywordItem {
@@ -167,6 +173,9 @@ export interface MatcherPreviewLineItem {
   journal_line_id: string
   partner_name_raw: string | null
   current_partner_name: string | null
+  current_service_name: string | null
+  has_conflicting_partner_criteria: boolean
+  conflicting_partner_criteria: string[]
   booking_date: string
   valuta_date: string
   amount: string

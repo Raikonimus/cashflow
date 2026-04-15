@@ -174,10 +174,20 @@ class PartnerMatchingService:
                 partner_id = row_name.id
                 await self._maybe_add_iban(partner_id, iban_raw)
                 await self._maybe_add_account(partner_id, account_raw, blz_raw, bic_raw)
+                name_diag = {"provided": True, "found": True, "value": name_raw}
+                iban_diag = _diag.get("iban") if isinstance(_diag.get("iban"), dict) else {"provided": bool(iban_raw)}
                 return PartnerMatchResult(
                     partner_id=partner_id,
                     outcome=MatchOutcome.name_match,
-                    review_context={"matched_on": "name", "raw_name": name_raw, "raw_iban": iban_raw},
+                    review_context={
+                        "matched_on": "name",
+                        "raw_name": name_raw,
+                        "raw_iban": iban_raw,
+                        "diagnosis": {
+                            "iban": iban_diag,
+                            "name": name_diag,
+                        },
+                    },
                 )
             _diag["name"] = {"provided": True, "found": False, "value": name_raw}
         else:

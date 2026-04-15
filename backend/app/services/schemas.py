@@ -11,6 +11,7 @@ class ServiceMatcherResponse(BaseModel):
     id: UUID
     pattern: str
     pattern_type: ServiceMatcherType
+    internal_only: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -24,6 +25,7 @@ class ServiceResponse(BaseModel):
     description: str | None
     service_type: ServiceType
     tax_rate: Decimal
+    erfolgsneutral: bool = False
     valid_from: date | None
     valid_to: date | None
     is_base_service: bool
@@ -39,6 +41,7 @@ class CreateServiceRequest(BaseModel):
     description: str | None = Field(default=None, max_length=1000)
     service_type: ServiceType = ServiceType.unknown
     tax_rate: Decimal = Field(default=Decimal("20.00"), ge=Decimal("0.00"), le=Decimal("100.00"))
+    erfolgsneutral: bool = False
     valid_from: date | None = None
     valid_to: date | None = None
 
@@ -54,6 +57,7 @@ class UpdateServiceRequest(BaseModel):
     description: str | None = Field(default=None, max_length=1000)
     service_type: ServiceType | None = None
     tax_rate: Decimal | None = Field(default=None, ge=Decimal("0.00"), le=Decimal("100.00"))
+    erfolgsneutral: bool | None = None
     valid_from: date | None = None
     valid_to: date | None = None
     service_type_manual: bool | None = None
@@ -69,11 +73,13 @@ class UpdateServiceRequest(BaseModel):
 class CreateServiceMatcherRequest(BaseModel):
     pattern: str = Field(min_length=1, max_length=500)
     pattern_type: ServiceMatcherType
+    internal_only: bool = False
 
 
 class UpdateServiceMatcherRequest(BaseModel):
     pattern: str | None = Field(default=None, min_length=1, max_length=500)
     pattern_type: ServiceMatcherType | None = None
+    internal_only: bool | None = None
 
 
 class ServiceTypeKeywordResponse(BaseModel):
@@ -103,6 +109,9 @@ class MatcherPreviewLineItem(BaseModel):
     journal_line_id: UUID
     partner_name_raw: str | None
     current_partner_name: str | None
+    current_service_name: str | None
+    has_conflicting_partner_criteria: bool = False
+    conflicting_partner_criteria: list[str] = []
     booking_date: str
     valuta_date: str
     amount: Decimal

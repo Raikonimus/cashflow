@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.imports.models import JournalLine, ReviewItem
+from app.partners.conflict_utils import PartnerAssignmentCriteria, detect_conflicting_criteria, load_partner_assignment_criteria
 from app.partners.delete_utils import delete_partner_clean
 from app.partners.models import Partner
 from app.services.models import (
@@ -80,6 +81,7 @@ async def ensure_base_service(session: AsyncSession, partner_id: UUID) -> Servic
         description=None,
         service_type=ServiceType.unknown.value,
         tax_rate=_default_tax_rate(ServiceType.unknown),
+        erfolgsneutral=False,
         is_base_service=True,
         service_type_manual=False,
         tax_rate_manual=False,
@@ -143,6 +145,7 @@ class ServiceManagementService:
             description=body.description,
             service_type=body.service_type.value,
             tax_rate=body.tax_rate,
+            erfolgsneutral=body.erfolgsneutral,
             valid_from=body.valid_from,
             valid_to=body.valid_to,
             service_type_manual=True,
@@ -170,6 +173,8 @@ class ServiceManagementService:
             service.service_type = body.service_type.value
         if body.tax_rate is not None:
             service.tax_rate = body.tax_rate
+        if body.erfolgsneutral is not None:
+            service.erfolgsneutral = body.erfolgsneutral
         service.valid_from = body.valid_from
         service.valid_to = body.valid_to
         if body.service_type_manual is not None:
@@ -203,6 +208,7 @@ class ServiceManagementService:
             service_id=service_id,
             pattern=body.pattern,
             pattern_type=body.pattern_type.value,
+            internal_only=body.internal_only,
             created_at=now,
             updated_at=now,
         )
@@ -232,6 +238,8 @@ class ServiceManagementService:
             await self._ensure_unique_matcher(service_id, new_pattern, new_pattern_type, exclude_matcher_id=matcher.id)
         matcher.pattern = new_pattern
         matcher.pattern_type = new_pattern_type.value
+        if body.internal_only is not None:
+            matcher.internal_only = body.internal_only
         matcher.updated_at = _utcnow()
         self._session.add(matcher)
         await self._session.commit()
@@ -258,6 +266,7 @@ class ServiceManagementService:
     ) -> MatcherPreviewResponse:
         """Gibt eine Vorschau zurück, welche Buchungszeilen ein noch nicht gespeicherter
         Matcher treffen würde – ohne Änderungen vorzunehmen."""
+        #breakpoint()  # Debug breakpoint for "Matcher testen" backend flow
         service = await self._get_service(service_id, mandant_id)
         self._ensure_matcher_allowed(service)
         self._validate_pattern(body.pattern, body.pattern_type)
@@ -266,6 +275,7 @@ class ServiceManagementService:
             service_id=service_id,
             pattern=body.pattern,
             pattern_type=body.pattern_type.value,
+            internal_only=body.internal_only,
             created_at=_utcnow(),
             updated_at=_utcnow(),
         )
@@ -284,16 +294,37 @@ class ServiceManagementService:
             )
         ).all()
 
-        service_id_hex = service_id.hex  # 32-char hex ohne Bindestriche
-
         matched_lines: list[MatcherPreviewLineItem] = []
         partner_name_cache: dict[UUID, str | None] = {}
+        service_name_cache: dict[UUID, str | None] = {}
+        partner_conflict_cache: dict[UUID, PartnerAssignmentCriteria] = {}
+        service_id_hex = service_id.hex.lower()
 
         for line in lines:
             # Zeilen, die bereits zu dieser Leistung gehören, überspringen
-            line_service_id = str(line.service_id).replace("-", "").lower() if line.service_id else None
-            if line_service_id == service_id_hex:
+            line_service_uuid: UUID | None = None
+            if line.service_id is not None:
+                try:
+                    line_service_uuid = UUID(str(line.service_id))
+                except (ValueError, TypeError):
+                    line_service_uuid = None
+            # Name der aktuell zugeordneten Leistung für die Vorschau auflösen.
+            line_service_name: str | None = None
+            if line_service_uuid is not None:
+                if line_service_uuid not in service_name_cache:
+                    current_service = await self._session.get(Service, line_service_uuid)
+                    service_name_cache[line_service_uuid] = current_service.name if current_service is not None else None
+                line_service_name = service_name_cache[line_service_uuid]
+            #if "Microsoft" == line_service_name:
+            #    pass
+            if line_service_uuid == service_id:
                 continue
+            if line.service_id is not None:
+                # Fallback für inkonsistente UUID-String-Repräsentationen
+                # (z. B. mit/ohne Bindestriche oder mit Prefix).
+                line_service_hex = re.sub(r"[^0-9a-fA-F]", "", str(line.service_id)).lower()
+                if len(line_service_hex) == 32 and line_service_hex == service_id_hex:
+                    continue
             if not self._service_matches_line(service, [mock_matcher], line):
                 continue
             if line.partner_id not in partner_name_cache:
@@ -301,11 +332,19 @@ class ServiceManagementService:
                 partner_name_cache[line.partner_id] = (
                     (p.display_name or p.name) if p else None
                 )
+            conflict_reasons: list[str] = []
+            if line.partner_id is not None and line.partner_id != service.partner_id:
+                if line.partner_id not in partner_conflict_cache:
+                    partner_conflict_cache[line.partner_id] = await load_partner_assignment_criteria(self._session, line.partner_id)
+                conflict_reasons = detect_conflicting_criteria(partner_conflict_cache[line.partner_id], line)
             matched_lines.append(
                 MatcherPreviewLineItem(
                     journal_line_id=line.id,
                     partner_name_raw=line.partner_name_raw,
                     current_partner_name=partner_name_cache.get(line.partner_id),
+                    current_service_name=line_service_name,
+                    has_conflicting_partner_criteria=bool(conflict_reasons),
+                    conflicting_partner_criteria=conflict_reasons,
                     booking_date=line.booking_date,
                     valuta_date=line.valuta_date,
                     amount=Decimal(str(line.amount)),
@@ -315,6 +354,7 @@ class ServiceManagementService:
             )
 
         matched_lines.sort(key=lambda x: x.booking_date, reverse=True)
+        matched_lines.sort(key=lambda x: not x.has_conflicting_partner_criteria)
         return MatcherPreviewResponse(matched_lines=matched_lines, total=len(matched_lines))
 
     async def list_keywords(self, mandant_id: UUID) -> ServiceTypeKeywordListResponse:
@@ -616,6 +656,7 @@ class ServiceManagementService:
             description=service.description,
             service_type=ServiceType(service.service_type),
             tax_rate=service.tax_rate,
+            erfolgsneutral=service.erfolgsneutral,
             valid_from=service.valid_from,
             valid_to=service.valid_to,
             is_base_service=service.is_base_service,
@@ -628,6 +669,7 @@ class ServiceManagementService:
                     "id": matcher.id,
                     "pattern": matcher.pattern,
                     "pattern_type": ServiceMatcherType(matcher.pattern_type),
+                    "internal_only": matcher.internal_only,
                     "created_at": matcher.created_at,
                     "updated_at": matcher.updated_at,
                 }
@@ -781,6 +823,8 @@ class ServiceManagementService:
         searchable_text = "\n".join(filter(None, [line.text or "", line.partner_name_raw or ""]))
         searchable_text_lower = searchable_text.lower()
         for matcher in matchers:
+            if matcher.internal_only and line.partner_id != _service.partner_id:
+                continue
             if matcher.pattern_type == ServiceMatcherType.string.value:
                 if matcher.pattern.lower() in searchable_text_lower:
                     return True

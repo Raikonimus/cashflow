@@ -133,7 +133,7 @@ class ReviewService:
     async def to_response(self, item: ReviewItem) -> ReviewItemResponse:
         journal_line = await self._load_journal_line_summary(item.journal_line_id)
         service = await self._load_service_summary(item.service_id)
-        context = await self._enrich_context(item.context)
+        context = await self._enrich_context(item, item.context)
         assigned_journal_lines: list[ReviewJournalLineSummary] = []
         if item.item_type == "service_type_review" and item.service_id is not None:
             lines = (
@@ -238,7 +238,7 @@ class ReviewService:
         if item.item_type == "service_type_review":
             if body.service_type is None:
                 raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="service_type is required for service type reviews")
-            return await self._adjust_service_type_review(item, mandant_id, actor_id, body.service_type, body.tax_rate)
+            return await self._adjust_service_type_review(item, mandant_id, actor_id, body.service_type, body.tax_rate, body.erfolgsneutral)
 
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Adjust is not supported for this review item type")
 
@@ -432,7 +432,6 @@ class ReviewService:
 
         service_svc = ServiceManagementService(self._session)
         await service_svc.manually_assign_journal_line(mandant_id, journal_line, target_service_id)
-
         self._session.add(
             AuditLog(
                 mandant_id=mandant_id,
@@ -545,6 +544,7 @@ class ReviewService:
         actor_id: UUID,
         service_type: ServiceType,
         tax_rate: Decimal | None,
+        erfolgsneutral: bool | None,
     ) -> ReviewItem:
         service = await self._get_service_for_review(item, mandant_id)
         service.service_type = service_type.value
@@ -552,6 +552,8 @@ class ReviewService:
         if tax_rate is not None:
             service.tax_rate = tax_rate
             service.tax_rate_manual = True
+        if erfolgsneutral is not None:
+            service.erfolgsneutral = erfolgsneutral
         service.updated_at = utcnow()
         self._session.add(service)
 
@@ -572,6 +574,7 @@ class ReviewService:
                     "service_id": str(service.id),
                     "service_type": service.service_type,
                     "tax_rate": str(service.tax_rate),
+                    "erfolgsneutral": service.erfolgsneutral,
                 },
             )
         )
@@ -607,6 +610,7 @@ class ReviewService:
                 "name": service.name,
                 "service_type": service.service_type,
                 "tax_rate": service.tax_rate,
+                "erfolgsneutral": service.erfolgsneutral,
                 "valid_from": service.valid_from,
                 "valid_to": service.valid_to,
                 "service_type_manual": service.service_type_manual,
@@ -634,10 +638,11 @@ class ReviewService:
                 "currency": line.currency,
                 "text": line.text,
                 "partner_name_raw": line.partner_name_raw,
+                "partner_iban_raw": line.partner_iban_raw,
             }
         )
 
-    async def _enrich_context(self, raw_context: object) -> dict:
+    async def _enrich_context(self, item: ReviewItem, raw_context: object) -> dict:
         context = dict(raw_context) if isinstance(raw_context, dict) else {}
         current_service_id = self._parse_optional_uuid(context.get("current_service_id"))
         proposed_service_id = self._parse_optional_uuid(context.get("proposed_service_id"))
@@ -664,6 +669,33 @@ class ReviewService:
                     matching_service_names.append(service.name)
             if matching_service_names:
                 context["matching_service_names"] = matching_service_names
+
+        if item.item_type == "name_match_with_iban" and item.journal_line_id is not None:
+            journal_line = await self._session.get(JournalLine, item.journal_line_id)
+            partner_id = None if journal_line is None else journal_line.partner_id
+            if partner_id is not None:
+                partner_ibans = (
+                    await self._session.exec(
+                        select(PartnerIban)
+                        .where(PartnerIban.partner_id == partner_id)
+                        .order_by(col(PartnerIban.created_at))
+                    )
+                ).all()
+                known_ibans = [row.iban for row in partner_ibans]
+                context["matched_partner_ibans"] = known_ibans
+                context["matched_partner_iban_count"] = len(known_ibans)
+
+                raw_iban = context.get("raw_iban") or (None if journal_line is None else journal_line.partner_iban_raw)
+                if isinstance(raw_iban, str) and raw_iban:
+                    normalized = _normalize_iban(raw_iban)
+                    diagnosis = context.get("diagnosis") if isinstance(context.get("diagnosis"), dict) else {}
+                    iban_diag = diagnosis.get("iban") if isinstance(diagnosis.get("iban"), dict) else {}
+                    iban_diag.setdefault("provided", True)
+                    iban_diag.setdefault("normalized", normalized)
+                    iban_diag.setdefault("found", False)
+                    iban_diag["matches_partner_iban"] = normalized in known_ibans
+                    diagnosis["iban"] = iban_diag
+                    context["diagnosis"] = diagnosis
 
         return context
 

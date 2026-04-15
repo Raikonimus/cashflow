@@ -2,14 +2,12 @@ import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '@/store/auth-store'
-import { listJournalLines, bulkAssignPartner } from '@/api/journal'
+import { listJournalLines, listJournalYears, bulkAssignPartner } from '@/api/journal'
 import type { JournalLine } from '@/api/journal'
 import { listAccounts } from '@/api/accounts'
 import { listPartners } from '@/api/partners'
 import type { PartnerListItem } from '@/api/partners'
 
-const CURRENT_YEAR = new Date().getFullYear()
-const YEARS = Array.from({ length: 5 }, (_, i) => CURRENT_YEAR - i)
 const MONTHS = [
   { value: 1, label: 'Jan' }, { value: 2, label: 'Feb' }, { value: 3, label: 'Mär' },
   { value: 4, label: 'Apr' }, { value: 5, label: 'Mai' }, { value: 6, label: 'Jun' },
@@ -42,10 +40,9 @@ export function JournalPage() {
   const queryClient = useQueryClient()
 
   // Filters
-  const [year, setYear] = useState<number | undefined>(CURRENT_YEAR)
+  const [year, setYear] = useState<number | undefined>(undefined)
   const [month, setMonth] = useState<number | undefined>(undefined)
   const [accountId, setAccountId] = useState<string>('')
-  const [hasPartner, setHasPartner] = useState<'all' | 'yes' | 'no'>('all')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
 
@@ -92,7 +89,6 @@ export function JournalPage() {
     ...(year ? { year } : {}),
     ...(month ? { month } : {}),
     ...(accountId ? { account_id: accountId } : {}),
-    ...(hasPartner === 'yes' ? { has_partner: true } : hasPartner === 'no' ? { has_partner: false } : {}),
     ...(search.trim() ? { search: search.trim() } : {}),
     sort_by: sortBy,
     sort_dir: sortDir,
@@ -111,6 +107,14 @@ export function JournalPage() {
     queryFn: () => listAccounts(mandantId),
     enabled: !!mandantId,
   })
+
+  const { data: yearsData } = useQuery({
+    queryKey: ['journal-years', mandantId, accountId || 'all'],
+    queryFn: () => listJournalYears(mandantId, accountId || undefined),
+    enabled: !!mandantId,
+  })
+
+  const yearOptions = yearsData?.years ?? []
 
   const bulkMutation = useMutation({
     mutationFn: (partnerId: string) =>
@@ -163,7 +167,7 @@ export function JournalPage() {
           className="rounded border px-3 py-1.5 text-sm"
         >
           <option value="">Alle Jahre</option>
-          {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
+          {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
         </select>
 
         <select
@@ -177,21 +181,15 @@ export function JournalPage() {
 
         <select
           value={accountId}
-          onChange={(e) => { setAccountId(e.target.value); setPage(1) }}
+          onChange={(e) => {
+            setAccountId(e.target.value)
+            setYear(undefined)
+            setPage(1)
+          }}
           className="rounded border px-3 py-1.5 text-sm"
         >
           <option value="">Alle Konten</option>
           {(accounts ?? []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-        </select>
-
-        <select
-          value={hasPartner}
-          onChange={(e) => { setHasPartner(e.target.value as 'all' | 'yes' | 'no'); setPage(1) }}
-          className="rounded border px-3 py-1.5 text-sm"
-        >
-          <option value="all">Mit & ohne Partner</option>
-          <option value="yes">Nur mit Partner</option>
-          <option value="no">Ohne Partner</option>
         </select>
         <input
           value={search}

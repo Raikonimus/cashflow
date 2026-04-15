@@ -180,6 +180,9 @@ export interface AccountPreviewLineItem {
   journal_line_id: string
   partner_name_raw: string | null
   current_partner_name: string | null
+  current_service_name: string | null
+  has_conflicting_partner_criteria: boolean
+  conflicting_partner_criteria: string[]
   booking_date: string
   valuta_date: string
   amount: string

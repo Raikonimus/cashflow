@@ -16,6 +16,7 @@ from app.services.service import ServiceManagementService
 from app.tenants.models import Account
 from app.journal.schemas import (
     BulkAssignResponse,
+    JournalYearsResponse,
     JournalLineResponse,
     PaginatedJournalResponse,
 )
@@ -157,11 +158,12 @@ class JournalService:
         service_ids = {ln.service_id for ln in lines if ln.service_id}
         service_names: dict = {}
         if service_ids:
-            s_res = await self._session.exec(select(Service))
+            s_res = await self._session.exec(
+                select(Service.id, Service.name).where(col(Service.id).in_(service_ids))
+            )
             service_names = {
-                service.id: service.name
-                for service in s_res.all()
-                if service.id in service_ids
+                service_id: service_name
+                for service_id, service_name in s_res.all()
             }
 
         items = [
@@ -183,6 +185,46 @@ class JournalService:
             size=size,
             pages=math.ceil(total / size) if total > 0 else 1,
         )
+
+    async def list_years(
+        self,
+        mandant_id: UUID,
+        *,
+        account_id: UUID | None = None,
+    ) -> JournalYearsResponse:
+        account_ids_res = await self._session.exec(
+            select(Account.id).where(Account.mandant_id == mandant_id)  # type: ignore[arg-type]
+        )
+        mandant_account_ids = set(account_ids_res.all())
+
+        if account_id is not None:
+            if account_id not in mandant_account_ids:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Account does not belong to this mandant",
+                )
+            account_ids_filter = {account_id}
+        else:
+            account_ids_filter = mandant_account_ids
+
+        if not account_ids_filter:
+            return JournalYearsResponse(years=[])
+
+        years_query = (
+            select(func.substr(JournalLine.valuta_date, 1, 4).label("year"))
+            .where(col(JournalLine.account_id).in_(account_ids_filter))
+            .group_by(text("year"))
+            .order_by(text("year DESC"))
+        )
+        rows = (await self._session.exec(years_query)).all()
+
+        years: list[int] = []
+        for row in rows:
+            try:
+                years.append(int(str(row)))
+            except (TypeError, ValueError):
+                continue
+        return JournalYearsResponse(years=years)
 
     # ─── Bulk-assign ─────────────────────────────────────────────────────────
 

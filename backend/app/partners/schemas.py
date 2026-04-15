@@ -112,6 +112,9 @@ class AccountPreviewLineItem(BaseModel):
     journal_line_id: UUID
     partner_name_raw: str | None
     current_partner_name: str | None
+    current_service_name: str | None
+    has_conflicting_partner_criteria: bool = False
+    conflicting_partner_criteria: list[str] = []
     booking_date: str
     valuta_date: str
     amount: Decimal

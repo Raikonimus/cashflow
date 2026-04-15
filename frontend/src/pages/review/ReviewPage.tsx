@@ -156,6 +156,7 @@ function ReviewCard({
     item.context.auto_assigned_type ?? item.service?.service_type ?? 'unknown'
   )
   const [taxRateDraft, setTaxRateDraft] = useState(item.service?.tax_rate ?? '')
+  const [erfolgsneutralDraft, setErfolgsneutralDraft] = useState(Boolean(item.service?.erfolgsneutral))
 
   const confirmMutation = useMutation({
     mutationFn: () => confirmReviewItem(mandantId, item.id),
@@ -192,7 +193,11 @@ function ReviewCard({
   })
 
   const adjustTypeMutation = useMutation({
-    mutationFn: () => adjustReviewItem(mandantId, item.id, { service_type: serviceTypeDraft, tax_rate: taxRateDraft || undefined }),
+    mutationFn: () => adjustReviewItem(mandantId, item.id, {
+      service_type: serviceTypeDraft,
+      tax_rate: taxRateDraft || undefined,
+      erfolgsneutral: erfolgsneutralDraft,
+    }),
     onSuccess: async () => onResolved('Leistungstyp wurde korrigiert.'),
     onError: () => onError('Korrektur konnte nicht gespeichert werden.'),
   })
@@ -257,6 +262,10 @@ function ReviewCard({
         item.context.diagnosis
           ? <NoPartnerDiagnosisPanel diagnosis={item.context.diagnosis} />
           : <NoPartnerRawDataPanel context={item.context} />
+      ) : null}
+
+      {item.item_type === 'name_match_with_iban' ? (
+        <IbanDeviationPanel item={item} />
       ) : null}
 
       {isServiceTypeReview && lineCount > 0 ? (
@@ -336,6 +345,15 @@ function ReviewCard({
               className="w-28 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
             />
           </label>
+          <label className="flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900">
+            <input
+              type="checkbox"
+              checked={erfolgsneutralDraft}
+              onChange={(e) => setErfolgsneutralDraft(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300"
+            />
+            Erfolgsneutral
+          </label>
           <button onClick={() => adjustTypeMutation.mutate()} disabled={adjustTypeMutation.isPending} className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
             Speichern
           </button>
@@ -405,6 +423,9 @@ function resolveCurrentState(item: ReviewItem) {
   if (item.item_type === 'service_assignment') {
     return item.context.current_service_name ?? 'Keine Leistung hinterlegt'
   }
+  if (item.item_type === 'name_match_with_iban') {
+    return 'Partner per Name zugeordnet'
+  }
   if (item.item_type === 'service_type_review') {
     return serviceTypeLabels[item.context.previous_type ?? item.service?.service_type ?? 'unknown']
   }
@@ -427,12 +448,65 @@ function resolveSuggestedState(item: ReviewItem) {
   if (item.item_type === 'service_type_review') {
     const typeLabel = serviceTypeLabels[item.context.auto_assigned_type ?? 'unknown']
     const taxRate = item.context.auto_assigned_tax_rate ?? item.service?.tax_rate
-    return taxRate != null ? `${typeLabel} · ${taxRate} % MwSt.` : typeLabel
+    const erfolgsneutralLabel = item.service?.erfolgsneutral ? 'erfolgsneutral' : 'nicht erfolgsneutral'
+    return taxRate != null ? `${typeLabel} · ${taxRate} % MwSt. · ${erfolgsneutralLabel}` : `${typeLabel} · ${erfolgsneutralLabel}`
   }
   if (item.item_type === 'new_partner') {
     return 'Prüfen – evtl. existiert dieser Partner bereits'
   }
+  if (item.item_type === 'name_match_with_iban') {
+    return item.journal_line?.partner_name ?? item.context.suggested_partner_name ?? 'Zuordnung manuell prüfen'
+  }
   return item.context.suggested_partner_name ?? 'Partner manuell prüfen'
+}
+
+function IbanDeviationPanel({ item }: { item: ReviewItem }) {
+  const diagnosis = item.context.diagnosis
+  const ibanDiag = diagnosis?.iban
+  const importRawIban = item.context.raw_iban ?? item.journal_line?.partner_iban_raw ?? item.context.partner_iban_raw
+  const normalizedIban = ibanDiag?.normalized ?? (importRawIban ? importRawIban.replaceAll(' ', '').toUpperCase() : undefined)
+  const knownIbans = item.context.matched_partner_ibans ?? []
+
+  let statusDetail = 'Keine IBAN im Import vorhanden'
+  if (ibanDiag?.provided) {
+    if (ibanDiag.excluded) {
+      statusDetail = 'IBAN ist als eigene Konto-IBAN ausgeschlossen'
+    } else if (ibanDiag.matches_partner_iban) {
+      statusDetail = 'IBAN ist beim zugeordneten Partner bereits vorhanden'
+    } else {
+      statusDetail = 'Für diese IBAN wurde kein Partner über den IBAN-Lookup gefunden'
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">IBAN-Abweichung analysiert</p>
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
+        <InfoTile
+          title="Import-IBAN"
+          body={importRawIban ?? 'Nicht vorhanden'}
+          footer={normalizedIban ? `Normalisiert: ${normalizedIban}` : undefined}
+        />
+        <InfoTile
+          title="IBAN-Prüfstatus"
+          body={statusDetail}
+          footer={knownIbans.length > 0 ? `${knownIbans.length} bekannte Partner-IBAN(s)` : 'Keine Partner-IBAN hinterlegt'}
+        />
+      </div>
+      {knownIbans.length > 0 ? (
+        <div className="mt-3 rounded-xl bg-white/80 p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Bekannte Partner-IBANs</p>
+          <ul className="mt-2 space-y-1 text-sm text-slate-700">
+            {knownIbans.map((iban) => (
+              <li key={iban} className="font-mono">
+                {iban}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 function InfoTile({ title, body, footer }: { title: string; body: string; footer?: string }) {

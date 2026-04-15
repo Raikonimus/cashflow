@@ -14,6 +14,7 @@ export interface ReviewJournalLine {
   currency: string
   text: string | null
   partner_name_raw: string | null
+  partner_iban_raw?: string | null
 }
 
 export interface ReviewServiceSummary {
@@ -23,6 +24,7 @@ export interface ReviewServiceSummary {
   name: string
   service_type: 'customer' | 'supplier' | 'employee' | 'shareholder' | 'authority' | 'unknown'
   tax_rate: string
+  erfolgsneutral?: boolean
   valid_from: string | null
   valid_to: string | null
   service_type_manual: boolean
@@ -30,7 +32,7 @@ export interface ReviewServiceSummary {
 }
 
 export interface NoPartnerDiagnosis {
-  iban?: { provided: boolean; excluded?: boolean; found?: boolean; normalized?: string }
+  iban?: { provided: boolean; excluded?: boolean; found?: boolean; normalized?: string; matches_partner_iban?: boolean }
   account?: { provided: boolean; excluded?: boolean; found?: boolean; normalized?: string }
   name?: { provided: boolean; found?: boolean; value?: string }
   service_matchers?: {
@@ -72,6 +74,8 @@ export interface ReviewItem {
     raw_text?: string
     raw_iban?: string
     raw_account?: string
+    matched_partner_ibans?: string[]
+    matched_partner_iban_count?: number
   }
   status: Exclude<ReviewStatus, 'all'>
   created_at: string
@@ -175,7 +179,7 @@ export async function confirmReviewItem(
 export async function adjustReviewItem(
   mandantId: string,
   itemId: string,
-  payload: { service_id?: string; service_type?: string; tax_rate?: string },
+  payload: { service_id?: string; service_type?: string; tax_rate?: string; erfolgsneutral?: boolean },
 ): Promise<ReviewItem> {
   const resp = await apiClient.post<ReviewItem>(
     `/mandants/${mandantId}/review/${itemId}/adjust`,

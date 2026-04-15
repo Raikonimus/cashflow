@@ -419,7 +419,9 @@ class TestAuditLog:
         assert resp.status_code == 200
         data = resp.json()
         assert "items" in data
-        assert data["total"] == 0
+        # Login writes an auth.login audit event; audit list should include it.
+        assert data["total"] >= 1
+        assert any(item["event_type"] == "auth.login" for item in data["items"])
 
     async def test_accountant_cannot_list_audit_log(
         self, client: AsyncClient, db_session: AsyncSession

@@ -29,6 +29,10 @@ export interface PaginatedJournalLines {
   pages: number
 }
 
+export interface JournalYearsResponse {
+  years: number[]
+}
+
 export interface JournalFilter {
   account_id?: string
   partner_id?: string
@@ -70,6 +74,17 @@ export async function listJournalLines(
   const resp = await apiClient.get<PaginatedJournalLines>(
     `/mandants/${mandantId}/journal`,
     { params: filter },
+  )
+  return resp.data
+}
+
+export async function listJournalYears(
+  mandantId: string,
+  accountId?: string,
+): Promise<JournalYearsResponse> {
+  const resp = await apiClient.get<JournalYearsResponse>(
+    `/mandants/${mandantId}/journal/years`,
+    { params: accountId ? { account_id: accountId } : {} },
   )
   return resp.data
 }

@@ -530,6 +530,7 @@ function InlineAddIban({
   error?: string
 }) {
   const canAct = iban.trim().length > 0 && !loading && !previewLoading
+  const canSubmit = canAct && previewLines !== null
 
   return (
     <div className="mt-3 space-y-2">
@@ -550,7 +551,7 @@ function InlineAddIban({
         </button>
         <button
           onClick={onSubmit}
-          disabled={!canAct}
+          disabled={!canSubmit}
           className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
         >
           {loading ? '…' : 'Hinzufügen'}
@@ -558,9 +559,9 @@ function InlineAddIban({
       </div>
 
       {previewLines !== null && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
           {previewLines.length === 0 ? (
-            <p className="text-xs text-amber-700">Keine passenden Buchungszeilen gefunden.</p>
+            <p className="text-xs text-gray-700">Keine passenden Buchungszeilen gefunden.</p>
           ) : (
             <>
               {(() => {
@@ -569,34 +570,62 @@ function InlineAddIban({
                 return (
                   <>
                     {foreign.length > 0 && (
-                      <p className="mb-2 text-xs font-semibold text-amber-800">
+                      <p className="mb-2 text-xs font-semibold text-gray-700">
                         {foreign.length} Buchungszeile{foreign.length !== 1 ? 'n' : ''} anderer Partner passen -
                         {' '}werden beim Hinzufügen diesem Partner zugeordnet:
                       </p>
                     )}
                     {own.length > 0 && (
-                      <p className="mb-2 text-xs font-semibold text-green-700">
+                      <p className="mb-2 text-xs font-semibold text-gray-700">
                         {own.length} Buchungszeile{own.length !== 1 ? 'n' : ''} bereits diesem Partner zugeordnet.
                       </p>
                     )}
-                    <div className="max-h-48 space-y-1 overflow-y-auto">
-                      {previewLines.map((line) => (
-                        <div
-                          key={line.journal_line_id}
-                          className={`flex items-center justify-between gap-3 rounded px-2 py-1 text-xs ${
-                            line.already_assigned ? 'bg-green-50 text-gray-400' : 'bg-white text-gray-700'
-                          }`}
-                        >
-                          <span className="truncate">{line.text ?? '—'}</span>
-                          <span className="shrink-0">{line.booking_date}</span>
-                          <span className="shrink-0 font-mono">
-                            {Number(line.amount).toLocaleString('de-DE', { style: 'currency', currency: line.currency })}
-                          </span>
-                          {!line.already_assigned && (
-                            <span className="shrink-0 text-amber-700">{line.current_partner_name ?? '—'}</span>
-                          )}
-                        </div>
-                      ))}
+                    <div className="mt-2 overflow-x-auto rounded border border-gray-200 bg-white">
+                      <table className="min-w-full text-xs">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500">Hinweis</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500">Datum</th>
+                            <th className="px-3 py-2 text-right font-semibold text-gray-500">Betrag</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500">Text</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500">Leistung</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500">Aktueller Partner</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500">Buchungsname</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {[...previewLines]
+                            .sort((a, b) => Number(b.has_conflicting_partner_criteria) - Number(a.has_conflicting_partner_criteria))
+                            .map((line) => {
+                            let rowClassName = 'hover:bg-gray-50'
+                            if (line.has_conflicting_partner_criteria) {
+                              rowClassName = 'bg-red-50/40 hover:bg-red-50'
+                            } else if (line.already_assigned) {
+                              rowClassName = 'bg-gray-50 text-gray-500'
+                            }
+                            return (
+                            <tr key={line.journal_line_id} className={rowClassName}>
+                              <td className="whitespace-nowrap px-3 py-2">
+                                {line.has_conflicting_partner_criteria ? (
+                                  <span className="rounded bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700" title={line.conflicting_partner_criteria.join(', ')}>
+                                    Widerspruch
+                                  </span>
+                                ) : (
+                                  <span className="font-semibold text-green-700" title="Kein Widerspruch">✓</span>
+                                )}
+                              </td>
+                              <td className="whitespace-nowrap px-3 py-2 text-gray-700">{line.booking_date}</td>
+                              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-gray-700">
+                                {Number(line.amount).toLocaleString('de-DE', { style: 'currency', currency: line.currency })}
+                              </td>
+                              <td className="max-w-[220px] truncate px-3 py-2 text-gray-600">{line.text ?? '–'}</td>
+                              <td className="px-3 py-2 text-gray-700">{line.current_service_name ?? '–'}</td>
+                              <td className="px-3 py-2 text-gray-700">{line.current_partner_name ?? '–'}</td>
+                              <td className="px-3 py-2 text-gray-500">{line.partner_name_raw ?? '–'}</td>
+                            </tr>
+                          )})}
+                        </tbody>
+                      </table>
                     </div>
                   </>
                 )
@@ -639,6 +668,7 @@ function InlineAddAccount({
   error?: string
 }) {
   const canAct = accountNumber.trim().length > 0 && !loading && !previewLoading
+  const canSubmit = canAct && previewLines !== null
 
   return (
     <div className="mt-3 space-y-2">
@@ -673,7 +703,7 @@ function InlineAddAccount({
         </button>
         <button
           onClick={onSubmit}
-          disabled={!canAct}
+          disabled={!canSubmit}
           className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
         >
           {loading ? '…' : 'Hinzufügen'}
@@ -681,9 +711,9 @@ function InlineAddAccount({
       </div>
 
       {previewLines !== null && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
           {previewLines.length === 0 ? (
-            <p className="text-xs text-amber-700">Keine passenden Buchungszeilen gefunden.</p>
+            <p className="text-xs text-gray-700">Keine passenden Buchungszeilen gefunden.</p>
           ) : (
             <>
               {(() => {
@@ -692,34 +722,62 @@ function InlineAddAccount({
                 return (
                   <>
                     {foreign.length > 0 && (
-                      <p className="mb-2 text-xs font-semibold text-amber-800">
+                      <p className="mb-2 text-xs font-semibold text-gray-700">
                         {foreign.length} Buchungszeile{foreign.length !== 1 ? 'n' : ''} anderer Partner passen –
                         {' '}werden beim Hinzufügen diesem Partner zugeordnet:
                       </p>
                     )}
                     {own.length > 0 && (
-                      <p className="mb-2 text-xs font-semibold text-green-700">
+                      <p className="mb-2 text-xs font-semibold text-gray-700">
                         {own.length} Buchungszeile{own.length !== 1 ? 'n' : ''} bereits diesem Partner zugeordnet.
                       </p>
                     )}
-                    <div className="space-y-1 max-h-48 overflow-y-auto">
-                      {previewLines.map((l) => (
-                        <div
-                          key={l.journal_line_id}
-                          className={`flex items-center justify-between gap-3 rounded px-2 py-1 text-xs ${
-                            l.already_assigned ? 'bg-green-50 text-gray-400' : 'bg-white text-gray-700'
-                          }`}
-                        >
-                          <span className="truncate">{l.text ?? '—'}</span>
-                          <span className="shrink-0">{l.booking_date}</span>
-                          <span className="shrink-0 font-mono">
-                            {Number(l.amount).toLocaleString('de-DE', { style: 'currency', currency: l.currency })}
-                          </span>
-                          {!l.already_assigned && (
-                            <span className="shrink-0 text-amber-700">{l.current_partner_name ?? '—'}</span>
-                          )}
-                        </div>
-                      ))}
+                    <div className="mt-2 overflow-x-auto rounded border border-gray-200 bg-white">
+                      <table className="min-w-full text-xs">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500">Hinweis</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500">Datum</th>
+                            <th className="px-3 py-2 text-right font-semibold text-gray-500">Betrag</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500">Text</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500">Leistung</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500">Aktueller Partner</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500">Buchungsname</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {[...previewLines]
+                            .sort((a, b) => Number(b.has_conflicting_partner_criteria) - Number(a.has_conflicting_partner_criteria))
+                            .map((l) => {
+                            let rowClassName = 'hover:bg-gray-50'
+                            if (l.has_conflicting_partner_criteria) {
+                              rowClassName = 'bg-red-50/40 hover:bg-red-50'
+                            } else if (l.already_assigned) {
+                              rowClassName = 'bg-gray-50 text-gray-500'
+                            }
+                            return (
+                            <tr key={l.journal_line_id} className={rowClassName}>
+                              <td className="whitespace-nowrap px-3 py-2">
+                                {l.has_conflicting_partner_criteria ? (
+                                  <span className="rounded bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700" title={l.conflicting_partner_criteria.join(', ')}>
+                                    Widerspruch
+                                  </span>
+                                ) : (
+                                  <span className="font-semibold text-green-700" title="Kein Widerspruch">✓</span>
+                                )}
+                              </td>
+                              <td className="whitespace-nowrap px-3 py-2 text-gray-700">{l.booking_date}</td>
+                              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-gray-700">
+                                {Number(l.amount).toLocaleString('de-DE', { style: 'currency', currency: l.currency })}
+                              </td>
+                              <td className="max-w-[220px] truncate px-3 py-2 text-gray-600">{l.text ?? '–'}</td>
+                              <td className="px-3 py-2 text-gray-700">{l.current_service_name ?? '–'}</td>
+                              <td className="px-3 py-2 text-gray-700">{l.current_partner_name ?? '–'}</td>
+                              <td className="px-3 py-2 text-gray-500">{l.partner_name_raw ?? '–'}</td>
+                            </tr>
+                          )})}
+                        </tbody>
+                      </table>
                     </div>
                   </>
                 )

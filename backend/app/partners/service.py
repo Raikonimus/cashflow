@@ -18,6 +18,7 @@ from app.partners.models import (
     PartnerName,
 )
 from app.partners.delete_utils import delete_partner_clean
+from app.partners.conflict_utils import PartnerAssignmentCriteria, detect_conflicting_criteria, load_partner_assignment_criteria
 from app.partners.schemas import (
     AuditLogEntryResponse,
     MergeResponse,
@@ -342,6 +343,8 @@ class PartnerService:
         lines = [ln for ln in lines if ln.account_id in account_ids]
 
         partner_name_cache: dict[UUID | None, str | None] = {}
+        service_name_cache: dict[UUID | None, str | None] = {None: None}
+        partner_conflict_cache: dict[UUID, PartnerAssignmentCriteria] = {}
         matched: list[AccountPreviewLineItem] = []
         for line in lines:
             if line.partner_id not in partner_name_cache:
@@ -350,10 +353,21 @@ class PartnerService:
                 else:
                     p = await self._session.get(Partner, line.partner_id)
                     partner_name_cache[line.partner_id] = ((p.display_name or p.name) if p else None)
+            if line.service_id not in service_name_cache:
+                current_service = await self._session.get(Service, line.service_id)
+                service_name_cache[line.service_id] = current_service.name if current_service else None
+            conflict_reasons: list[str] = []
+            if line.partner_id is not None and line.partner_id != partner_id:
+                if line.partner_id not in partner_conflict_cache:
+                    partner_conflict_cache[line.partner_id] = await load_partner_assignment_criteria(self._session, line.partner_id)
+                conflict_reasons = detect_conflicting_criteria(partner_conflict_cache[line.partner_id], line)
             matched.append(AccountPreviewLineItem(
                 journal_line_id=line.id,
                 partner_name_raw=line.partner_name_raw,
                 current_partner_name=partner_name_cache.get(line.partner_id),
+                current_service_name=service_name_cache.get(line.service_id),
+                has_conflicting_partner_criteria=bool(conflict_reasons),
+                conflicting_partner_criteria=conflict_reasons,
                 booking_date=line.booking_date,
                 valuta_date=line.valuta_date,
                 amount=Decimal(str(line.amount)),
@@ -363,6 +377,7 @@ class PartnerService:
             ))
 
         matched.sort(key=lambda x: x.booking_date, reverse=True)
+        matched.sort(key=lambda x: not x.has_conflicting_partner_criteria)
         return AccountPreviewResponse(matched_lines=matched, total=len(matched))
 
     async def add_iban_with_reassign(
@@ -372,8 +387,8 @@ class PartnerService:
         iban: str,
     ) -> PartnerIban:
         """Speichert IBAN und weist passende Buchungszeilen dem Partner zu.
-        Identisch zum Kontonummern-Flow: ALLE Zeilen eines gematchten
-        Source-Partners werden verschoben; leere Source-Partner werden gelöscht."""
+        Es werden nur die tatsächlich gematchten Zeilen verschoben;
+        Source-Partner werden nur gelöscht, falls danach keine Zeilen mehr vorhanden sind."""
         from app.imports.models import JournalLine
 
         await self.get_partner(partner_id, mandant_id)
@@ -414,9 +429,12 @@ class PartnerService:
 
         matching_lines = [ln for ln in matching_lines if ln.account_id in account_ids]
 
-        # Zeilen ohne Partner direkt zuordnen; Zeilen fremder Partner via vollem Source-Partner-Move
+        # Zeilen ohne Partner direkt zuordnen; Zeilen fremder Partner nur selektiv verschieben
         unassigned_lines = [ln for ln in matching_lines if ln.partner_id is None]
-        source_partner_ids: set[UUID] = {ln.partner_id for ln in matching_lines if ln.partner_id is not None}
+        matching_by_partner: dict[UUID, list[JournalLine]] = {}
+        for ln in matching_lines:
+            if ln.partner_id is not None:
+                matching_by_partner.setdefault(ln.partner_id, []).append(ln)
 
         svc_svc = ServiceManagementService(self._session)
         needs_revalidation = False
@@ -425,15 +443,9 @@ class PartnerService:
             await svc_svc.prepare_lines_for_partner_change(mandant_id, unassigned_lines, partner_id)
             needs_revalidation = True
 
-        if source_partner_ids:
-            for src_id in source_partner_ids:
-                # ALLE Zeilen des Source-Partners holen (wie _recheck_new_partner_reviews)
-                all_src_lines = (
-                    await self._session.exec(
-                        select(JournalLine).where(JournalLine.partner_id == src_id)
-                    )
-                ).all()
-                await svc_svc.prepare_lines_for_partner_change(mandant_id, list(all_src_lines), partner_id)
+        if matching_by_partner:
+            for src_id, matched_lines in matching_by_partner.items():
+                await svc_svc.prepare_lines_for_partner_change(mandant_id, list(matched_lines), partner_id)
                 needs_revalidation = True
 
                 # Source-Partner löschen wenn leer (wie Service-Matcher-Flow)
@@ -504,7 +516,7 @@ class PartnerService:
         from decimal import Decimal
 
         await self.get_partner(partner_id, mandant_id)
-        normalized_acct, normalized_blz, _ = self._normalize_account_fields(account_number, blz)
+        normalized_acct, _, _ = self._normalize_account_fields(account_number, blz)
 
         lines = (
             await self._session.exec(
@@ -534,6 +546,8 @@ class PartnerService:
         lines = [ln for ln in lines if ln.account_id in account_ids]
 
         partner_name_cache: dict[UUID | None, str | None] = {}
+        service_name_cache: dict[UUID | None, str | None] = {None: None}
+        partner_conflict_cache: dict[UUID, PartnerAssignmentCriteria] = {}
         matched: list[AccountPreviewLineItem] = []
         for line in lines:
             if line.partner_id not in partner_name_cache:
@@ -542,10 +556,21 @@ class PartnerService:
                 else:
                     p = await self._session.get(Partner, line.partner_id)
                     partner_name_cache[line.partner_id] = ((p.display_name or p.name) if p else None)
+            if line.service_id not in service_name_cache:
+                current_service = await self._session.get(Service, line.service_id)
+                service_name_cache[line.service_id] = current_service.name if current_service else None
+            conflict_reasons: list[str] = []
+            if line.partner_id is not None and line.partner_id != partner_id:
+                if line.partner_id not in partner_conflict_cache:
+                    partner_conflict_cache[line.partner_id] = await load_partner_assignment_criteria(self._session, line.partner_id)
+                conflict_reasons = detect_conflicting_criteria(partner_conflict_cache[line.partner_id], line)
             matched.append(AccountPreviewLineItem(
                 journal_line_id=line.id,
                 partner_name_raw=line.partner_name_raw,
                 current_partner_name=partner_name_cache.get(line.partner_id),
+                current_service_name=service_name_cache.get(line.service_id),
+                has_conflicting_partner_criteria=bool(conflict_reasons),
+                conflicting_partner_criteria=conflict_reasons,
                 booking_date=line.booking_date,
                 valuta_date=line.valuta_date,
                 amount=Decimal(str(line.amount)),
@@ -555,6 +580,7 @@ class PartnerService:
             ))
 
         matched.sort(key=lambda x: x.booking_date, reverse=True)
+        matched.sort(key=lambda x: not x.has_conflicting_partner_criteria)
         return AccountPreviewResponse(matched_lines=matched, total=len(matched))
 
     async def add_account_with_reassign(
@@ -566,11 +592,9 @@ class PartnerService:
         bic: str | None = None,
     ) -> PartnerAccount:
         """Speichert Kontonummer und weist passende Buchungszeilen dem Partner zu.
-        Identisch zum Service-Matcher-Flow: ALLE Zeilen eines gematchten
-        Source-Partners werden verschoben; leere Source-Partner werden gelöscht."""
+        Es werden nur die tatsächlich gematchten Zeilen verschoben;
+        Source-Partner werden nur gelöscht, falls danach keine Zeilen mehr vorhanden sind."""
         from app.imports.models import JournalLine
-        from app.services.service import ServiceManagementService
-
         await self.get_partner(partner_id, mandant_id)
         normalized_acct, normalized_blz, normalized_bic = self._normalize_account_fields(account_number, blz, bic)
         await self._ensure_account_available(normalized_acct, normalized_blz)
@@ -618,9 +642,12 @@ class PartnerService:
 
         matching_lines = [ln for ln in matching_lines if ln.account_id in account_ids]
 
-        # Zeilen ohne Partner direkt zuordnen; Zeilen fremder Partner via vollem Source-Partner-MoveSource_partner_ids
+        # Zeilen ohne Partner direkt zuordnen; Zeilen fremder Partner nur selektiv verschieben
         unassigned_lines = [ln for ln in matching_lines if ln.partner_id is None]
-        source_partner_ids: set[UUID] = {ln.partner_id for ln in matching_lines if ln.partner_id is not None}
+        matching_by_partner: dict[UUID, list[JournalLine]] = {}
+        for ln in matching_lines:
+            if ln.partner_id is not None:
+                matching_by_partner.setdefault(ln.partner_id, []).append(ln)
 
         svc_svc = ServiceManagementService(self._session)
         needs_revalidation = False
@@ -630,15 +657,9 @@ class PartnerService:
             await svc_svc.prepare_lines_for_partner_change(mandant_id, unassigned_lines, partner_id)
             needs_revalidation = True
 
-        if source_partner_ids:
-            for src_id in source_partner_ids:
-                # ALLE Zeilen des Source-Partners holen (wie _recheck_new_partner_reviews)
-                all_src_lines = (
-                    await self._session.exec(
-                        select(JournalLine).where(JournalLine.partner_id == src_id)
-                    )
-                ).all()
-                await svc_svc.prepare_lines_for_partner_change(mandant_id, list(all_src_lines), partner_id)
+        if matching_by_partner:
+            for src_id, matched_lines in matching_by_partner.items():
+                await svc_svc.prepare_lines_for_partner_change(mandant_id, list(matched_lines), partner_id)
                 needs_revalidation = True
 
                 # Source-Partner löschen wenn leer (wie Service-Matcher-Flow)

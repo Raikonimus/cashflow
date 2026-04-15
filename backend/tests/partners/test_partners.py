@@ -500,6 +500,61 @@ class TestPartnerIban:
         )
         assert resp.status_code == 409
 
+    async def test_add_iban_with_reassign_moves_only_matching_lines(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        user = await create_user(db_session, "acc@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+
+        source = await create_partner(client, token, mandant.id, "IBAN Quelle")
+        target = await create_partner(client, token, mandant.id, "IBAN Ziel")
+        account, import_run = await _create_account_and_import_run(db_session, mandant.id, user.id)
+
+        line_matching = JournalLine(
+            account_id=account.id,
+            import_run_id=import_run.id,
+            partner_id=UUID(source["id"]),
+            valuta_date="2026-04-03",
+            booking_date="2026-04-03",
+            amount=Decimal("-33.00"),
+            currency="EUR",
+            text="Passende IBAN-Zeile",
+            partner_name_raw="IBAN Quelle",
+            partner_iban_raw="IE31CITI99005127256228",
+            created_at=import_utcnow(),
+        )
+        line_other = JournalLine(
+            account_id=account.id,
+            import_run_id=import_run.id,
+            partner_id=UUID(source["id"]),
+            valuta_date="2026-04-04",
+            booking_date="2026-04-04",
+            amount=Decimal("-44.00"),
+            currency="EUR",
+            text="Andere IBAN-Zeile",
+            partner_name_raw="IBAN Quelle",
+            partner_iban_raw="DE89370400440532013000",
+            created_at=import_utcnow(),
+        )
+        db_session.add_all([line_matching, line_other])
+        await db_session.commit()
+        await db_session.refresh(line_matching)
+        await db_session.refresh(line_other)
+
+        resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/partners/{target['id']}/ibans?reassign=true",
+            json={"iban": "IE31CITI99005127256228"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 201
+
+        await db_session.refresh(line_matching)
+        await db_session.refresh(line_other)
+        assert line_matching.partner_id == UUID(target["id"])
+        assert line_other.partner_id == UUID(source["id"])
+
 
 @pytest.mark.asyncio
 class TestPartnerNameVariants:
@@ -824,11 +879,10 @@ class TestAccountPreviewAndReassign:
         source_partner = await db_session.get(Partner, UUID(source["id"]))
         assert source_partner is None
 
-    async def test_add_account_with_reassign_moves_all_source_partner_lines(
+    async def test_add_account_with_reassign_moves_only_matching_lines(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        """Wie beim Service-Matcher: ALLE Zeilen eines Source-Partners werden verschoben,
-        nicht nur die mit passender partner_account_raw."""
+        """Nur Zeilen mit passender Kontonummer werden verschoben."""
         from app.imports.models import utcnow as import_utcnow
         user = await create_user(db_session, "acc@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
@@ -879,11 +933,11 @@ class TestAccountPreviewAndReassign:
         )
         assert resp.status_code == 201
 
-        # Beide Zeilen gehören jetzt dem Ziel-Partner
+        # Nur die passende Zeile wird verschoben
         await db_session.refresh(line_matching)
         await db_session.refresh(line_other)
         assert line_matching.partner_id == UUID(target["id"])
-        assert line_other.partner_id == UUID(target["id"])
+        assert line_other.partner_id == UUID(source["id"])
 
     async def test_add_account_with_reassign_assigns_unpartnered_lines(
         self, client: AsyncClient, db_session: AsyncSession

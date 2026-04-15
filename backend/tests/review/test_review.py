@@ -325,6 +325,39 @@ class TestListReviewItems:
         )
         assert resp.status_code == 403
 
+    async def test_name_match_with_iban_includes_enriched_iban_context(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        user = await create_user(db_session, "iban-review@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+
+        partner = await create_partner_db(db_session, mandant.id, "Amazon EU")
+        db_session.add(PartnerIban(partner_id=partner.id, iban="DE12500105170648489890"))
+        await db_session.commit()
+
+        _, item = await _create_review_item(
+            db_session,
+            mandant.id,
+            partner_id=partner.id,
+            iban_raw="DE89370400440532013000",
+        )
+
+        resp = await client.get(
+            f"/api/v1/mandants/{mandant.id}/review",
+            headers=_auth(token),
+        )
+        assert resp.status_code == 200
+        review_item = next(entry for entry in resp.json()["items"] if entry["id"] == str(item.id))
+
+        assert review_item["context"]["raw_iban"] == "DE89370400440532013000"
+        assert review_item["context"]["matched_partner_ibans"] == ["DE12500105170648489890"]
+        assert review_item["context"]["matched_partner_iban_count"] == 1
+        assert review_item["context"]["diagnosis"]["iban"]["provided"] is True
+        assert review_item["context"]["diagnosis"]["iban"]["normalized"] == "DE89370400440532013000"
+        assert review_item["context"]["diagnosis"]["iban"]["matches_partner_iban"] is False
+
 
 # ---------------------------------------------------------------------------
 # POST /review/{id}/confirm
@@ -1061,7 +1094,7 @@ class TestServiceTypeReviewItem:
 
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/review/{item.id}/adjust",
-            json={"service_type": "authority", "tax_rate": "10.00"},
+            json={"service_type": "authority", "tax_rate": "10.00", "erfolgsneutral": True},
             headers=_auth(token),
         )
         assert resp.status_code == 200
@@ -1072,6 +1105,7 @@ class TestServiceTypeReviewItem:
         assert service.service_type_manual is True
         assert service.tax_rate == Decimal("10.00")
         assert service.tax_rate_manual is True
+        assert service.erfolgsneutral is True
 
     async def test_viewer_cannot_confirm_service_type_review(
         self, client: AsyncClient, db_session: AsyncSession

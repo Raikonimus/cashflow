@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '@/store/auth-store'
@@ -14,7 +14,6 @@ import {
   updateServiceMatcher,
   type CreateServicePayload,
   type CreateServiceMatcherPayload,
-  type MatcherPreviewLineItem,
   type MatcherPreviewResponse,
   type ServiceMatcherItem,
   type ServiceListItem,
@@ -37,6 +36,7 @@ type ServiceFormState = {
   description: string
   service_type: 'customer' | 'supplier' | 'employee' | 'shareholder' | 'authority' | 'internal_transfer' | 'unknown'
   tax_rate: string
+  erfolgsneutral: boolean
   valid_from: string
   valid_to: string
 }
@@ -44,6 +44,7 @@ type ServiceFormState = {
 type MatcherFormState = {
   pattern: string
   pattern_type: 'string' | 'regex'
+  internal_only: boolean
 }
 
 const emptyForm: ServiceFormState = {
@@ -51,6 +52,7 @@ const emptyForm: ServiceFormState = {
   description: '',
   service_type: 'unknown',
   tax_rate: '20.00',
+  erfolgsneutral: false,
   valid_from: '',
   valid_to: '',
 }
@@ -58,6 +60,7 @@ const emptyForm: ServiceFormState = {
 const emptyMatcherForm: MatcherFormState = {
   pattern: '',
   pattern_type: 'string',
+  internal_only: false,
 }
 
 function toFormState(service: ServiceListItem): ServiceFormState {
@@ -66,6 +69,7 @@ function toFormState(service: ServiceListItem): ServiceFormState {
     description: service.description ?? '',
     service_type: service.service_type,
     tax_rate: service.tax_rate,
+    erfolgsneutral: service.erfolgsneutral ?? false,
     valid_from: service.valid_from ?? '',
     valid_to: service.valid_to ?? '',
   }
@@ -77,6 +81,7 @@ function toCreatePayload(form: ServiceFormState): CreateServicePayload {
     description: form.description.trim() || null,
     service_type: form.service_type,
     tax_rate: form.tax_rate.trim(),
+    erfolgsneutral: form.erfolgsneutral,
     valid_from: form.valid_from || null,
     valid_to: form.valid_to || null,
   }
@@ -88,6 +93,7 @@ function toUpdatePayload(form: ServiceFormState): UpdateServicePayload {
     description: form.description.trim() || null,
     service_type: form.service_type,
     tax_rate: form.tax_rate.trim(),
+    erfolgsneutral: form.erfolgsneutral,
     valid_from: form.valid_from || null,
     valid_to: form.valid_to || null,
   }
@@ -335,6 +341,7 @@ export function ServiceManagementPage() {
                 <div className="text-right text-sm text-gray-500">
                   <div>Typ: {serviceTypeLabels[service.service_type]}</div>
                   <div>Steuer: {service.tax_rate}%</div>
+                  <div>Erfolgsneutral: {service.erfolgsneutral ? 'Ja' : 'Nein'}</div>
                   <div>Zeitraum: {formatDateRange(service)}</div>
                   <div>Matcher: {service.matchers.length}</div>
                 </div>
@@ -422,6 +429,7 @@ export function ServiceManagementPage() {
                     setEditMatcherForm({
                       pattern: matcher.pattern,
                       pattern_type: matcher.pattern_type,
+                      internal_only: matcher.internal_only ?? false,
                     })
                   }}
                   onEditFormChange={setEditMatcherForm}
@@ -546,6 +554,11 @@ function MatcherSection({
                         <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${matcher.pattern_type === 'regex' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
                           {matcher.pattern_type === 'regex' ? 'Regex' : 'String'}
                         </span>
+                        {matcher.internal_only && (
+                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                            Partner-intern
+                          </span>
+                        )}
                       </div>
                     </div>
                     {!isReadOnly && !service.is_base_service && (
@@ -586,34 +599,49 @@ function MatcherSection({
             loading={busy}
             onTest={onPreview}
             testLoading={previewLoading}
+            hasTested={previewResult !== null}
           />
           {previewResult !== null && (
             <div className="mt-4">
               <p className="text-sm font-medium text-gray-700">
                 Vorschau: {previewResult.total === 0
-                  ? 'Kein Treffer — keine Buchungszeilen anderer Partner würden zu diesem Partner migriert.'
-                  : `${previewResult.total} Buchungszeile${previewResult.total !== 1 ? 'n' : ''} von anderen Partnern würden zu diesem Partner migriert`}
+                  ? 'Kein Treffer — es würden keine Buchungszeilen neu dieser Leistung zugeordnet.'
+                  : `${previewResult.total} Buchungszeile${previewResult.total !== 1 ? 'n' : ''} würde${previewResult.total !== 1 ? 'n' : ''} neu dieser Leistung zugeordnet`}
               </p>
               {previewResult.matched_lines.length > 0 && (
                 <div className="mt-2 overflow-x-auto rounded border border-gray-200">
                   <table className="min-w-full text-xs">
                     <thead className="bg-gray-50">
                       <tr>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-500">Hinweis</th>
                         <th className="px-3 py-2 text-left font-semibold text-gray-500">Datum</th>
                         <th className="px-3 py-2 text-right font-semibold text-gray-500">Betrag</th>
                         <th className="px-3 py-2 text-left font-semibold text-gray-500">Text</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-500">Leistung</th>
                         <th className="px-3 py-2 text-left font-semibold text-gray-500">Aktueller Partner</th>
                         <th className="px-3 py-2 text-left font-semibold text-gray-500">Buchungsname</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {previewResult.matched_lines.map((line) => (
-                        <tr key={line.journal_line_id} className="hover:bg-gray-50">
+                      {[...previewResult.matched_lines]
+                        .sort((a, b) => Number(b.has_conflicting_partner_criteria) - Number(a.has_conflicting_partner_criteria))
+                        .map((line) => (
+                        <tr key={line.journal_line_id} className={line.has_conflicting_partner_criteria ? 'bg-red-50/40 hover:bg-red-50' : 'hover:bg-gray-50'}>
+                          <td className="whitespace-nowrap px-3 py-2">
+                            {line.has_conflicting_partner_criteria ? (
+                              <span className="rounded bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700" title={line.conflicting_partner_criteria.join(', ')}>
+                                Widerspruch
+                              </span>
+                            ) : (
+                              <span className="font-semibold text-green-700" title="Kein Widerspruch">✓</span>
+                            )}
+                          </td>
                           <td className="whitespace-nowrap px-3 py-2 text-gray-700">{line.booking_date}</td>
                           <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-gray-700">
                             {parseFloat(line.amount).toLocaleString('de-AT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {line.currency}
                           </td>
                           <td className="max-w-[200px] truncate px-3 py-2 text-gray-600">{line.text ?? '–'}</td>
+                          <td className="px-3 py-2 text-gray-700">{line.current_service_name ?? '–'}</td>
                           <td className="px-3 py-2 text-gray-700">{line.current_partner_name ?? '–'}</td>
                           <td className="px-3 py-2 text-gray-500">{line.partner_name_raw ?? '–'}</td>
                         </tr>
@@ -643,6 +671,7 @@ function MatcherForm({
   onCancel,
   onTest,
   testLoading,
+  hasTested = true,
 }: {
   form: MatcherFormState
   onChange: (next: MatcherFormState) => void
@@ -652,7 +681,11 @@ function MatcherForm({
   onCancel?: () => void
   onTest?: () => void
   testLoading?: boolean
+  hasTested?: boolean
 }) {
+  const requiresPreview = !!onTest
+  const canSubmit = !loading && !!form.pattern.trim() && (!requiresPreview || hasTested)
+
   return (
     <div className="mt-3">
       <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
@@ -677,10 +710,19 @@ function MatcherForm({
           </select>
         </label>
       </div>
+      <label className="mt-3 flex items-center gap-2 text-sm text-gray-600">
+        <input
+          type="checkbox"
+          checked={form.internal_only}
+          onChange={(event) => onChange({ ...form, internal_only: event.target.checked })}
+          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+        />
+        <span>Nur Partner-interne Buchungen verschieben</span>
+      </label>
       <div className="mt-3 flex items-center gap-3">
         <button
           onClick={onSubmit}
-          disabled={loading || !form.pattern.trim()}
+          disabled={!canSubmit}
           className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
         >
           {submitLabel}
@@ -772,6 +814,16 @@ function ServiceForm({
             inputMode="decimal"
             className="w-full rounded border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
+        </label>
+
+        <label className="flex items-center gap-2 text-sm text-gray-600 md:col-span-2">
+          <input
+            type="checkbox"
+            checked={form.erfolgsneutral}
+            onChange={(event) => onChange({ ...form, erfolgsneutral: event.target.checked })}
+            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <span>Erfolgsneutral</span>
         </label>
 
         <label className="text-sm text-gray-600">

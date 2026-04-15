@@ -41,6 +41,10 @@ class PaginatedJournalResponse(BaseModel):
     pages: int
 
 
+class JournalYearsResponse(BaseModel):
+    years: list[int]
+
+
 # ─── Bulk-Assign ──────────────────────────────────────────────────────────────
 
 class BulkAssignRequest(BaseModel):
