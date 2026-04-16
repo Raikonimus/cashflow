@@ -1,4 +1,6 @@
 """Tests for Journal & Audit (Bolt 009)."""
+from decimal import Decimal
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -91,6 +93,17 @@ class TestListJournalLines:
 
         line.service_id = service.id
         db_session.add(line)
+
+        prior_year_line = await create_journal_line_db(
+            db_session,
+            account.id,
+            run.id,
+            partner_id=partner.id,
+            valuta_date="2025-11-20",
+            amount=Decimal("48.00"),
+        )
+        prior_year_line.service_id = service.id
+        db_session.add(prior_year_line)
         await db_session.commit()
 
         token = await get_auth_token(client, user, mandant)
@@ -515,3 +528,84 @@ class TestAuditLog:
         ).all()
         assert not any(review.item_type == "name_match_with_iban" for review in remaining)
         assert not any(review.context.get("reason") == "multiple_matches" for review in remaining)
+
+
+@pytest.mark.asyncio
+class TestIncomeExpenseMatrix:
+
+    async def test_returns_three_sections_with_totals(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        user = await create_user(db_session, "viewer-matrix@test.com", UserRole.viewer)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        account = await create_account_db(db_session, mandant.id)
+        run = await create_import_run_db(db_session, account.id, mandant.id, user.id)
+        partner = await create_partner_db(db_session, mandant.id, "Matrix Partner")
+
+        service = Service(
+            partner_id=partner.id,
+            name="Lizenz",
+            service_type="customer",
+            tax_rate="20.00",
+            erfolgsneutral=False,
+            created_at=utcnow(),
+            updated_at=utcnow(),
+        )
+        db_session.add(service)
+        await db_session.commit()
+        await db_session.refresh(service)
+
+        line = await create_journal_line_db(
+            db_session,
+            account.id,
+            run.id,
+            partner_id=partner.id,
+            valuta_date="2026-01-15",
+            amount=Decimal("120.00"),
+        )
+        line.service_id = service.id
+        db_session.add(line)
+
+        prior_year_line = await create_journal_line_db(
+            db_session,
+            account.id,
+            run.id,
+            partner_id=partner.id,
+            valuta_date="2025-11-20",
+            amount=Decimal("48.00"),
+        )
+        prior_year_line.service_id = service.id
+        db_session.add(prior_year_line)
+        await db_session.commit()
+
+        token = await get_auth_token(client, user, mandant)
+        resp = await client.get(
+            f"/api/v1/mandants/{mandant.id}/reports/income-expense",
+            params={"year": 2026},
+            headers=_auth(token),
+        )
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["year"] == 2026
+        assert set(payload["sections"].keys()) == {"income", "expense", "neutral"}
+        assert payload["sections"]["income"]["totals"]["jan"]["gross"] == "120.00"
+        assert payload["sections"]["income"]["totals"]["jan"]["net"] == "100.00"
+        assert payload["sections"]["income"]["groups"][0]["services"][0]["partner_name"] == "Matrix Partner"
+        assert payload["sections"]["income"]["groups"][0]["assigned_service_count"] == 1
+        assert payload["sections"]["income"]["groups"][0]["active_years"] == [2025, 2026]
+
+    async def test_viewer_can_read_matrix_endpoint(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        viewer = await create_user(db_session, "viewer-only-matrix@test.com", UserRole.viewer)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, viewer, mandant)
+        token = await get_auth_token(client, viewer, mandant)
+
+        resp = await client.get(
+            f"/api/v1/mandants/{mandant.id}/reports/income-expense",
+            params={"year": 2026},
+            headers=_auth(token),
+        )
+        assert resp.status_code == 200

@@ -2,15 +2,15 @@
 intent: 001-cashflow-core
 phase: inception
 status: bolt-plan-ready
-updated: 2026-04-10T00:00:00Z
+updated: 2026-04-15T00:00:00Z
 ---
 
 # Cashflow Core – Bolt Plan
 
-48 Stories → 15 Bolts über 8 Units.
+51 Stories → 15 Bolts über 8 Units.
 Ausführungsreihenfolge folgt den Unit-Abhängigkeiten.
 
-**Update 2026-04-10**: +15 Stories → 15 Bolts über 8 Units (Unit 008 service-management + erweiterte Review-Queue + UI-Erweiterungen).
+**Update 2026-04-15**: +3 Stories fuer die Einnahmen-&-Ausgaben-Jahresmatrix (Service-Gruppen, Matrix-API, UI-Screen).
 
 ---
 
@@ -94,6 +94,7 @@ Ausführungsreihenfolge folgt den Unit-Abhängigkeiten.
 - `002-service-matchers.md` (must)
 - `003-base-service-protection.md` (must)
 - `004-keyword-config.md` (must)
+- `009-service-groups.md` (must)
 
 **Rationale**: Service-Stammdaten, Matcher-API, Basisleistung-Schutz und Keyword-Konfiguration bilden das Fundament des Leistungsmanagements. Muss vor Import-Erweiterung (Bolt 014) fertig sein.
 **Requires**: Bolt 004
@@ -178,6 +179,7 @@ Ausführungsreihenfolge folgt den Unit-Abhängigkeiten.
 - `001-journal-lines-query.md` (must)
 - `002-bulk-assign-partner.md` (should)
 - `003-audit-log-api.md` (must)
+- `004-cashflow-matrix-api.md` (must)
 
 **Rationale**: Query + Bulk-Assign + Audit-Log sind API-Endpunkte ohne komplexe Domänenlogik; ein Bolt.
 **Requires**: Bolt 007
@@ -221,6 +223,7 @@ Ausführungsreihenfolge folgt den Unit-Abhängigkeiten.
 - `009-service-management-screen.md` (must)
 - `010-service-type-review-screen.md` (must)
 - `011-settings-keyword-config.md` (must)
+- `012-income-expense-screen.md` (must)
 
 **Rationale**: Restliche Screens; alle Backend-Bolts müssen fertig sein. Service-Screens und Einstellungen kommen hinzu.
 **Requires**: Bolt 011, Bolt 005, Bolt 008, Bolt 009, Bolt 015

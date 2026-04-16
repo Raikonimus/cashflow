@@ -6,7 +6,7 @@ default_bolt_type: simple-construction-bolt
 phase: inception
 status: ready
 created: 2026-04-06T00:00:00Z
-updated: 2026-04-10T00:00:00Z
+updated: 2026-04-15T00:00:00Z
 ---
 
 # Unit Brief: cashflow-ui
@@ -29,6 +29,7 @@ React + Vite Frontend mit allen Screens und Client-seitiger Logik. Konsumiert al
 - Review-Queue-Screen + Archiv
 - Service-Type-Review-Screen
 - Einstellungen für Keyword-Konfiguration
+- Einnahmen-&-Ausgaben-Screen (Jahresmatrix mit Gruppen, Summen, Collapse, Drag & Drop fuer Einnahmen, Ausgaben und Erfolgsneutrale Zahlungen)
 - Buchungszeilen-Liste (Filter, Paginierung, Bulk-Aktionen)
 - Audit-Log-Ansicht (Admin/Mandant-Admin)
 - Zugriffsschutz: Routing nach Rolle
@@ -59,6 +60,7 @@ React + Vite Frontend mit allen Screens und Client-seitiger Logik. Konsumiert al
 | FR-19 | Leistungszuordnungs-Review UI | Must |
 | FR-20 | Review-Archiv UI | Should |
 | FR-22 | Partnerliste mit deduplizierten Service-Typ-Icons | Should |
+| FR-23 | Einnahmen- & Ausgaben-Jahresmatrix | Must |
 
 ---
 
@@ -97,6 +99,8 @@ React + Vite Frontend mit allen Screens und Client-seitiger Logik. Konsumiert al
 /review/service-types           Service-Type-Review
 
 /settings/service-keywords      Keyword-Konfiguration
+
+/cashflow/income-expense        Einnahmen-&-Ausgaben-Jahresmatrix
 
 /admin/users                    Userverwaltung (Admin + Mandant-Admin)
 /admin/mandants                 Mandantenverwaltung (Admin only)
@@ -169,8 +173,8 @@ App
 
 | Metric | Count |
 |--------|-------|
-| Total Stories | 11 |
-| Must Have | 11 |
+| Total Stories | 12 |
+| Must Have | 12 |
 | Should Have | 0 |
 | Could Have | 0 |
 
@@ -186,3 +190,4 @@ App
 - 009-service-management-screen.md
 - 010-service-type-review-screen.md
 - 011-settings-keyword-config.md
+- 012-income-expense-screen.md

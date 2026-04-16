@@ -8,6 +8,7 @@ from sqlmodel import select
 
 from app.auth.models import UserRole
 from app.imports.models import ImportRun, ImportStatus, JournalLine, ReviewItem, utcnow
+from app.services.models import ServiceGroup, ServiceGroupAssignment
 from app.tenants.models import Account
 from tests.partners.conftest import assign_user_to_mandant, create_mandant, create_user, get_auth_token
 
@@ -502,3 +503,195 @@ class TestServices:
         await db_session.refresh(foreign_line)
         assert str(foreign_line.partner_id) == source_partner["id"]
         assert str(foreign_line.service_id) == source_base_service_id
+
+    async def test_service_group_crud_and_assignment(self, client: AsyncClient, db_session: AsyncSession):
+        user = await create_user(db_session, "acc-groups@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner(client, token, mandant.id, name="Grouped Partner")
+
+        created_service = await client.post(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            json={"name": "Lizenz", "service_type": "customer", "tax_rate": "20.00"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert created_service.status_code == 201
+        service_id = created_service.json()["id"]
+
+        list_income = await client.get(
+            f"/api/v1/mandants/{mandant.id}/service-groups",
+            params={"section": "income"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert list_income.status_code == 200
+        assert len(list_income.json()) >= 1
+
+        create_group = await client.post(
+            f"/api/v1/mandants/{mandant.id}/service-groups",
+            json={"section": "income", "name": "Lizenzen", "sort_order": 5},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert create_group.status_code == 201
+        group_id = create_group.json()["id"]
+
+        assign_group = await client.post(
+            f"/api/v1/mandants/{mandant.id}/services/{service_id}/group-assignment",
+            json={"service_group_id": group_id},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert assign_group.status_code == 200
+        assert assign_group.json()["service_group_id"] == group_id
+
+    async def test_cross_section_group_assignment_returns_422(self, client: AsyncClient, db_session: AsyncSession):
+        user = await create_user(db_session, "acc-cross@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner(client, token, mandant.id, name="Cross Partner")
+
+        service_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            json={"name": "Lizenz B", "service_type": "customer", "tax_rate": "20.00"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert service_resp.status_code == 201
+        service_id = service_resp.json()["id"]
+
+        expense_group_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/service-groups",
+            json={"section": "expense", "name": "Buro", "sort_order": 1},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert expense_group_resp.status_code == 201
+        expense_group_id = expense_group_resp.json()["id"]
+
+        assign_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/services/{service_id}/group-assignment",
+            json={"service_group_id": expense_group_id},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert assign_resp.status_code == 422
+
+    async def test_service_type_gets_matching_default_group_assignment(self, client: AsyncClient, db_session: AsyncSession):
+        user = await create_user(db_session, "acc-default-group@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner(client, token, mandant.id, name="Authority Partner")
+
+        service_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            json={"name": "Finanzamt", "service_type": "authority", "tax_rate": "0.00"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert service_resp.status_code == 201
+        service_id = service_resp.json()["id"]
+
+        matrix_resp = await client.get(
+            f"/api/v1/mandants/{mandant.id}/reports/income-expense",
+            params={"year": 2026},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert matrix_resp.status_code == 200
+
+        assignments = (
+            await db_session.exec(
+                select(ServiceGroupAssignment, ServiceGroup)
+                .join(ServiceGroup, ServiceGroup.id == ServiceGroupAssignment.service_group_id)
+                .where(ServiceGroupAssignment.mandant_id == mandant.id, ServiceGroupAssignment.service_id == UUID(service_id))
+            )
+        ).all()
+        assert len(assignments) == 1
+        _, assigned_group = assignments[0]
+        assert assigned_group.section == "expense"
+        assert assigned_group.name == "Behörden"
+
+    async def test_default_group_assignment_updates_when_service_type_changes(self, client: AsyncClient, db_session: AsyncSession):
+        user = await create_user(db_session, "acc-default-update@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner(client, token, mandant.id, name="Expense Partner")
+
+        service_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            json={"name": "Lieferant", "service_type": "supplier", "tax_rate": "20.00"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert service_resp.status_code == 201
+        service_id = service_resp.json()["id"]
+
+        patch_resp = await client.patch(
+            f"/api/v1/mandants/{mandant.id}/services/{service_id}",
+            json={"service_type": "authority"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert patch_resp.status_code == 200
+
+        assignments = (
+            await db_session.exec(
+                select(ServiceGroupAssignment, ServiceGroup)
+                .join(ServiceGroup, ServiceGroup.id == ServiceGroupAssignment.service_group_id)
+                .where(ServiceGroupAssignment.mandant_id == mandant.id, ServiceGroupAssignment.service_id == UUID(service_id))
+            )
+        ).all()
+        assert len(assignments) == 1
+        _, assigned_group = assignments[0]
+        assert assigned_group.name == "Behörden"
+
+    async def test_manual_non_default_group_assignment_is_not_overwritten(self, client: AsyncClient, db_session: AsyncSession):
+        user = await create_user(db_session, "acc-manual-group@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner(client, token, mandant.id, name="Manual Group Partner")
+
+        service_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            json={"name": "Hosting", "service_type": "supplier", "tax_rate": "20.00"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert service_resp.status_code == 201
+        service_id = service_resp.json()["id"]
+
+        custom_group_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/service-groups",
+            json={"section": "expense", "name": "Sonderkosten", "sort_order": 10},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert custom_group_resp.status_code == 201
+        custom_group_id = custom_group_resp.json()["id"]
+
+        assign_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/services/{service_id}/group-assignment",
+            json={"service_group_id": custom_group_id},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert assign_resp.status_code == 200
+
+        patch_resp = await client.patch(
+            f"/api/v1/mandants/{mandant.id}/services/{service_id}",
+            json={"service_type": "authority"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert patch_resp.status_code == 200
+
+        matrix_resp = await client.get(
+            f"/api/v1/mandants/{mandant.id}/reports/income-expense",
+            params={"year": 2026},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert matrix_resp.status_code == 200
+
+        assignments = (
+            await db_session.exec(
+                select(ServiceGroupAssignment, ServiceGroup)
+                .join(ServiceGroup, ServiceGroup.id == ServiceGroupAssignment.service_group_id)
+                .where(ServiceGroupAssignment.mandant_id == mandant.id, ServiceGroupAssignment.service_id == UUID(service_id))
+            )
+        ).all()
+        assert len(assignments) == 1
+        _, assigned_group = assignments[0]
+        assert assigned_group.name == "Sonderkosten"
+        assert assigned_group.is_default is False

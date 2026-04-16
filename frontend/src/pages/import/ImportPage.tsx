@@ -66,6 +66,7 @@ function getUploadErrorMessage(error: unknown): string {
 
 export function ImportPage() {
   const { accountId } = useParams<{ accountId: string }>()
+  const resolvedAccountId = accountId ?? ''
   const mandantId = useAuthStore((s) => s.user?.mandant_id ?? '')
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -83,14 +84,14 @@ export function ImportPage() {
 
   const { data: history } = useQuery({
     queryKey: ['import-runs', mandantId, accountId],
-    queryFn: () => listImportRuns(mandantId, accountId),
+    queryFn: () => listImportRuns(mandantId, resolvedAccountId),
     enabled: !!mandantId && !!accountId,
   })
 
   const account = accounts.find((a) => a.id === accountId)
 
   const mutation = useMutation({
-    mutationFn: () => uploadCsv(mandantId, accountId, selectedFiles),
+    mutationFn: () => uploadCsv(mandantId, resolvedAccountId, selectedFiles),
     onSuccess: (data) => {
       setResults(data)
       setStep('result')

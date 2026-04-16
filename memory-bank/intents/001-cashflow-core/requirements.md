@@ -3,7 +3,7 @@ intent: 001-cashflow-core
 phase: inception
 status: complete
 created: 2026-04-06T00:00:00Z
-updated: 2026-04-10T00:00:00Z
+updated: 2026-04-15T00:00:00Z
 ---
 
 # Requirements: Cashflow Core
@@ -97,8 +97,9 @@ journal_lines
   id, partner_id (FK partners),
   name,                                -- bei Basisleistung unveränderlich
   description (nullable),
-  service_type (customer|supplier|employee|authority|unknown),
-  tax_rate (numeric, Prozent),         -- Standard: 20 % für customer/supplier/unknown; 0 % für employee/authority
+  service_type (customer|supplier|shareholder|employee|authority|unknown),
+  erfolgsneutral (bool),               -- true = in Erfolgsneutral-Sektion darstellen
+  tax_rate (numeric, Prozent),         -- Standard: 20 % für customer/supplier/unknown; 0 % für shareholder/employee/authority
   valid_from (date, nullable),         -- Geltungszeitraum Start (inklusiv)
   valid_to (date, nullable),           -- Geltungszeitraum Ende (inklusiv)
   is_base_service (bool),              -- true = Basisleistung; nie löschbar, Name nie änderbar
@@ -117,6 +118,20 @@ journal_lines
   pattern,
   pattern_type (string|regex),
   target_service_type (employee|authority),
+  created_at, updated_at
+
+  service_groups
+  id, mandant_id (FK mandants),
+  section (income|expense|neutral),     -- Einnahmen/Ausgaben/Erfolgsneutral-Bereich
+  name,
+  sort_order,
+  is_default (bool),
+  created_at, updated_at
+
+  service_group_assignments
+  id, mandant_id (FK mandants),
+  service_id (FK services),
+  service_group_id (FK service_groups),
   created_at, updated_at
 
   review_items
@@ -267,7 +282,7 @@ Kein offenes Rest-Backlog aus dem Audit von `intent.2.txt`.
   - Name der Basisleistung ist nicht änderbar (HTTP 422 bei Versuch)
   - Basisleistung besitzt keine Matcher; Anlegen eines Matchers für die Basisleistung wird abgelehnt (HTTP 422)
   - Leistungen können angelegt, bearbeitet (außer Basisleistung-Name) und gelöscht werden
-  - Service-Typ-Enum: customer, supplier, employee, authority, unknown
+  - Service-Typ-Enum: customer, supplier, shareholder, employee, authority, unknown
   - Beim Anlegen/Ändern/Löschen einer Leistung: Revalidierung aller Buchungszeilen des betroffenen Partners (→ FR-14)
   - Revalidierung erzeugt ausschließlich Vorschläge im UI und überschreibt keine bestehende Zuordnung automatisch
 - **Priority**: Must
@@ -378,6 +393,40 @@ Kein offenes Rest-Backlog aus dem Audit von `intent.2.txt`.
   - Die Basisleistung wird in die Icon-Ermittlung einbezogen
   - Änderungen an Service-Typen werden nach Freigabe oder manueller Änderung in der Partnerliste sichtbar
 - **Priority**: Should
+
+### FR-23: Einnahmen- & Ausgaben-Jahresmatrix
+- **Description**: Es gibt einen neuen Menüpunkt "Einnahmen & Ausgaben". Die Ansicht zeigt Leistungen als Zeilen und Monate als Spalten für ein ausgewähltes Jahr. Die erste Spalte ist eine gesondert gekennzeichnete Jahressumme je Zeile. Es gibt drei Bereiche: Einnahmen, Ausgaben und **Erfolgsneutrale Zahlungen**. Leistungen können in frei konfigurierbaren Gruppen organisiert werden. Pro Gruppe und Spalte wird eine Zwischensumme berechnet; Gruppen sind auf- und zuklappbar. Über jeder Spalte wird zusätzlich eine Gesamtsumme über alle Gruppen berechnet.
+- **Acceptance Criteria**:
+  - Neuer Navigationspunkt `/cashflow/income-expense` ist für alle nicht-deaktivierten Rollen sichtbar (Viewer read-only)
+  - Jahresnavigation (`Vorjahr`, `Folgejahr`) lädt die Monatsmatrix des gewählten Jahres
+  - Tabellenlayout: erste Spalte = Jahressumme, danach Januar bis Dezember
+  - Monatszuordnung erfolgt über `valuta_date`
+  - Zeilen entsprechen Leistungen; Spalten entsprechen Monaten
+  - `neutral` enthält alle Leistungen mit `erfolgsneutral = true` (unabhängig von `service_type`)
+  - `income` enthält nur Leistungen mit `erfolgsneutral = false` und `service_type = customer`
+  - `expense` enthält nur Leistungen mit `erfolgsneutral = false` und `service_type ∈ {supplier, authority, shareholder, employee}`
+  - Leistungen mit `service_type = unknown` und `erfolgsneutral = false` werden in FR-23 nicht dargestellt
+  - Für jeden Mandanten wird initial je Bereich (`income`, `expense`, `neutral`) mindestens eine Default-Gruppe angelegt; Gruppen sind danach frei erweiterbar/umbenennbar/löschbar
+  - Löschen einer Gruppe ist nur mit Reassignment aller zugeordneten Leistungen zulässig
+  - Neue Gruppen können im UI angelegt werden
+  - Zuordnung einer Leistung zu einer Gruppe erfolgt per Drag & Drop und wird serverseitig persistiert
+  - Drag & Drop ist nur innerhalb desselben Bereichs zulässig; bereichsübergreifende Zuordnung liefert 422
+  - Pro Gruppe wird je Spalte (Jahr + Monate) eine Zwischensumme berechnet
+  - Zugeklappte Gruppen zeigen nur die Gruppen-Summenzeile, nicht die einzelnen Leistungen
+  - Pro Spalte wird eine Gesamtsumme über alle Gruppen berechnet und angezeigt (unabhängig vom Collapse-Zustand)
+  - Zellwertformel je Leistung und Monat: `net = sum(amount) / (1 + tax_rate/100)`
+  - `sum(amount)` basiert auf allen Buchungszeilen der Leistung im Monat (Mandanten-isoliert)
+  - Währungsregel V1: Aggregation nur in Mandanten-Basiswährung; Buchungen mit abweichender Währung werden nicht eingerechnet und als ausgeschlossene Positionen im API-Response ausgewiesen
+  - Steuersatz für Nettoberechnung ist der zum Buchungszeitpunkt historisierte Steuersatz; falls kein Snapshot vorliegt, wird der aktuelle Service-Steuersatz als Fallback verwendet
+  - Rundung erfolgt erst bei Ausgabe auf 2 Nachkommastellen (interne Berechnung mit höherer Präzision)
+  - Für die Jahresspalte gilt dieselbe Nettologik auf Jahresbasis
+  - API liefert Roh- und Nettowerte je Zelle sowie Aggregationen je Gruppe und Gesamtsumme
+  - API-Response enthält je Bereich (`income|expense|neutral`) die Knoten `groups[]`, `totals`, `currency`, `excluded_currency_count`, `excluded_currency_amount_gross`
+  - Jede Leistungszeile enthält `service_id`, `service_name`, `service_type`, `erfolgsneutral`, `cells` (`year_total`, `jan`..`dec`) und je Cell `gross`, `net`
+  - Jede Gruppenzeile enthält `group_id`, `group_name`, `sort_order`, `collapsed` und `subtotal_cells` (`year_total`, `jan`..`dec`)
+  - `totals` enthält die Bereichs-Gesamtsummen je Spalte als `gross` und `net`
+  - API-Aggregation erfolgt DB-seitig (keine clientseitige Aggregation als Primärpfad)
+- **Priority**: Must
 
 ---
 

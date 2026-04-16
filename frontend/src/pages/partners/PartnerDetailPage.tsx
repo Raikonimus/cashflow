@@ -18,17 +18,18 @@ import {
   deletePartner,
 } from '@/api/partners'
 import { listPartnerServices } from '@/api/services'
-import type { ServiceListItem } from '@/api/services'
+import type { ServiceListItem, ServiceType } from '@/api/services'
 import type { AccountPreviewLineItem, PartnerAccount } from '@/api/partners'
 import { listJournalLines } from '@/api/journal'
 import { MergeDialog } from './MergeDialog'
 
-const serviceTypeLabels: Record<'customer' | 'supplier' | 'employee' | 'shareholder' | 'authority' | 'unknown', string> = {
+const serviceTypeLabels: Record<ServiceType, string> = {
   customer: 'Kunde',
   supplier: 'Lieferant',
   employee: 'Mitarbeiter',
   shareholder: 'Gesellschafter',
   authority: 'Behörde',
+  internal_transfer: 'Interne Umbuchung',
   unknown: 'Unbekannt',
 }
 

@@ -12,7 +12,7 @@ function setup(role = 'accountant') {
   act(() => {
     useAuthStore.setState({
       token: 'tok',
-      user: { sub: 'u1', email: 'x@x.com', role, mandant_id: MANDANT_ID },
+      user: { sub: 'u1', role, mandant_id: MANDANT_ID },
       selectedMandant: { id: MANDANT_ID, name: 'Test' },
       mandants: [],
     })

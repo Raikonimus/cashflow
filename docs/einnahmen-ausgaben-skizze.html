@@ -1,0 +1,696 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Einnahmen & Ausgaben - Live Skizze</title>
+  <style>
+    :root {
+      --bg: #f7f4ee;
+      --panel: #fffdf8;
+      --line: #e6ddcc;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --brand: #0f766e;
+      --income-bg: #def7f3;
+      --expense-bg: #fff0e8;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+    }
+
+    .wrap {
+      width: min(1400px, 95vw);
+      margin: 18px auto 28px;
+    }
+
+    .top {
+      background: linear-gradient(120deg, #0f766e, #134e4a);
+      color: white;
+      padding: 12px 16px;
+      border-radius: 12px;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .top h1 { margin: 0; font-size: 22px; }
+
+    .bar {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px;
+      margin-bottom: 10px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    input, button {
+      border: 1px solid #c9bfac;
+      border-radius: 8px;
+      padding: 8px 10px;
+      font: inherit;
+      background: white;
+    }
+
+    button.primary {
+      background: var(--brand);
+      color: white;
+      border-color: var(--brand);
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .status {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      margin-bottom: 12px;
+      overflow: hidden;
+    }
+
+    .card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      flex-wrap: wrap;
+    }
+
+    .income .card-head { background: var(--income-bg); }
+    .expense .card-head { background: var(--expense-bg); }
+
+    .table-wrap { overflow-x: auto; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 1200px;
+    }
+
+    th, td {
+      padding: 8px;
+      border-bottom: 1px solid #f0e9db;
+      text-align: right;
+      white-space: nowrap;
+      font-size: 13px;
+    }
+
+    th:first-child, td:first-child {
+      position: sticky;
+      left: 0;
+      background: #fffdf8;
+      text-align: left;
+      min-width: 330px;
+      z-index: 1;
+      box-shadow: 1px 0 0 #eee3cf;
+    }
+
+    th {
+      background: #f7f1e5;
+      font-size: 11px;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+
+    .group-row td {
+      background: #faf5e9;
+      font-weight: 800;
+      border-top: 1px solid #e7dcc4;
+    }
+
+    .group-row.drop-target {
+      outline: 2px dashed #b45309;
+      outline-offset: -3px;
+    }
+
+    .service-row.dragging { opacity: 0.4; }
+
+    .summary-row td {
+      font-weight: 900;
+      background: #f4efe1;
+      border-top: 2px solid #d9cab0;
+    }
+
+    .year-col {
+      background: #efe8d8;
+      font-weight: 800;
+    }
+
+    .muted { color: var(--muted); }
+    .toggle {
+      border: none;
+      background: transparent;
+      color: #7c6b4f;
+      font-weight: 900;
+      cursor: pointer;
+      margin-right: 8px;
+      padding: 0;
+    }
+
+    .drag-handle {
+      color: #9b8a6f;
+      margin-right: 6px;
+      cursor: grab;
+      font-weight: 700;
+    }
+
+    .tax {
+      color: var(--muted);
+      font-size: 11px;
+      margin-left: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <h1>Einnahmen & Ausgaben</h1>
+      <div>Monatsmatrix auf Basis gespeicherter Daten</div>
+    </header>
+
+    <section class="bar">
+      <strong>Daten:</strong>
+      <input id="apiBase" value="http://localhost:8000/api/v1" placeholder="API Basis" />
+      <input id="mandantId" value="4afe231b-6756-4828-a623-985815d84c84" placeholder="Mandant ID" />
+      <input id="jwtToken" type="password" value="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjNTRlOGMyMC04Y2EzLTQxYjktODRkMS1hMjFiZTFiYTkyZmYiLCJyb2xlIjoiYWRtaW4iLCJtYW5kYW50X2lkIjoiNGFmZTIzMWItNjc1Ni00ODI4LWE2MjMtOTg1ODE1ZDg0Yzg0IiwiZXhwIjoxNzc2Mjg5NDk3fQ.5mwQhE24a95PcJ2Q_DKHq8A5bp7AGXIQzOZYq8xwrJY" placeholder="Bearer Token" />
+      <button id="toggleToken">Token anzeigen</button>
+      <button id="loadData" class="primary">Gespeicherte Daten laden</button>
+      <span id="status" class="status">Noch keine Live-Daten geladen.</span>
+    </section>
+
+    <section class="bar">
+      <button id="prevYear">◀ Vorjahr</button>
+      <strong id="yearBadge">2026</strong>
+      <button id="nextYear">Folgejahr ▶</button>
+      <span class="muted">Nettowert je Zelle = Summe(Betrag) / (1 + Steuersatz/100)</span>
+    </section>
+
+    <article class="card income">
+      <div class="card-head">
+        <strong>Einnahmen (Kunden)</strong>
+        <span>
+          <input id="incomeGroupInput" placeholder="Neue Einnahmen-Gruppe" />
+          <button id="incomeGroupAdd">Gruppe anlegen</button>
+        </span>
+      </div>
+      <div class="table-wrap"><table id="incomeTable"></table></div>
+    </article>
+
+    <article class="card expense">
+      <div class="card-head">
+        <strong>Ausgaben (Lieferanten, Behörden, Gesellschafter, Mitarbeiter)</strong>
+        <span>
+          <input id="expenseGroupInput" placeholder="Neue Ausgaben-Gruppe" />
+          <button id="expenseGroupAdd">Gruppe anlegen</button>
+        </span>
+      </div>
+      <div class="table-wrap"><table id="expenseTable"></table></div>
+    </article>
+  </div>
+
+  <script>
+    const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
+    const INCOME_TYPES = new Set(["customer"]);
+    const EXPENSE_TYPES = new Set(["supplier", "authority", "shareholder", "employee"]);
+    const DEFAULT_GROUP_BY_TYPE = {
+      customer: "Kunden",
+      supplier: "Lieferanten",
+      authority: "Behorden",
+      shareholder: "Gesellschafter",
+      employee: "Mitarbeiter",
+      unknown: "Unbekannt",
+      internal_transfer: "Interne Umbuchung",
+    };
+
+    const state = {
+      year: 2026,
+      draggedServiceId: null,
+      config: {
+        apiBase: "http://localhost:8000/api/v1",
+        mandantId: "4afe231b-6756-4828-a623-985815d84c84",
+        jwtToken: "",
+      },
+      income: { groups: ["Kunden"], collapsed: {}, services: [] },
+      expense: { groups: ["Lieferanten", "Behorden", "Gesellschafter", "Mitarbeiter"], collapsed: {}, services: [] },
+      groupMap: {},
+    };
+
+    function setStatus(text) {
+      document.getElementById("status").textContent = text;
+    }
+
+    function toNet(gross, taxRate) {
+      return gross / (1 + taxRate / 100);
+    }
+
+    function sum(values) {
+      return values.reduce((acc, value) => acc + value, 0);
+    }
+
+    function asMoney(value) {
+      return value.toLocaleString("de-AT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " EUR";
+    }
+
+    function serviceNetByMonth(service) {
+      return service.monthlyGross.map((gross) => toNet(gross, service.taxRate));
+    }
+
+    function groupStorageKey(sectionKey) {
+      return `ea_groups_${state.config.mandantId}_${sectionKey}`;
+    }
+
+    function mapStorageKey() {
+      return `ea_group_map_${state.config.mandantId}`;
+    }
+
+    function saveGroups(sectionKey) {
+      localStorage.setItem(groupStorageKey(sectionKey), JSON.stringify(state[sectionKey].groups));
+    }
+
+    function saveGroupMap() {
+      localStorage.setItem(mapStorageKey(), JSON.stringify(state.groupMap));
+    }
+
+    function hydrateGroupingFromStorage() {
+      if (!state.config.mandantId) {
+        return;
+      }
+      try {
+        const incomeGroups = JSON.parse(localStorage.getItem(groupStorageKey("income")) || "null");
+        const expenseGroups = JSON.parse(localStorage.getItem(groupStorageKey("expense")) || "null");
+        const savedMap = JSON.parse(localStorage.getItem(mapStorageKey()) || "{}");
+        if (Array.isArray(incomeGroups) && incomeGroups.length > 0) {
+          state.income.groups = incomeGroups;
+        }
+        if (Array.isArray(expenseGroups) && expenseGroups.length > 0) {
+          state.expense.groups = expenseGroups;
+        }
+        if (savedMap && typeof savedMap === "object") {
+          state.groupMap = savedMap;
+        }
+      } catch {
+        state.groupMap = {};
+      }
+    }
+
+    async function fetchJson(path, params) {
+      const base = state.config.apiBase.replace(/\/$/, "");
+      const url = new URL(base + path);
+      if (params) {
+        Object.entries(params).forEach(([key, value]) => {
+          if (value !== undefined && value !== null && value !== "") {
+            url.searchParams.set(key, String(value));
+          }
+        });
+      }
+
+      const resp = await fetch(url.toString(), {
+        headers: {
+          Authorization: `Bearer ${state.config.jwtToken}`,
+        },
+      });
+
+      if (!resp.ok) {
+        const errorText = await resp.text();
+        throw new Error(`${resp.status} ${resp.statusText}: ${errorText}`);
+      }
+      return resp.json();
+    }
+
+    async function fetchAllPartners() {
+      const all = [];
+      let page = 1;
+      while (true) {
+        const data = await fetchJson(`/mandants/${state.config.mandantId}/partners`, {
+          page,
+          size: 100,
+          include_inactive: true,
+          sort_by: "name",
+          sort_dir: "asc",
+        });
+        all.push(...data.items);
+        if (page >= data.pages) {
+          break;
+        }
+        page += 1;
+      }
+      return all;
+    }
+
+    async function fetchAllJournalLinesForYear(year) {
+      const all = [];
+      let page = 1;
+      while (true) {
+        const data = await fetchJson(`/mandants/${state.config.mandantId}/journal`, {
+          year,
+          page,
+          size: 500,
+          sort_by: "valuta_date",
+          sort_dir: "asc",
+        });
+        all.push(...data.items);
+        if (page >= data.pages) {
+          break;
+        }
+        page += 1;
+      }
+      return all;
+    }
+
+    function resolveSectionByType(type) {
+      if (INCOME_TYPES.has(type)) {
+        return "income";
+      }
+      if (EXPENSE_TYPES.has(type)) {
+        return "expense";
+      }
+      return null;
+    }
+
+    function buildServiceDataset(partners, servicesByPartner, journalLines) {
+      const serviceRows = [];
+      const serviceKeyIndex = new Map();
+
+      partners.forEach((partner) => {
+        const services = servicesByPartner.get(partner.id) || [];
+        services.forEach((service) => {
+          if (service.is_base_service) {
+            return;
+          }
+          const serviceType = typeof service.service_type === "string" ? service.service_type : "unknown";
+          const sectionKey = resolveSectionByType(serviceType);
+          if (!sectionKey) {
+            return;
+          }
+          const key = `${partner.id}::${service.name}`;
+          const monthlyGross = Array(12).fill(0);
+          const row = {
+            id: service.id,
+            key,
+            partnerId: partner.id,
+            partnerName: partner.display_name || partner.name,
+            name: service.name,
+            type: serviceType,
+            taxRate: Number.parseFloat(service.tax_rate || "0") || 0,
+            group: state.groupMap[service.id] || DEFAULT_GROUP_BY_TYPE[serviceType] || "Ohne Gruppe",
+            monthlyGross,
+          };
+          serviceRows.push(row);
+          serviceKeyIndex.set(key, row);
+        });
+      });
+
+      journalLines.forEach((line) => {
+        if (!line.partner_id || !line.service_name) {
+          return;
+        }
+        const key = `${line.partner_id}::${line.service_name}`;
+        const row = serviceKeyIndex.get(key);
+        if (!row) {
+          return;
+        }
+        const month = Number.parseInt((line.valuta_date || line.booking_date || "").slice(5, 7), 10);
+        if (!Number.isInteger(month) || month < 1 || month > 12) {
+          return;
+        }
+        const amount = Number.parseFloat(line.amount || "0");
+        if (!Number.isFinite(amount)) {
+          return;
+        }
+        row.monthlyGross[month - 1] += Math.abs(amount);
+      });
+
+      return {
+        incomeRows: serviceRows.filter((row) => INCOME_TYPES.has(row.type)),
+        expenseRows: serviceRows.filter((row) => EXPENSE_TYPES.has(row.type)),
+      };
+    }
+
+    function ensureGroups(sectionKey) {
+      const section = state[sectionKey];
+      const needed = new Set(section.groups);
+      section.services.forEach((service) => needed.add(service.group));
+      section.groups = [...needed].sort((a, b) => a.localeCompare(b, "de"));
+      saveGroups(sectionKey);
+    }
+
+    function renderSection(sectionKey, tableId) {
+      const section = state[sectionKey];
+      const table = document.getElementById(tableId);
+      const groups = [...section.groups].sort((a, b) => a.localeCompare(b, "de"));
+      const rows = [];
+
+      rows.push("<thead><tr>");
+      rows.push("<th>Leistung / Gruppe</th>");
+      rows.push('<th class="year-col">Jahr Gesamt</th>');
+      MONTHS.forEach((month) => rows.push(`<th>${month}</th>`));
+      rows.push("</tr></thead><tbody>");
+
+      const sectionMonthTotals = Array(12).fill(0);
+      let sectionYearTotal = 0;
+
+      groups.forEach((groupName) => {
+        const services = section.services.filter((service) => service.group === groupName);
+        if (services.length === 0) {
+          return;
+        }
+
+        const groupMonthTotals = Array(12).fill(0);
+        services.forEach((service) => {
+          const netMonths = serviceNetByMonth(service);
+          netMonths.forEach((value, monthIndex) => {
+            groupMonthTotals[monthIndex] += value;
+            sectionMonthTotals[monthIndex] += value;
+          });
+        });
+
+        const groupYearTotal = sum(groupMonthTotals);
+        sectionYearTotal += groupYearTotal;
+        const collapsed = Boolean(section.collapsed[groupName]);
+        const icon = collapsed ? "▸" : "▾";
+
+        rows.push(`<tr class="group-row" data-group="${groupName}" data-section="${sectionKey}">`);
+        rows.push(`<td><button type="button" class="toggle" data-toggle-group="${groupName}" data-section="${sectionKey}">${icon}</button>${groupName}</td>`);
+        rows.push(`<td class="year-col">${asMoney(groupYearTotal)}</td>`);
+        groupMonthTotals.forEach((value) => rows.push(`<td>${asMoney(value)}</td>`));
+        rows.push("</tr>");
+
+        if (!collapsed) {
+          services
+            .sort((a, b) => (a.partnerName + a.name).localeCompare(b.partnerName + b.name, "de"))
+            .forEach((service) => {
+              const netMonths = serviceNetByMonth(service);
+              const yearTotal = sum(netMonths);
+              rows.push(`<tr class="service-row" draggable="true" data-service-id="${service.id}" data-section="${sectionKey}">`);
+              rows.push(`<td><span class="drag-handle">⋮⋮</span>${service.partnerName} - ${service.name}<span class="tax">${service.taxRate}%</span></td>`);
+              rows.push(`<td class="year-col">${asMoney(yearTotal)}</td>`);
+              netMonths.forEach((value) => rows.push(`<td>${asMoney(value)}</td>`));
+              rows.push("</tr>");
+            });
+        }
+      });
+
+      rows.push('<tr class="summary-row">');
+      rows.push(`<td>Gesamtsumme ${sectionKey === "income" ? "Einnahmen" : "Ausgaben"}</td>`);
+      rows.push(`<td class="year-col">${asMoney(sectionYearTotal)}</td>`);
+      sectionMonthTotals.forEach((value) => rows.push(`<td>${asMoney(value)}</td>`));
+      rows.push("</tr></tbody>");
+
+      table.innerHTML = rows.join("");
+      attachGroupToggleHandlers();
+      attachDragAndDropHandlers();
+    }
+
+    function render() {
+      document.getElementById("yearBadge").textContent = String(state.year);
+      renderSection("income", "incomeTable");
+      renderSection("expense", "expenseTable");
+    }
+
+    function attachGroupToggleHandlers() {
+      document.querySelectorAll("[data-toggle-group]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const sectionKey = button.getAttribute("data-section");
+          const groupName = button.getAttribute("data-toggle-group");
+          if (!sectionKey || !groupName) {
+            return;
+          }
+          state[sectionKey].collapsed[groupName] = !state[sectionKey].collapsed[groupName];
+          render();
+        });
+      });
+    }
+
+    function attachDragAndDropHandlers() {
+      document.querySelectorAll(".service-row").forEach((row) => {
+        row.addEventListener("dragstart", (event) => {
+          state.draggedServiceId = row.getAttribute("data-service-id");
+          row.classList.add("dragging");
+          if (event.dataTransfer) {
+            event.dataTransfer.effectAllowed = "move";
+          }
+        });
+
+        row.addEventListener("dragend", () => {
+          row.classList.remove("dragging");
+          state.draggedServiceId = null;
+          document.querySelectorAll(".group-row").forEach((groupRow) => groupRow.classList.remove("drop-target"));
+        });
+      });
+
+      document.querySelectorAll(".group-row").forEach((groupRow) => {
+        groupRow.addEventListener("dragover", (event) => {
+          event.preventDefault();
+          groupRow.classList.add("drop-target");
+          if (event.dataTransfer) {
+            event.dataTransfer.dropEffect = "move";
+          }
+        });
+
+        groupRow.addEventListener("dragleave", () => {
+          groupRow.classList.remove("drop-target");
+        });
+
+        groupRow.addEventListener("drop", (event) => {
+          event.preventDefault();
+          groupRow.classList.remove("drop-target");
+
+          const serviceId = state.draggedServiceId;
+          const groupName = groupRow.getAttribute("data-group");
+          const sectionKey = groupRow.getAttribute("data-section");
+          if (!serviceId || !groupName || !sectionKey) {
+            return;
+          }
+
+          const service = state[sectionKey].services.find((item) => item.id === serviceId);
+          if (!service) {
+            return;
+          }
+
+          service.group = groupName;
+          state.groupMap[service.id] = groupName;
+          saveGroupMap();
+          render();
+        });
+      });
+    }
+
+    function wireGroupCreation(sectionKey, inputId, buttonId) {
+      const input = document.getElementById(inputId);
+      const button = document.getElementById(buttonId);
+
+      function createGroup() {
+        const value = input.value.trim();
+        if (!value) {
+          return;
+        }
+        if (!state[sectionKey].groups.includes(value)) {
+          state[sectionKey].groups.push(value);
+          state[sectionKey].collapsed[value] = false;
+          saveGroups(sectionKey);
+          render();
+        }
+        input.value = "";
+      }
+
+      button.addEventListener("click", createGroup);
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          createGroup();
+        }
+      });
+    }
+
+    async function loadLiveData() {
+      state.config.apiBase = document.getElementById("apiBase").value.trim();
+      state.config.mandantId = document.getElementById("mandantId").value.trim();
+      state.config.jwtToken = document.getElementById("jwtToken").value.trim();
+
+      if (!state.config.apiBase || !state.config.mandantId || !state.config.jwtToken) {
+        setStatus("Bitte API-Basis, Mandant-ID und Token angeben.");
+        return;
+      }
+
+      try {
+        setStatus("Lade gespeicherte Daten aus dem Backend ...");
+        hydrateGroupingFromStorage();
+
+        const partners = await fetchAllPartners();
+        const servicesByPartner = new Map();
+
+        for (const partner of partners) {
+          const services = await fetchJson(`/mandants/${state.config.mandantId}/partners/${partner.id}/services`);
+          servicesByPartner.set(partner.id, services);
+        }
+
+        const journalLines = await fetchAllJournalLinesForYear(state.year);
+        const dataset = buildServiceDataset(partners, servicesByPartner, journalLines);
+
+        state.income.services = dataset.incomeRows;
+        state.expense.services = dataset.expenseRows;
+
+        ensureGroups("income");
+        ensureGroups("expense");
+
+        render();
+
+        setStatus(
+          `Geladen: ${partners.length} Partner, ${dataset.incomeRows.length + dataset.expenseRows.length} Leistungen, ${journalLines.length} Buchungszeilen (${state.year}).`
+        );
+      } catch (error) {
+        setStatus(`Fehler beim Laden: ${String(error.message || error)}`);
+      }
+    }
+
+    document.getElementById("prevYear").addEventListener("click", () => {
+      state.year -= 1;
+      render();
+      if (state.config.mandantId && state.config.jwtToken) {
+        loadLiveData();
+      }
+    });
+
+    document.getElementById("nextYear").addEventListener("click", () => {
+      state.year += 1;
+      render();
+      if (state.config.mandantId && state.config.jwtToken) {
+        loadLiveData();
+      }
+    });
+
+    document.getElementById("toggleToken").addEventListener("click", () => {
+      const tokenInput = document.getElementById("jwtToken");
+      tokenInput.type = tokenInput.type === "password" ? "text" : "password";
+    });
+
+    document.getElementById("loadData").addEventListener("click", loadLiveData);
+
+    wireGroupCreation("income", "incomeGroupInput", "incomeGroupAdd");
+    wireGroupCreation("expense", "expenseGroupInput", "expenseGroupAdd");
+
+    render();
+  </script>
+</body>
+</html>

@@ -13,21 +13,29 @@ from alembic import context
 from alembic.operations import Operations
 
 revision: str = "020"
-down_revision: Union[str, None] = "019"
+down_revision: Union[str, None] = "019_cleanup_zero_amount_reviews"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    operations = Operations(getattr(context, "get_context")())
-
-    operations.add_column(
-        "services",
-        sa.Column("erfolgsneutral", sa.Boolean(), nullable=False, server_default=sa.false()),
-    )
+    migration_context = getattr(context, "get_context")()
+    operations = Operations(migration_context)
+    bind = migration_context.bind
+    inspector = sa.inspect(bind)
+    service_columns = {column["name"] for column in inspector.get_columns("services")}
+    if "erfolgsneutral" not in service_columns:
+        operations.add_column(
+            "services",
+            sa.Column("erfolgsneutral", sa.Boolean(), nullable=False, server_default=sa.false()),
+        )
 
 
 def downgrade() -> None:
-    operations = Operations(getattr(context, "get_context")())
-
-    operations.drop_column("services", "erfolgsneutral")
+    migration_context = getattr(context, "get_context")()
+    operations = Operations(migration_context)
+    bind = migration_context.bind
+    inspector = sa.inspect(bind)
+    service_columns = {column["name"] for column in inspector.get_columns("services")}
+    if "erfolgsneutral" in service_columns:
+        operations.drop_column("services", "erfolgsneutral")

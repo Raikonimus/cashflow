@@ -62,3 +62,58 @@ SORTABLE_COLUMNS = {"valuta_date", "booking_date", "amount", "partner_name", "te
 class BulkAssignResponse(BaseModel):
     assigned: int
     skipped: int
+
+
+class MatrixCell(BaseModel):
+    gross: str
+    net: str
+
+
+class MatrixCells(BaseModel):
+    year_total: MatrixCell
+    jan: MatrixCell
+    feb: MatrixCell
+    mar: MatrixCell
+    apr: MatrixCell
+    may: MatrixCell
+    jun: MatrixCell
+    jul: MatrixCell
+    aug: MatrixCell
+    sep: MatrixCell
+    oct: MatrixCell
+    nov: MatrixCell
+    dec: MatrixCell
+
+
+class IncomeExpenseServiceRow(BaseModel):
+    service_id: UUID
+    service_name: str
+    partner_name: str | None = None
+    service_type: str
+    erfolgsneutral: bool
+    cells: MatrixCells
+
+
+class IncomeExpenseGroupRow(BaseModel):
+    group_id: UUID
+    group_name: str
+    sort_order: int
+    collapsed: bool
+    assigned_service_count: int
+    active_years: list[int]
+    subtotal_cells: MatrixCells
+    services: list[IncomeExpenseServiceRow]
+
+
+class IncomeExpenseSection(BaseModel):
+    currency: str
+    excluded_currency_count: int
+    excluded_currency_amount_gross: str
+    groups: list[IncomeExpenseGroupRow]
+    totals: MatrixCells
+
+
+class IncomeExpenseMatrixResponse(BaseModel):
+    year: int
+    base_currency: str
+    sections: dict[str, IncomeExpenseSection]

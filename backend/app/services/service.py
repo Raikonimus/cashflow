@@ -18,6 +18,9 @@ from app.services.models import (
     BASE_SERVICE_NAME,
     KeywordTargetType,
     Service,
+    ServiceGroup,
+    ServiceGroupAssignment,
+    ServiceGroupSection,
     ServiceMatcher,
     ServiceMatcherType,
     ServiceType,
@@ -26,13 +29,18 @@ from app.services.models import (
 from app.services.schemas import (
     CreateServiceMatcherRequest,
     CreateServiceRequest,
+    CreateServiceGroupRequest,
     CreateServiceTypeKeywordRequest,
+    DeleteServiceGroupRequest,
     MatcherPreviewLineItem,
     MatcherPreviewResponse,
+    ServiceGroupAssignmentResponse,
+    ServiceGroupResponse,
     ServiceResponse,
     ServiceTypeKeywordListResponse,
     ServiceTypeKeywordResponse,
     SystemServiceTypeKeywordResponse,
+    UpdateServiceGroupRequest,
     UpdateServiceMatcherRequest,
     UpdateServiceRequest,
     UpdateServiceTypeKeywordRequest,
@@ -51,6 +59,27 @@ SYSTEM_DEFAULT_KEYWORDS: tuple[SystemServiceTypeKeywordResponse, ...] = (
     SystemServiceTypeKeywordResponse(pattern="köst", pattern_type=ServiceMatcherType.string, target_service_type=KeywordTargetType.authority),
     SystemServiceTypeKeywordResponse(pattern="umsatzsteuer", pattern_type=ServiceMatcherType.string, target_service_type=KeywordTargetType.authority),
 )
+
+DEFAULT_GROUPS_BY_SECTION: dict[ServiceGroupSection, tuple[str, ...]] = {
+    ServiceGroupSection.income: ("Kunden",),
+    ServiceGroupSection.expense: ("Lieferanten", "Behörden", "Gesellschafter", "Mitarbeiter"),
+    ServiceGroupSection.neutral: ("Erfolgsneutrale Zahlungen",),
+}
+
+DEFAULT_GROUP_BY_SERVICE_TYPE: dict[str, str] = {
+    ServiceType.customer.value: "Kunden",
+    ServiceType.supplier.value: "Lieferanten",
+    ServiceType.authority.value: "Behörden",
+    ServiceType.shareholder.value: "Gesellschafter",
+    ServiceType.employee.value: "Mitarbeiter",
+}
+
+_EXPENSE_SERVICE_TYPES = {
+    ServiceType.supplier.value,
+    ServiceType.authority.value,
+    ServiceType.shareholder.value,
+    ServiceType.employee.value,
+}
 
 
 def _default_tax_rate(service_type: ServiceType) -> Decimal:
@@ -138,6 +167,7 @@ class ServiceManagementService:
     async def create_service(self, partner_id: UUID, mandant_id: UUID, body: CreateServiceRequest) -> ServiceResponse:
         await self._get_partner(partner_id, mandant_id)
         await self._ensure_unique_service_name(partner_id, body.name)
+        await self.ensure_default_groups(mandant_id)
         now = _utcnow()
         service = Service(
             partner_id=partner_id,
@@ -154,6 +184,8 @@ class ServiceManagementService:
             updated_at=now,
         )
         self._session.add(service)
+        await self._session.flush()
+        await self.ensure_service_group_assignment(mandant_id, service)
         await self._session.commit()
         await self._session.refresh(service)
         await self.detect_service_type_for_service(mandant_id, service.id)
@@ -162,6 +194,7 @@ class ServiceManagementService:
 
     async def update_service(self, service_id: UUID, mandant_id: UUID, body: UpdateServiceRequest) -> ServiceResponse:
         service = await self._get_service(service_id, mandant_id)
+        refresh_group_assignment = False
         if service.is_base_service and body.name is not None and body.name != service.name:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Base service name cannot be changed")
         if body.name is not None and body.name != service.name:
@@ -171,10 +204,12 @@ class ServiceManagementService:
             service.description = body.description
         if body.service_type is not None:
             service.service_type = body.service_type.value
+            refresh_group_assignment = True
         if body.tax_rate is not None:
             service.tax_rate = body.tax_rate
         if body.erfolgsneutral is not None:
             service.erfolgsneutral = body.erfolgsneutral
+            refresh_group_assignment = True
         service.valid_from = body.valid_from
         service.valid_to = body.valid_to
         if body.service_type_manual is not None:
@@ -183,6 +218,10 @@ class ServiceManagementService:
             service.tax_rate_manual = body.tax_rate_manual
         service.updated_at = _utcnow()
         self._session.add(service)
+        if refresh_group_assignment:
+            await self.ensure_default_groups(mandant_id)
+            await self._session.flush()
+            await self.ensure_service_group_assignment(mandant_id, service)
         await self._session.commit()
         await self._session.refresh(service)
         await self.detect_service_type_for_service(mandant_id, service.id)
@@ -385,6 +424,273 @@ class ServiceManagementService:
         await self._session.refresh(entity)
         return ServiceTypeKeywordResponse.model_validate(entity)
 
+    async def list_service_groups(
+        self,
+        mandant_id: UUID,
+        section: ServiceGroupSection,
+    ) -> list[ServiceGroupResponse]:
+        await self.ensure_default_groups(mandant_id)
+        groups = (
+            await self._session.exec(
+                select(ServiceGroup)
+                .where(ServiceGroup.mandant_id == mandant_id, ServiceGroup.section == section.value)
+                .order_by(ServiceGroup.sort_order, ServiceGroup.name)
+            )
+        ).all()
+        return [ServiceGroupResponse.model_validate(group) for group in groups]
+
+    async def create_service_group(self, mandant_id: UUID, body: CreateServiceGroupRequest) -> ServiceGroupResponse:
+        await self.ensure_default_groups(mandant_id)
+        await self._ensure_unique_group_name(mandant_id, body.section, body.name)
+        group = ServiceGroup(
+            mandant_id=mandant_id,
+            section=body.section.value,
+            name=body.name.strip(),
+            sort_order=body.sort_order,
+            is_default=False,
+            created_at=_utcnow(),
+            updated_at=_utcnow(),
+        )
+        self._session.add(group)
+        await self._session.commit()
+        await self._session.refresh(group)
+        return ServiceGroupResponse.model_validate(group)
+
+    async def update_service_group(
+        self,
+        mandant_id: UUID,
+        group_id: UUID,
+        body: UpdateServiceGroupRequest,
+    ) -> ServiceGroupResponse:
+        group = await self._get_service_group(mandant_id, group_id)
+        if body.name is not None:
+            await self._ensure_unique_group_name(
+                mandant_id,
+                ServiceGroupSection(group.section),
+                body.name,
+                exclude_group_id=group.id,
+            )
+            group.name = body.name.strip()
+        if body.sort_order is not None:
+            group.sort_order = body.sort_order
+        group.updated_at = _utcnow()
+        self._session.add(group)
+        await self._session.commit()
+        await self._session.refresh(group)
+        return ServiceGroupResponse.model_validate(group)
+
+    async def delete_service_group(
+        self,
+        mandant_id: UUID,
+        group_id: UUID,
+        body: DeleteServiceGroupRequest,
+    ) -> None:
+        group = await self._get_service_group(mandant_id, group_id)
+        assignments = (
+            await self._session.exec(
+                select(ServiceGroupAssignment).where(
+                    ServiceGroupAssignment.mandant_id == mandant_id,
+                    ServiceGroupAssignment.service_group_id == group.id,
+                )
+            )
+        ).all()
+        if assignments and body.reassign_to_group_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Group has assigned services. Provide reassign_to_group_id.",
+            )
+        if assignments and body.reassign_to_group_id is not None:
+            target_group = await self._get_service_group(mandant_id, body.reassign_to_group_id)
+            if target_group.section != group.section:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="Reassignment target must be in the same section.",
+                )
+            for assignment in assignments:
+                assignment.service_group_id = target_group.id
+                assignment.updated_at = _utcnow()
+                self._session.add(assignment)
+        if assignments and body.reassign_to_group_id == group.id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Cannot reassign to the same group.",
+            )
+
+        await self._session.delete(group)
+        await self._session.commit()
+
+    async def assign_service_group(
+        self,
+        mandant_id: UUID,
+        service_id: UUID,
+        service_group_id: UUID,
+    ) -> ServiceGroupAssignmentResponse:
+        await self.ensure_default_groups(mandant_id)
+        service = await self._get_service(service_id, mandant_id)
+        target_group = await self._get_service_group(mandant_id, service_group_id)
+        service_section = self._determine_service_section(service)
+        if service_section is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Service is not eligible for income-expense grouping.",
+            )
+        if target_group.section != service_section.value:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Cross-section assignments are not allowed.",
+            )
+
+        assignment = (
+            await self._session.exec(
+                select(ServiceGroupAssignment).where(
+                    ServiceGroupAssignment.mandant_id == mandant_id,
+                    ServiceGroupAssignment.service_id == service.id,
+                )
+            )
+        ).first()
+        if assignment is None:
+            assignment = ServiceGroupAssignment(
+                mandant_id=mandant_id,
+                service_id=service.id,
+                service_group_id=target_group.id,
+                created_at=_utcnow(),
+                updated_at=_utcnow(),
+            )
+        else:
+            assignment.service_group_id = target_group.id
+            assignment.updated_at = _utcnow()
+        self._session.add(assignment)
+        await self._session.commit()
+        await self._session.refresh(assignment)
+        return ServiceGroupAssignmentResponse.model_validate(assignment)
+
+    async def ensure_default_groups(self, mandant_id: UUID) -> None:
+        existing = (
+            await self._session.exec(
+                select(ServiceGroup).where(ServiceGroup.mandant_id == mandant_id)
+            )
+        ).all()
+        existing_by_section: dict[ServiceGroupSection, list[ServiceGroup]] = {
+            ServiceGroupSection.income: [],
+            ServiceGroupSection.expense: [],
+            ServiceGroupSection.neutral: [],
+        }
+        for group in existing:
+            existing_by_section[ServiceGroupSection(group.section)].append(group)
+
+        changed = False
+        for section, default_names in DEFAULT_GROUPS_BY_SECTION.items():
+            if existing_by_section[section]:
+                continue
+            for sort_order, name in enumerate(default_names):
+                self._session.add(
+                    ServiceGroup(
+                        mandant_id=mandant_id,
+                        section=section.value,
+                        name=name,
+                        sort_order=sort_order,
+                        is_default=True,
+                        created_at=_utcnow(),
+                        updated_at=_utcnow(),
+                    )
+                )
+                changed = True
+        if changed:
+            await self._session.commit()
+
+    async def list_groups_by_section(self, mandant_id: UUID) -> dict[ServiceGroupSection, list[ServiceGroup]]:
+        groups = (
+            await self._session.exec(
+                select(ServiceGroup)
+                .where(ServiceGroup.mandant_id == mandant_id)
+                .order_by(ServiceGroup.section, ServiceGroup.sort_order, ServiceGroup.name)
+            )
+        ).all()
+        groups_by_section: dict[ServiceGroupSection, list[ServiceGroup]] = {
+            ServiceGroupSection.income: [],
+            ServiceGroupSection.expense: [],
+            ServiceGroupSection.neutral: [],
+        }
+        for group in groups:
+            groups_by_section[ServiceGroupSection(group.section)].append(group)
+        return groups_by_section
+
+    def _preferred_default_group_name(self, service: Service) -> str | None:
+        if service.erfolgsneutral:
+            return "Erfolgsneutrale Zahlungen"
+        return DEFAULT_GROUP_BY_SERVICE_TYPE.get(service.service_type)
+
+    def _select_default_group(
+        self,
+        service: Service,
+        groups_by_section: dict[ServiceGroupSection, list[ServiceGroup]],
+    ) -> ServiceGroup | None:
+        service_section = self._determine_service_section(service)
+        if service_section is None:
+            return None
+        section_groups = groups_by_section[service_section]
+        if not section_groups:
+            return None
+        preferred_name = self._preferred_default_group_name(service)
+        if preferred_name is not None:
+            preferred_group = next((group for group in section_groups if group.name == preferred_name), None)
+            if preferred_group is not None:
+                return preferred_group
+        return section_groups[0]
+
+    async def ensure_service_group_assignment(
+        self,
+        mandant_id: UUID,
+        service: Service,
+        groups_by_section: dict[ServiceGroupSection, list[ServiceGroup]] | None = None,
+        assignment: ServiceGroupAssignment | None = None,
+    ) -> ServiceGroupAssignment | None:
+        service_section = self._determine_service_section(service)
+        if service_section is None:
+            return None
+        if groups_by_section is None:
+            groups_by_section = await self.list_groups_by_section(mandant_id)
+        target_group = self._select_default_group(service, groups_by_section)
+        if target_group is None:
+            return None
+        if assignment is None:
+            assignment = (
+                await self._session.exec(
+                    select(ServiceGroupAssignment).where(
+                        ServiceGroupAssignment.mandant_id == mandant_id,
+                        ServiceGroupAssignment.service_id == service.id,
+                    )
+                )
+            ).first()
+        if assignment is None:
+            assignment = ServiceGroupAssignment(
+                mandant_id=mandant_id,
+                service_id=service.id,
+                service_group_id=target_group.id,
+                created_at=_utcnow(),
+                updated_at=_utcnow(),
+            )
+            self._session.add(assignment)
+            return assignment
+        current_group = next(
+            (
+                group
+                for section_groups in groups_by_section.values()
+                for group in section_groups
+                if group.id == assignment.service_group_id
+            ),
+            None,
+        )
+        if current_group is None:
+            current_group = await self._session.get(ServiceGroup, assignment.service_group_id)
+        if current_group is not None and not current_group.is_default:
+            return assignment
+        if assignment.service_group_id != target_group.id:
+            assignment.service_group_id = target_group.id
+            assignment.updated_at = _utcnow()
+            self._session.add(assignment)
+        return assignment
+
     async def update_keyword(
         self,
         mandant_id: UUID,
@@ -575,6 +881,41 @@ class ServiceManagementService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service not found")
         await self._get_partner(service.partner_id, mandant_id)
         return service
+
+    async def _get_service_group(self, mandant_id: UUID, group_id: UUID) -> ServiceGroup:
+        group = await self._session.get(ServiceGroup, group_id)
+        if group is None or group.mandant_id != mandant_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service group not found")
+        return group
+
+    async def _ensure_unique_group_name(
+        self,
+        mandant_id: UUID,
+        section: ServiceGroupSection,
+        name: str,
+        exclude_group_id: UUID | None = None,
+    ) -> None:
+        normalized_name = name.strip()
+        existing = (
+            await self._session.exec(
+                select(ServiceGroup).where(
+                    ServiceGroup.mandant_id == mandant_id,
+                    ServiceGroup.section == section.value,
+                    ServiceGroup.name == normalized_name,
+                )
+            )
+        ).first()
+        if existing is not None and existing.id != exclude_group_id:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Service group with this name already exists")
+
+    def _determine_service_section(self, service: Service) -> ServiceGroupSection | None:
+        if service.erfolgsneutral:
+            return ServiceGroupSection.neutral
+        if service.service_type == ServiceType.customer.value:
+            return ServiceGroupSection.income
+        if service.service_type in _EXPENSE_SERVICE_TYPES:
+            return ServiceGroupSection.expense
+        return None
 
     async def _load_partner_services(
         self,

@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.services.models import KeywordTargetType, ServiceMatcherType, ServiceType
+from app.services.models import KeywordTargetType, ServiceGroupSection, ServiceMatcherType, ServiceType
 
 
 class ServiceMatcherResponse(BaseModel):
@@ -134,3 +134,46 @@ class UpdateServiceTypeKeywordRequest(BaseModel):
     pattern: str | None = Field(default=None, min_length=1, max_length=500)
     pattern_type: ServiceMatcherType | None = None
     target_service_type: KeywordTargetType | None = None
+
+
+class ServiceGroupResponse(BaseModel):
+    id: UUID
+    mandant_id: UUID
+    section: ServiceGroupSection
+    name: str
+    sort_order: int
+    is_default: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class CreateServiceGroupRequest(BaseModel):
+    section: ServiceGroupSection
+    name: str = Field(min_length=1, max_length=255)
+    sort_order: int = 0
+
+
+class UpdateServiceGroupRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    sort_order: int | None = None
+
+
+class DeleteServiceGroupRequest(BaseModel):
+    reassign_to_group_id: UUID | None = None
+
+
+class AssignServiceGroupRequest(BaseModel):
+    service_group_id: UUID
+
+
+class ServiceGroupAssignmentResponse(BaseModel):
+    id: UUID
+    mandant_id: UUID
+    service_id: UUID
+    service_group_id: UUID
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}

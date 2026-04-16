@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import require_mandant_access, require_role
 from app.auth.models import User
 from app.core.database import get_session
-from app.journal.schemas import AssignServiceRequest, BulkAssignRequest, BulkAssignResponse, JournalLineResponse, JournalYearsResponse, PaginatedJournalResponse, SORTABLE_COLUMNS
+from app.journal.schemas import AssignServiceRequest, BulkAssignRequest, BulkAssignResponse, IncomeExpenseMatrixResponse, JournalLineResponse, JournalYearsResponse, PaginatedJournalResponse, SORTABLE_COLUMNS
 from app.journal.service import JournalService
 from app.partners.schemas import PaginatedAuditLogResponse
 from app.partners.service import AuditLogService
@@ -72,6 +72,19 @@ async def list_journal_years(
     svc: JournalService = Depends(_journal_svc),
 ) -> JournalYearsResponse:
     return await svc.list_years(mandant_id, account_id=account_id)
+
+
+@journal_router.get(
+    "/{mandant_id}/reports/income-expense",
+    response_model=IncomeExpenseMatrixResponse,
+    dependencies=[Depends(require_role("viewer")), Depends(require_mandant_access)],
+)
+async def get_income_expense_matrix(
+    mandant_id: UUID,
+    year: int = Query(ge=2000, le=2100),
+    svc: JournalService = Depends(_journal_svc),
+) -> IncomeExpenseMatrixResponse:
+    return await svc.get_income_expense_matrix(mandant_id=mandant_id, year=year)
 
 
 @journal_router.post(

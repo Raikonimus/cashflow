@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/test/msw-server'
 import { useAuthStore } from '@/store/auth-store'
+import type { ServiceListItem, ServiceType } from '@/api/services'
 import { ServiceManagementPage } from './ServiceManagementPage'
 
 const MANDANT_ID = 'mandant-1'
@@ -26,7 +27,7 @@ function setup(role = 'accountant') {
   act(() => {
     useAuthStore.setState({
       token: 'tok',
-      user: { sub: 'u1', email: 'x@x.com', role, mandant_id: MANDANT_ID },
+      user: { sub: 'u1', role, mandant_id: MANDANT_ID },
       selectedMandant: { id: MANDANT_ID, name: 'Test' },
       mandants: [],
     })
@@ -57,7 +58,7 @@ describe('ServiceManagementPage', () => {
   it('creates, updates and deletes non-base services with revalidation notice', async () => {
     setup()
 
-    const services = [
+    const services: ServiceListItem[] = [
       {
         id: 'service-base',
         partner_id: PARTNER_ID,
@@ -65,6 +66,7 @@ describe('ServiceManagementPage', () => {
         description: null,
         service_type: 'unknown',
         tax_rate: '20.00',
+        erfolgsneutral: false,
         valid_from: null,
         valid_to: null,
         is_base_service: true,
@@ -81,6 +83,7 @@ describe('ServiceManagementPage', () => {
         description: 'Managed Kubernetes',
         service_type: 'supplier',
         tax_rate: '10.00',
+        erfolgsneutral: false,
         valid_from: '2026-01-01',
         valid_to: '2026-12-31',
         is_base_service: false,
@@ -111,8 +114,9 @@ describe('ServiceManagementPage', () => {
           partner_id: PARTNER_ID,
           name: String(body.name),
           description: body.description ? String(body.description) : null,
-          service_type: String(body.service_type ?? 'unknown'),
+          service_type: String(body.service_type ?? 'unknown') as ServiceType,
           tax_rate: String(body.tax_rate ?? '20.00'),
+          erfolgsneutral: false,
           valid_from: body.valid_from ? String(body.valid_from) : null,
           valid_to: body.valid_to ? String(body.valid_to) : null,
           is_base_service: false,
@@ -130,7 +134,7 @@ describe('ServiceManagementPage', () => {
           ...services[1],
           name: String(body.name),
           description: body.description ? String(body.description) : null,
-          service_type: String(body.service_type ?? services[1].service_type),
+          service_type: String(body.service_type ?? services[1].service_type) as ServiceType,
           tax_rate: String(body.tax_rate ?? services[1].tax_rate),
           valid_from: body.valid_from ? String(body.valid_from) : null,
           valid_to: body.valid_to ? String(body.valid_to) : null,
@@ -141,6 +145,9 @@ describe('ServiceManagementPage', () => {
         services.splice(1, 1)
         return new HttpResponse(null, { status: 204 })
       }),
+      http.post(`/api/v1/mandants/${MANDANT_ID}/services/service-hosting/matchers/preview`, () =>
+        HttpResponse.json({ matched_lines: [], total: 0 }),
+      ),
       http.post(`/api/v1/mandants/${MANDANT_ID}/services/service-hosting/matchers`, async ({ request }) => {
         const body = (await request.json()) as Record<string, string | boolean>
         services[1].matchers.push({
@@ -200,6 +207,8 @@ describe('ServiceManagementPage', () => {
 
     fireEvent.change(screen.getAllByPlaceholderText(/z\. b\. hosting oder \^aws/i)[0], { target: { value: '^AWS' } })
     fireEvent.change(screen.getAllByDisplayValue('String')[0], { target: { value: 'regex' } })
+    fireEvent.click(screen.getAllByRole('button', { name: /matcher testen/i })[0])
+    await waitFor(() => expect(screen.getByText(/Kein Treffer/)).toBeInTheDocument())
     fireEvent.click(screen.getAllByRole('button', { name: /matcher anlegen/i })[0])
 
     await waitFor(() => expect(screen.getByText('^AWS')).toBeInTheDocument())
@@ -228,7 +237,7 @@ describe('ServiceManagementPage', () => {
   it('keeps base service protected in the ui', async () => {
     setup()
 
-    const services = [
+    const services: ServiceListItem[] = [
       {
         id: 'service-base',
         partner_id: PARTNER_ID,
@@ -236,6 +245,7 @@ describe('ServiceManagementPage', () => {
         description: null,
         service_type: 'unknown',
         tax_rate: '20.00',
+        erfolgsneutral: false,
         valid_from: null,
         valid_to: null,
         is_base_service: true,
@@ -268,7 +278,7 @@ describe('ServiceManagementPage', () => {
   it('shows regex validation errors inline for matcher forms', async () => {
     setup()
 
-    const services = [
+    const services: ServiceListItem[] = [
       {
         id: 'service-hosting',
         partner_id: PARTNER_ID,
@@ -276,6 +286,7 @@ describe('ServiceManagementPage', () => {
         description: 'Managed Kubernetes',
         service_type: 'supplier',
         tax_rate: '10.00',
+        erfolgsneutral: false,
         valid_from: '2026-01-01',
         valid_to: '2026-12-31',
         is_base_service: false,
@@ -290,7 +301,7 @@ describe('ServiceManagementPage', () => {
     server.use(
       http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () => HttpResponse.json(partnerDetail)),
       http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () => HttpResponse.json(services)),
-      http.post(`/api/v1/mandants/${MANDANT_ID}/services/service-hosting/matchers`, () =>
+      http.post(`/api/v1/mandants/${MANDANT_ID}/services/service-hosting/matchers/preview`, () =>
         HttpResponse.json({ detail: 'Invalid regex pattern: missing ), unterminated subpattern at position 0' }, { status: 422 }),
       ),
     )
@@ -301,9 +312,10 @@ describe('ServiceManagementPage', () => {
 
     await waitFor(() => expect(screen.getByText('Hosting')).toBeInTheDocument())
 
+    expect(screen.getByRole('button', { name: /matcher anlegen/i })).toBeDisabled()
     fireEvent.change(screen.getByPlaceholderText(/z\. b\. hosting oder \^aws/i), { target: { value: '(' } })
     fireEvent.change(screen.getByDisplayValue('String'), { target: { value: 'regex' } })
-    fireEvent.click(screen.getByRole('button', { name: /matcher anlegen/i }))
+    fireEvent.click(screen.getByRole('button', { name: /matcher testen/i }))
 
     await waitFor(() => expect(screen.getByText(/Invalid regex pattern/)).toBeInTheDocument())
   })
@@ -311,7 +323,7 @@ describe('ServiceManagementPage', () => {
   it('allows clearing service validity dates back to always valid', async () => {
     setup()
 
-    const services = [
+    const services: ServiceListItem[] = [
       {
         id: 'service-hosting',
         partner_id: PARTNER_ID,
@@ -319,6 +331,7 @@ describe('ServiceManagementPage', () => {
         description: 'Managed Kubernetes',
         service_type: 'supplier',
         tax_rate: '10.00',
+        erfolgsneutral: false,
         valid_from: '2026-01-01',
         valid_to: '2026-12-31',
         is_base_service: false,

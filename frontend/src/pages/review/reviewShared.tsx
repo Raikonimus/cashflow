@@ -27,6 +27,12 @@ export const reviewStatusLabels: Record<string, string> = {
   rejected: 'Abgelehnt',
 }
 
+const reviewReasonLabels: Record<string, string> = {
+  name_match: 'Namens-Treffer',
+  iban_match: 'IBAN-Treffer',
+  new_partner: 'Neuer Partner',
+}
+
 export function formatCurrency(amount: string, currency = 'EUR') {
   const value = Number(amount)
   if (Number.isNaN(value)) return amount
@@ -35,6 +41,7 @@ export function formatCurrency(amount: string, currency = 'EUR') {
 
 export function formatReviewReason(reason: string | undefined) {
   if (!reason) return 'Automatische Prüfung'
+  if (reason in reviewReasonLabels) return reviewReasonLabels[reason]
   if (reason === 'multiple_matches') return 'Mehrere Matcher passen auf diese Buchung.'
   if (reason === 'single_match') return 'Ein Matcher passt eindeutig auf diese Buchung.'
   if (reason === 'no_match_base_service') return 'Keine passende Leistung gefunden, Basisleistung gewählt.'
@@ -47,10 +54,10 @@ export function formatReviewReason(reason: string | undefined) {
 export function InlineNotice({
   tone,
   message,
-}: {
+}: Readonly<{
   tone: 'success' | 'error'
   message: string
-}) {
+}>) {
   return (
     <div className={`mb-5 rounded-2xl border px-4 py-3 text-sm ${tone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
       {message}
@@ -61,10 +68,10 @@ export function InlineNotice({
 export function EmptyReviewState({
   title,
   text,
-}: {
+}: Readonly<{
   title: string
   text: string
-}) {
+}>) {
   return (
     <div className="rounded-[2rem] border border-dashed border-slate-300 bg-[linear-gradient(135deg,#fff7ed,white_45%,#ecfeff)] px-8 py-16 text-center shadow-sm">
       <div className="mx-auto mb-5 h-16 w-16 rounded-2xl bg-[radial-gradient(circle_at_top_left,#f59e0b,transparent_58%),linear-gradient(135deg,#0f172a,#334155)]" />

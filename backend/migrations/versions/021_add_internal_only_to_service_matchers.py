@@ -19,15 +19,23 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    operations = Operations(getattr(context, "get_context")())
-
-    operations.add_column(
-        "service_matchers",
-        sa.Column("internal_only", sa.Boolean(), nullable=False, server_default=sa.false()),
-    )
+    migration_context = getattr(context, "get_context")()
+    operations = Operations(migration_context)
+    bind = migration_context.bind
+    inspector = sa.inspect(bind)
+    matcher_columns = {column["name"] for column in inspector.get_columns("service_matchers")}
+    if "internal_only" not in matcher_columns:
+        operations.add_column(
+            "service_matchers",
+            sa.Column("internal_only", sa.Boolean(), nullable=False, server_default=sa.false()),
+        )
 
 
 def downgrade() -> None:
-    operations = Operations(getattr(context, "get_context")())
-
-    operations.drop_column("service_matchers", "internal_only")
+    migration_context = getattr(context, "get_context")()
+    operations = Operations(migration_context)
+    bind = migration_context.bind
+    inspector = sa.inspect(bind)
+    matcher_columns = {column["name"] for column in inspector.get_columns("service_matchers")}
+    if "internal_only" in matcher_columns:
+        operations.drop_column("service_matchers", "internal_only")

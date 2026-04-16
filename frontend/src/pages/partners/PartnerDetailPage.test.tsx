@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/test/msw-server'
 import { useAuthStore } from '@/store/auth-store'
+import type { PartnerDetail } from '@/api/partners'
 import { PartnerDetailPage } from './PartnerDetailPage'
 
 const MANDANT_ID = 'mandant-1'
@@ -26,7 +27,7 @@ function setup(role = 'accountant') {
   act(() => {
     useAuthStore.setState({
       token: 'tok',
-      user: { sub: 'u1', email: 'x@x.com', role, mandant_id: MANDANT_ID },
+      user: { sub: 'u1', role, mandant_id: MANDANT_ID },
       selectedMandant: { id: MANDANT_ID, name: 'Test' },
       mandants: [],
     })
@@ -69,7 +70,7 @@ describe('PartnerDetailPage', () => {
   it('allows adding and removing further account numbers', async () => {
     setup()
 
-    let currentPartner = {
+    let currentPartner: PartnerDetail = {
       ...partnerDetail,
       accounts: [
         {
@@ -87,6 +88,9 @@ describe('PartnerDetailPage', () => {
       http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/neighbors`, () => HttpResponse.json({ prev: null, next: null })),
       http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () => HttpResponse.json([])),
       http.get(`/api/v1/mandants/${MANDANT_ID}/journal`, () => HttpResponse.json({ items: [], total: 0, page: 1, size: 25, pages: 1 })),
+      http.post(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/accounts/preview`, () =>
+        HttpResponse.json({ matched_lines: [], total: 0 }),
+      ),
       http.post(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/accounts`, async ({ request }) => {
         const body = await request.json() as { account_number: string; blz?: string; bic?: string }
         const created = {
@@ -120,6 +124,8 @@ describe('PartnerDetailPage', () => {
     fireEvent.change(screen.getByLabelText('Kontonummer'), { target: { value: '7654321' } })
     fireEvent.change(screen.getByLabelText('BLZ'), { target: { value: '20030040' } })
     fireEvent.change(screen.getByLabelText('BIC'), { target: { value: 'GENODEF1XXX' } })
+    fireEvent.click(screen.getAllByRole('button', { name: /testen/i })[1])
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /hinzufügen/i })[1]).toBeEnabled())
     fireEvent.click(screen.getAllByRole('button', { name: /hinzufügen/i })[1])
 
     await waitFor(() => expect(screen.getByText('7654321')).toBeInTheDocument())
@@ -272,7 +278,7 @@ describe('PartnerDetailPage', () => {
       renderPage()
     })
 
-    await waitFor(() => expect(screen.getByText('Leistung')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('columnheader', { name: /leistung/i })).toBeInTheDocument())
     expect(screen.getByText('Hosting')).toBeInTheDocument()
   })
 })

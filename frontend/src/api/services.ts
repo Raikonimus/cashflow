@@ -2,6 +2,7 @@ import { apiClient } from './client'
 
 export type ServiceType = 'customer' | 'supplier' | 'employee' | 'shareholder' | 'authority' | 'internal_transfer' | 'unknown'
 export type KeywordTargetType = 'employee' | 'shareholder' | 'authority'
+export type ServiceGroupSection = 'income' | 'expense' | 'neutral'
 
 export interface ServiceListItem {
   id: string
@@ -93,6 +94,41 @@ export interface UpdateServiceTypeKeywordPayload {
   pattern?: string
   pattern_type?: 'string' | 'regex'
   target_service_type?: KeywordTargetType
+}
+
+export interface ServiceGroupItem {
+  id: string
+  mandant_id: string
+  section: ServiceGroupSection
+  name: string
+  sort_order: number
+  is_default: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateServiceGroupPayload {
+  section: ServiceGroupSection
+  name: string
+  sort_order?: number
+}
+
+export interface UpdateServiceGroupPayload {
+  name?: string
+  sort_order?: number
+}
+
+export interface DeleteServiceGroupPayload {
+  reassign_to_group_id?: string
+}
+
+export interface ServiceGroupAssignmentItem {
+  id: string
+  mandant_id: string
+  service_id: string
+  service_group_id: string
+  created_at: string
+  updated_at: string
 }
 
 export async function listPartnerServices(
@@ -237,4 +273,58 @@ export async function deleteServiceKeyword(
   keywordId: string,
 ): Promise<void> {
   await apiClient.delete(`/mandants/${mandantId}/settings/service-keywords/${keywordId}`)
+}
+
+export async function listServiceGroups(
+  mandantId: string,
+  section: ServiceGroupSection,
+): Promise<ServiceGroupItem[]> {
+  const resp = await apiClient.get<ServiceGroupItem[]>(
+    `/mandants/${mandantId}/service-groups`,
+    { params: { section } },
+  )
+  return resp.data
+}
+
+export async function createServiceGroup(
+  mandantId: string,
+  payload: CreateServiceGroupPayload,
+): Promise<ServiceGroupItem> {
+  const resp = await apiClient.post<ServiceGroupItem>(
+    `/mandants/${mandantId}/service-groups`,
+    payload,
+  )
+  return resp.data
+}
+
+export async function updateServiceGroup(
+  mandantId: string,
+  groupId: string,
+  payload: UpdateServiceGroupPayload,
+): Promise<ServiceGroupItem> {
+  const resp = await apiClient.patch<ServiceGroupItem>(
+    `/mandants/${mandantId}/service-groups/${groupId}`,
+    payload,
+  )
+  return resp.data
+}
+
+export async function deleteServiceGroup(
+  mandantId: string,
+  groupId: string,
+  payload: DeleteServiceGroupPayload = {},
+): Promise<void> {
+  await apiClient.delete(`/mandants/${mandantId}/service-groups/${groupId}`, { data: payload })
+}
+
+export async function assignServiceGroup(
+  mandantId: string,
+  serviceId: string,
+  serviceGroupId: string,
+): Promise<ServiceGroupAssignmentItem> {
+  const resp = await apiClient.post<ServiceGroupAssignmentItem>(
+    `/mandants/${mandantId}/services/${serviceId}/group-assignment`,
+    { service_group_id: serviceGroupId },
+  )
+  return resp.data
 }

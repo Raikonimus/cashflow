@@ -6,14 +6,14 @@ default_bolt_type: ddd-construction-bolt
 phase: inception
 status: ready
 created: 2026-04-10T00:00:00Z
-updated: 2026-04-10T00:00:00Z
+updated: 2026-04-15T00:00:00Z
 ---
 
 # Unit Brief: service-management
 
 ## Purpose
 
-Verwaltung von Leistungen (Services) je Partner: Stammdaten, Matcher-Regeln, automatische und manuelle Zuordnung von Buchungszeilen, Revalidierung bei Regeländerungen sowie automatische Service-Typ-Ermittlung anhand von Buchungszeilen-Inhalten.
+Verwaltung von Leistungen (Services) je Partner: Stammdaten, Matcher-Regeln, automatische und manuelle Zuordnung von Buchungszeilen, Revalidierung bei Regeländerungen, automatische Service-Typ-Ermittlung sowie Gruppierung von Leistungen fuer die Einnahmen-&-Ausgaben-Ansicht.
 
 ## Scope
 
@@ -25,6 +25,8 @@ Verwaltung von Leistungen (Services) je Partner: Stammdaten, Matcher-Regeln, aut
 - Revalidierungs-Engine: bei Matcher-/Service-Änderungen alle Buchungszeilen des Partners neu prüfen, Ergebnisse als Review-Item-Vorschläge speichern
 - Service-Typ-Ermittlungs-Engine (Keyword-Match → Betrag-Fallback)
 - Keyword-Konfiguration-API (pro Mandant + systemweite Vorgaben; String/Regex)
+- Service-Gruppen-API (pro Mandant, section income/expense/neutral, Reihenfolge)
+- Service-zu-Gruppe-Zuordnung (persistente Assignment-API)
 - Erzeugung von Review-Items: service_assignment (Mehrfachtreffer, Revalidierungsvorschlag), service_type_review (automatische Typ-Änderung)
 - Trigger für Revalidierung bei: Partner-Merge, Leistung anlegen/ändern/löschen, Matcher anlegen/ändern/löschen
 
@@ -46,6 +48,7 @@ Verwaltung von Leistungen (Services) je Partner: Stammdaten, Matcher-Regeln, aut
 | FR-16 | Revalidierung bei Matcher- oder Leistungsänderungen | Must |
 | FR-17 | Automatische Service-Typ-Ermittlung | Must |
 | FR-21 | Partner-Zusammenlegung mit Leistungs-Revalidierung | Must |
+| FR-23 | Einnahmen- & Ausgaben-Jahresmatrix (Service-Gruppen) | Must |
 
 ---
 
@@ -57,12 +60,15 @@ Verwaltung von Leistungen (Services) je Partner: Stammdaten, Matcher-Regeln, aut
 | Service | Leistung eines Partners | id, partner_id, name, description, service_type, tax_rate, valid_from, valid_to, is_base_service, service_type_manual, tax_rate_manual |
 | ServiceMatcher | Regel zur automatischen Zuordnung | id, service_id, pattern, pattern_type (string\|regex) |
 | ServiceTypeKeyword | Konfigurierbare Begriffe für Typ-Ermittlung | id, mandant_id (nullable), pattern, pattern_type, target_service_type |
+| ServiceGroup | Gruppe fuer Reporting | id, mandant_id, section (income\|expense\|neutral), name, sort_order, is_default |
+| ServiceGroupAssignment | Zuordnung Leistung zu Gruppe | id, mandant_id, service_id, service_group_id |
 
 ### Service-Typ-Enum
 | Wert | Bedeutung | Standard-Steuersatz |
 |------|-----------|---------------------|
 | customer | Kunde | 20 % |
 | supplier | Lieferant | 20 % |
+| shareholder | Gesellschafter | 0 % |
 | employee | Mitarbeiter | 0 % |
 | authority | Behörde | 0 % |
 | unknown | Unbekannt | 20 % |
@@ -136,6 +142,9 @@ Ablauf:
 | list_services | Leistungen eines Partners | partner_id | Service[] |
 | list_keywords | Keyword-Konfiguration | mandant_id | Keyword[] |
 | upsert_keyword | Keyword anlegen/ändern | mandant_id?, pattern, pattern_type, target_type | Keyword |
+| list_service_groups | Gruppen je Bereich lesen | mandant_id, section | ServiceGroup[] |
+| create_service_group | Gruppe anlegen | mandant_id, section, name | ServiceGroup |
+| assign_service_group | Leistung einer Gruppe zuordnen | mandant_id, service_id, service_group_id | ServiceGroupAssignment |
 
 ---
 
@@ -147,6 +156,7 @@ Ablauf:
 | 002 | service-matchers.md | Must | 013 |
 | 003 | base-service-protection.md | Must | 013 |
 | 004 | keyword-config.md | Must | 013 |
+| 009 | service-groups.md | Must | 013 |
 | 005 | service-auto-assignment.md | Must | 014 |
 | 006 | service-manual-assignment.md | Must | 014 |
 | 007 | service-revalidation.md | Must | 014 |

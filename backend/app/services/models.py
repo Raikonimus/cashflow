@@ -33,6 +33,12 @@ class KeywordTargetType(str, Enum):
     authority = "authority"
 
 
+class ServiceGroupSection(str, Enum):
+    income = "income"
+    expense = "expense"
+    neutral = "neutral"
+
+
 BASE_SERVICE_NAME = "Basisleistung"
 
 
@@ -90,5 +96,35 @@ class ServiceTypeKeyword(SQLModel, table=True):
     pattern: str = Field(max_length=500)
     pattern_type: str = Field(max_length=10)
     target_service_type: str = Field(max_length=20)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+class ServiceGroup(SQLModel, table=True):
+    __tablename__ = "service_groups"
+    __table_args__ = (
+        UniqueConstraint("mandant_id", "section", "name", name="uq_service_groups_scope_name"),
+    )
+
+    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
+    mandant_id: UUID = Field(foreign_key="mandants.id", index=True)
+    section: str = Field(max_length=20)
+    name: str = Field(max_length=255)
+    sort_order: int = Field(default=0)
+    is_default: bool = Field(default=False)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+class ServiceGroupAssignment(SQLModel, table=True):
+    __tablename__ = "service_group_assignments"
+    __table_args__ = (
+        UniqueConstraint("service_id", name="uq_service_group_assignments_service"),
+    )
+
+    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
+    mandant_id: UUID = Field(foreign_key="mandants.id", index=True)
+    service_id: UUID = Field(foreign_key="services.id", index=True)
+    service_group_id: UUID = Field(foreign_key="service_groups.id", index=True)
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)

@@ -12,7 +12,7 @@ function setup(role = 'accountant') {
   act(() => {
     useAuthStore.setState({
       token: 'tok',
-      user: { sub: 'u1', email: 'x@x.com', role, mandant_id: MANDANT_ID },
+      user: { sub: 'u1', role, mandant_id: MANDANT_ID },
       selectedMandant: { id: MANDANT_ID, name: 'Test' },
       mandants: [],
     })
@@ -73,6 +73,7 @@ describe('JournalPage', () => {
           pages: 1,
         }),
       ),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/journal/years`, () => HttpResponse.json({ years: [2026] })),
       http.get(`/api/v1/mandants/${MANDANT_ID}/accounts`, () => HttpResponse.json([])),
     )
 
@@ -128,6 +129,7 @@ describe('JournalPage', () => {
           pages: 1,
         }),
       ),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/journal/years`, () => HttpResponse.json({ years: [2026] })),
       http.get(`/api/v1/mandants/${MANDANT_ID}/accounts`, () => HttpResponse.json([])),
     )
 
@@ -140,7 +142,7 @@ describe('JournalPage', () => {
     const infoButton = container.querySelector('button svg')?.parentElement as HTMLButtonElement
     expect(infoButton).not.toBeNull()
 
-    fireEvent.mouseEnter(infoButton.parentElement as HTMLElement)
+    fireEvent.mouseEnter(infoButton.parentElement)
 
     await waitFor(() => expect(screen.getByText('Buchungsreferenz')).toBeInTheDocument())
     expect(screen.queryByText(/_cashflow_source_values/)).not.toBeInTheDocument()

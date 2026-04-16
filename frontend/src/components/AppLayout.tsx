@@ -89,6 +89,17 @@ export function AppLayout() {
                 Dashboard
               </NavLink>
 
+              {hasRole(role, 'viewer') && mandantId && (
+                <NavLink
+                  to="/cashflow/income-expense"
+                  className={({ isActive }) =>
+                    `${linkBase} ${isActive ? linkActive : ''}`
+                  }
+                >
+                  Einnahmen & Ausgaben
+                </NavLink>
+              )}
+
               {hasRole(role, 'accountant') && (
                 <>
                   <NavLink

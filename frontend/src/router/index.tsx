@@ -24,6 +24,7 @@ const TestingPage = lazy(() => import('@/pages/settings/TestingPage').then((m) =
 const ReviewPage = lazy(() => import('@/pages/review/ReviewPage').then((m) => ({ default: m.ReviewPage })))
 const ReviewArchivePage = lazy(() => import('@/pages/review/ReviewArchivePage').then((m) => ({ default: m.ReviewArchivePage })))
 const JournalPage = lazy(() => import('@/pages/journal/JournalPage').then((m) => ({ default: m.JournalPage })))
+const IncomeExpensePage = lazy(() => import('@/pages/cashflow/IncomeExpensePage').then((m) => ({ default: m.IncomeExpensePage })))
 
 function DashboardStub() {
   return (
@@ -65,6 +66,11 @@ export function AppRouter() {
               {/* Alle übrigen Routen erfordern aktiven Mandanten-Kontext */}
               <Route element={<MandantRequiredRoute />}>
                 <Route path="/" element={<DashboardStub />} />
+
+                {/* Cashflow Reports — viewer+ */}
+                <Route element={<RequireRole min="viewer" />}>
+                  <Route path="/cashflow/income-expense" element={<IncomeExpensePage />} />
+                </Route>
 
                 {/* Accounts — accountant+ */}
                 <Route element={<RequireRole min="accountant" />}>

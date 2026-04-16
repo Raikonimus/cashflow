@@ -26,6 +26,14 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def _as_utc_naive(value: datetime) -> datetime:
+    # DB values may be naive while tests can inject aware timestamps.
+    # Normalize both to UTC-naive before comparisons.
+    if value.tzinfo is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
+
+
 class AuthService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -363,7 +371,7 @@ class InvitationService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid token",
             )
-        if invitation.expires_at <= _utcnow():
+        if _as_utc_naive(invitation.expires_at) <= _utcnow():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invitation expired",
@@ -392,7 +400,7 @@ class InvitationService:
             return "accepted"  # Pre-invitation users (e.g. seeded admin)
         if invitation.accepted_at is not None:
             return "accepted"
-        if invitation.expires_at <= _utcnow():
+        if _as_utc_naive(invitation.expires_at) <= _utcnow():
             return "expired"
         return "pending"
 

@@ -6,7 +6,9 @@ export interface JournalLine {
   import_run_id: string
   partner_id: string | null
   partner_name: string | null
+  service_id: string | null
   service_name: string | null
+  service_assignment_mode?: string | null
   valuta_date: string
   booking_date: string
   amount: string
@@ -67,6 +69,65 @@ export interface PaginatedAuditLog {
   pages: number
 }
 
+export interface MatrixCell {
+  gross: string
+  net: string
+}
+
+export interface MatrixCells {
+  year_total: MatrixCell
+  jan: MatrixCell
+  feb: MatrixCell
+  mar: MatrixCell
+  apr: MatrixCell
+  may: MatrixCell
+  jun: MatrixCell
+  jul: MatrixCell
+  aug: MatrixCell
+  sep: MatrixCell
+  oct: MatrixCell
+  nov: MatrixCell
+  dec: MatrixCell
+}
+
+export interface IncomeExpenseServiceRow {
+  service_id: string
+  service_name: string
+  partner_name: string | null
+  service_type: string
+  erfolgsneutral: boolean
+  cells: MatrixCells
+}
+
+export interface IncomeExpenseGroupRow {
+  group_id: string
+  group_name: string
+  sort_order: number
+  collapsed: boolean
+  assigned_service_count: number
+  active_years: number[]
+  subtotal_cells: MatrixCells
+  services: IncomeExpenseServiceRow[]
+}
+
+export interface IncomeExpenseSection {
+  currency: string
+  excluded_currency_count: number
+  excluded_currency_amount_gross: string
+  groups: IncomeExpenseGroupRow[]
+  totals: MatrixCells
+}
+
+export interface IncomeExpenseMatrixResponse {
+  year: number
+  base_currency: string
+  sections: {
+    income: IncomeExpenseSection
+    expense: IncomeExpenseSection
+    neutral: IncomeExpenseSection
+  }
+}
+
 export async function listJournalLines(
   mandantId: string,
   filter: JournalFilter = {},
@@ -109,6 +170,17 @@ export async function listAuditLog(
   const resp = await apiClient.get<PaginatedAuditLog>(
     `/mandants/${mandantId}/audit`,
     { params: { page, size } },
+  )
+  return resp.data
+}
+
+export async function getIncomeExpenseMatrix(
+  mandantId: string,
+  year: number,
+): Promise<IncomeExpenseMatrixResponse> {
+  const resp = await apiClient.get<IncomeExpenseMatrixResponse>(
+    `/mandants/${mandantId}/reports/income-expense`,
+    { params: { year } },
   )
   return resp.data
 }

@@ -14,7 +14,7 @@ function renderWithAuth(token: string | null) {
     })
   })
 
-  let rendered: ReturnType<typeof render>
+  let rendered!: ReturnType<typeof render>
   act(() => {
     rendered = render(
       <MemoryRouter initialEntries={['/']}>
@@ -70,6 +70,7 @@ describe('MandantRequiredRoute', () => {
           <Route element={<MandantRequiredRoute />}>
             <Route path="/" element={<div>Mandant Content</div>} />
           </Route>
+          <Route path="/login" element={<div>Login Page</div>} />
           <Route path="/login/select-mandant" element={<div>Select Mandant Page</div>} />
         </Routes>
       </MemoryRouter>,

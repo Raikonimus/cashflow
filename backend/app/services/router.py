@@ -6,18 +6,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import require_mandant_access, require_role
 from app.core.database import get_session
 from app.services.schemas import (
+    AssignServiceGroupRequest,
     CreateServiceMatcherRequest,
     CreateServiceRequest,
+    CreateServiceGroupRequest,
     CreateServiceTypeKeywordRequest,
+    DeleteServiceGroupRequest,
     MatcherPreviewResponse,
+    ServiceGroupAssignmentResponse,
+    ServiceGroupResponse,
     ServiceMatcherResponse,
     ServiceResponse,
     ServiceTypeKeywordListResponse,
     ServiceTypeKeywordResponse,
+    UpdateServiceGroupRequest,
     UpdateServiceMatcherRequest,
     UpdateServiceRequest,
     UpdateServiceTypeKeywordRequest,
 )
+from app.services.models import ServiceGroupSection
 from app.services.service import ServiceManagementService
 
 services_router = APIRouter(prefix="/mandants", tags=["services"])
@@ -193,3 +200,72 @@ async def delete_service_keyword(
     svc: ServiceManagementService = Depends(_services_svc),
 ) -> None:
     await svc.delete_keyword(mandant_id, keyword_id)
+
+
+@services_router.get(
+    "/{mandant_id}/service-groups",
+    response_model=list[ServiceGroupResponse],
+    dependencies=[Depends(require_role("viewer")), Depends(require_mandant_access)],
+)
+async def list_service_groups(
+    mandant_id: UUID,
+    section: ServiceGroupSection,
+    svc: ServiceManagementService = Depends(_services_svc),
+) -> list[ServiceGroupResponse]:
+    return await svc.list_service_groups(mandant_id, section)
+
+
+@services_router.post(
+    "/{mandant_id}/service-groups",
+    response_model=ServiceGroupResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_role("accountant")), Depends(require_mandant_access)],
+)
+async def create_service_group(
+    mandant_id: UUID,
+    body: CreateServiceGroupRequest,
+    svc: ServiceManagementService = Depends(_services_svc),
+) -> ServiceGroupResponse:
+    return await svc.create_service_group(mandant_id, body)
+
+
+@services_router.patch(
+    "/{mandant_id}/service-groups/{group_id}",
+    response_model=ServiceGroupResponse,
+    dependencies=[Depends(require_role("accountant")), Depends(require_mandant_access)],
+)
+async def update_service_group(
+    mandant_id: UUID,
+    group_id: UUID,
+    body: UpdateServiceGroupRequest,
+    svc: ServiceManagementService = Depends(_services_svc),
+) -> ServiceGroupResponse:
+    return await svc.update_service_group(mandant_id, group_id, body)
+
+
+@services_router.delete(
+    "/{mandant_id}/service-groups/{group_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_role("accountant")), Depends(require_mandant_access)],
+)
+async def delete_service_group(
+    mandant_id: UUID,
+    group_id: UUID,
+    body: DeleteServiceGroupRequest,
+    svc: ServiceManagementService = Depends(_services_svc),
+) -> None:
+    await svc.delete_service_group(mandant_id, group_id, body)
+
+
+@services_router.post(
+    "/{mandant_id}/services/{service_id}/group-assignment",
+    response_model=ServiceGroupAssignmentResponse,
+    dependencies=[Depends(require_role("accountant")), Depends(require_mandant_access)],
+)
+async def assign_service_group(
+    mandant_id: UUID,
+    service_id: UUID,
+    body: AssignServiceGroupRequest,
+    svc: ServiceManagementService = Depends(_services_svc),
+) -> ServiceGroupAssignmentResponse:
+    return await svc.assign_service_group(mandant_id, service_id, body.service_group_id)

@@ -6,14 +6,14 @@ default_bolt_type: ddd-construction-bolt
 phase: inception
 status: ready
 created: 2026-04-06T00:00:00Z
-updated: 2026-04-06T00:00:00Z
+updated: 2026-04-15T00:00:00Z
 ---
 
 # Unit Brief: journal-viewer
 
 ## Purpose
 
-Bereitstellung der Buchungszeilen-Abfrage-API mit umfangreichen Filtern sowie Bulk-Operationen und Audit-Log-Zugriff.
+Bereitstellung der Buchungszeilen-Abfrage-API mit umfangreichen Filtern sowie Bulk-Operationen, Audit-Log-Zugriff und aggregierter Jahres-/Monatsauswertung fuer die Einnahmen-&-Ausgaben-Matrix.
 
 ## Scope
 
@@ -22,6 +22,7 @@ Bereitstellung der Buchungszeilen-Abfrage-API mit umfangreichen Filtern sowie Bu
 - Paginierung
 - Bulk-Partner-Zuweisung für mehrere Buchungszeilen
 - Audit-Log-API (les-only, für Admin und Mandant-Admin)
+- Aggregations-API fuer Einnahmen/Ausgaben/Erfolgsneutrale Zahlungen je Jahr (Jahressumme + Monate, Gruppen-/Gesamtsummen)
 
 ### Out of Scope
 - Import der Buchungszeilen (→ 004-import-pipeline)
@@ -36,6 +37,7 @@ Bereitstellung der Buchungszeilen-Abfrage-API mit umfangreichen Filtern sowie Bu
 | FR-9 | Buchungszeilen-Anzeige mit Filtern | Must |
 | FR-10 | Bulk-Operationen auf Buchungszeilen | Should |
 | FR-11 | Audit-Log (Leseendpunkt) | Must |
+| FR-23 | Einnahmen- & Ausgaben-Jahresmatrix (Reporting-API) | Must |
 
 ---
 
@@ -57,6 +59,7 @@ Bereitstellung der Buchungszeilen-Abfrage-API mit umfangreichen Filtern sowie Bu
 | list_journal_lines | Paginierte Abfrage | mandant_id, filter params | Page[JournalLine] |
 | bulk_assign_partner | Partner für mehrere Zeilen setzen | line_ids[], partner_id | updated_count |
 | list_audit_log | Audit-Log-Einträge lesen | mandant_id, filter? | AuditLog[] |
+| get_income_expense_matrix | Jahresmatrix inkl. Aggregationen | mandant_id, year | IncomeExpenseMatrix |
 
 ---
 
@@ -64,7 +67,7 @@ Bereitstellung der Buchungszeilen-Abfrage-API mit umfangreichen Filtern sowie Bu
 
 | Metric | Count |
 |--------|-------|
-| Total Stories | 3 |
+| Total Stories | 4 |
 | Must Have | 3 |
 | Should Have | 1 |
 | Could Have | 0 |
@@ -73,3 +76,4 @@ Bereitstellung der Buchungszeilen-Abfrage-API mit umfangreichen Filtern sowie Bu
 - 001-journal-lines-query.md
 - 002-bulk-assign-partner.md
 - 003-audit-log-api.md
+- 004-cashflow-matrix-api.md
