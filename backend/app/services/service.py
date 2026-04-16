@@ -6,7 +6,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import desc, or_
+from sqlalchemy import desc, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -990,6 +990,11 @@ class ServiceManagementService:
                 select(ServiceMatcher).where(ServiceMatcher.service_id == service.id).order_by(ServiceMatcher.created_at)
             )
         ).all()
+        journal_line_count = (
+            await self._session.exec(
+                select(func.count()).select_from(JournalLine).where(JournalLine.service_id == service.id)
+            )
+        ).one()
         return ServiceResponse(
             id=service.id,
             partner_id=service.partner_id,
@@ -1005,6 +1010,7 @@ class ServiceManagementService:
             tax_rate_manual=service.tax_rate_manual,
             created_at=service.created_at,
             updated_at=service.updated_at,
+            journal_line_count=journal_line_count,
             matchers=[
                 {
                     "id": matcher.id,

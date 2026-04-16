@@ -1,12 +1,30 @@
 import { useMutation } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 
-import { runPartnerAssignmentTest } from '@/api/testing'
-import type { AssignmentMismatchItem } from '@/api/testing'
+import {
+  runPartnerAssignmentTest,
+  runServiceAmountConsistencyTest,
+} from '@/api/testing'
+import type {
+  AssignmentMismatchItem,
+  ServiceAmountConsistencyItem,
+} from '@/api/testing'
 import { useAuthStore } from '@/store/auth-store'
 
 function formatAmount(amount: string, currency: string) {
   return Number(amount).toLocaleString('de-DE', { style: 'currency', currency })
+}
+
+function getAmountToneClass(amount: string) {
+  const numeric = Number(amount)
+  if (numeric > 0) {
+    return 'text-emerald-700'
+  }
+  if (numeric < 0) {
+    return 'text-rose-700'
+  }
+  return 'text-slate-900'
 }
 
 function formatOutcome(outcome: string) {
@@ -80,6 +98,59 @@ function InfoTile({ title, value }: Readonly<{ title: string; value: string }>) 
   )
 }
 
+function ServiceAmountConsistencyCard({ item }: Readonly<{ item: ServiceAmountConsistencyItem }>) {
+  return (
+    <article className="rounded-xl border border-rose-200 bg-rose-50/40 p-4 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-rose-700">Gemischte Vorzeichen</p>
+          <h3 className="mt-1 text-sm font-semibold text-slate-900">{item.partner_name ?? '—'} / {item.service_name}</h3>
+          <p className="mt-1 text-xs text-slate-600">
+            Eingänge: {item.positive_line_count} {' · '} Ausgänge: {item.negative_line_count}
+          </p>
+        </div>
+        <div className="flex flex-col items-end gap-2">
+          {item.partner_id ? (
+            <Link
+              to={`/partners/${item.partner_id}`}
+              className="rounded-lg border border-rose-300 bg-white px-3 py-2 text-xs font-semibold text-rose-700 hover:border-rose-400 hover:text-rose-900"
+            >
+              Partner öffnen
+            </Link>
+          ) : null}
+          <div className="rounded-lg bg-white px-3 py-2 text-right text-xs text-slate-500">
+            <p className="font-semibold text-slate-900">{item.lines.length} Buchungen</p>
+          </div>
+        </div>
+      </div>
+
+      <details className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+        <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-600">
+          Buchungszeilen anzeigen ({item.lines.length})
+        </summary>
+        <div className="mt-3 space-y-2">
+          {item.lines.map((line) => (
+            <div key={line.id} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{line.booking_date}</p>
+                  <p className="mt-1 text-sm text-slate-700">{line.text ?? '—'}</p>
+                </div>
+                <div className="text-right">
+                  <p className={`text-sm font-semibold ${getAmountToneClass(line.amount)}`}>{formatAmount(line.amount, line.currency)}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Rohdaten: {line.partner_name_raw ?? '—'} / {line.partner_account_raw ?? '—'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </details>
+    </article>
+  )
+}
+
 type TestDefinition = {
   id: string
   title: string
@@ -98,10 +169,10 @@ const TESTS: TestDefinition[] = [
   },
   {
     id: 'service-link-consistency',
-    title: 'Test 2: Leistungszuordnung',
-    description: 'Prüft Konsistenz zwischen Partner, Leistung und service_assignment_mode.',
-    available: false,
-    buttonLabel: 'Bald verfügbar',
+    title: 'Test 2: Service-Betragskonsistenz',
+    description: 'Findet Services, die eine Mischung aus Eingängen und Ausgängen haben, und zeigt die Buchungszeilen dazu an.',
+    available: true,
+    buttonLabel: 'Test 2 ausführen',
   },
   {
     id: 'matcher-quality',
@@ -125,8 +196,21 @@ export function TestingPage() {
     mutationFn: () => runPartnerAssignmentTest(mandantId),
   })
 
+  const serviceAmountMutation = useMutation({
+    mutationFn: () => runServiceAmountConsistencyTest(mandantId),
+  })
+
+  const isPending = selectedTest.id === 'partner-assignment'
+    ? testMutation.isPending
+    : serviceAmountMutation.isPending
+  const hasError = selectedTest.id === 'partner-assignment'
+    ? testMutation.isError
+    : serviceAmountMutation.isError
+
   const mismatchCount = testMutation.data?.mismatches.length ?? 0
   const totalChecked = testMutation.data?.total_checked ?? 0
+  const inconsistentServiceCount = serviceAmountMutation.data?.inconsistent_services.length ?? 0
+  const totalCheckedServices = serviceAmountMutation.data?.total_checked_services ?? 0
 
   const sortedMismatches = useMemo(() => {
     if (!testMutation.data) return []
@@ -144,14 +228,30 @@ export function TestingPage() {
             Diagnosetests zur Daten- und Zuordnungskonsistenz.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => testMutation.mutate()}
-          disabled={testMutation.isPending || !mandantId || !selectedTest.available}
-          className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {testMutation.isPending ? 'Test läuft…' : selectedTest.buttonLabel}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            to="/settings/service-keywords"
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:border-slate-400 hover:text-slate-900"
+          >
+            Zur Servicekonfiguration
+          </Link>
+          <button
+            type="button"
+            onClick={() => {
+              if (selectedTest.id === 'partner-assignment') {
+                testMutation.mutate()
+                return
+              }
+              if (selectedTest.id === 'service-link-consistency') {
+                serviceAmountMutation.mutate()
+              }
+            }}
+            disabled={isPending || !mandantId || !selectedTest.available}
+            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isPending ? 'Test läuft…' : selectedTest.buttonLabel}
+          </button>
+        </div>
       </div>
 
       <div className="mb-6 grid gap-3 md:grid-cols-3">
@@ -187,7 +287,7 @@ export function TestingPage() {
         </div>
       )}
 
-      {testMutation.isError ? (
+      {hasError ? (
         <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           Test konnte nicht ausgeführt werden.
         </div>
@@ -203,15 +303,34 @@ export function TestingPage() {
         </div>
       ) : null}
 
+      {serviceAmountMutation.data && selectedTest.id === 'service-link-consistency' ? (
+        <div className="mb-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <p className="text-sm text-slate-600">
+            Geprüfte Services: <span className="font-semibold text-slate-900">{totalCheckedServices}</span>
+            {' · '}
+            Services mit gemischten Vorzeichen: <span className="font-semibold text-rose-700">{inconsistentServiceCount}</span>
+          </p>
+        </div>
+      ) : null}
+
       {testMutation.data && selectedTest.id === 'partner-assignment' && mismatchCount === 0 ? (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-700">
           Keine nicht-erklärbaren Zuordnungen gefunden.
         </div>
       ) : null}
 
+      {serviceAmountMutation.data && selectedTest.id === 'service-link-consistency' && inconsistentServiceCount === 0 ? (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-700">
+          Keine Services mit gemischten Eingangs- und Ausgangsbuchungen gefunden.
+        </div>
+      ) : null}
+
       <div className="space-y-3">
         {selectedTest.id === 'partner-assignment' && sortedMismatches.map((item) => (
           <MismatchCard key={item.journal_line.id} item={item} />
+        ))}
+        {selectedTest.id === 'service-link-consistency' && serviceAmountMutation.data?.inconsistent_services.map((item) => (
+          <ServiceAmountConsistencyCard key={item.service_id} item={item} />
         ))}
       </div>
     </div>

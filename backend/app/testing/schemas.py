@@ -25,6 +25,8 @@ class AssignmentTestJournalLine(BaseModel):
     unmapped_data: Any | None
     created_at: Any
 
+    model_config = {"from_attributes": True}
+
 
 class AssignmentMismatchItem(BaseModel):
     reason_code: str
@@ -42,3 +44,18 @@ class AssignmentMismatchItem(BaseModel):
 class PartnerAssignmentTestResponse(BaseModel):
     total_checked: int
     mismatches: list[AssignmentMismatchItem]
+
+
+class ServiceAmountConsistencyItem(BaseModel):
+    service_id: UUID
+    service_name: str
+    partner_id: UUID | None
+    partner_name: str | None
+    positive_line_count: int
+    negative_line_count: int
+    lines: list[AssignmentTestJournalLine]
+
+
+class ServiceAmountConsistencyTestResponse(BaseModel):
+    total_checked_services: int
+    inconsistent_services: list[ServiceAmountConsistencyItem]

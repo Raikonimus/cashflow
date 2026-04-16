@@ -38,6 +38,7 @@ export interface JournalYearsResponse {
 export interface JournalFilter {
   account_id?: string
   partner_id?: string
+  service_id?: string
   year?: number
   month?: number
   has_partner?: boolean

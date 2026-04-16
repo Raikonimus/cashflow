@@ -1,7 +1,8 @@
 import axios from 'axios'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { listJournalLines } from '@/api/journal'
 import { useAuthStore } from '@/store/auth-store'
 import {
   createPartnerService,
@@ -63,6 +64,10 @@ const emptyMatcherForm: MatcherFormState = {
   internal_only: false,
 }
 
+const JOURNAL_PAGE_SIZE = 10
+
+type ServiceJournalSortField = 'valuta_date' | 'booking_date' | 'amount' | 'text'
+
 function toFormState(service: ServiceListItem): ServiceFormState {
   return {
     name: service.name,
@@ -122,6 +127,7 @@ export function ServiceManagementPage() {
   const queryClient = useQueryClient()
 
   const [createForm, setCreateForm] = useState<ServiceFormState>(emptyForm)
+  const [showCreateForm, setShowCreateForm] = useState(false)
   const [editingServiceId, setEditingServiceId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<ServiceFormState>(emptyForm)
   const [formError, setFormError] = useState<string | null>(null)
@@ -132,8 +138,23 @@ export function ServiceManagementPage() {
   const [editMatcherForm, setEditMatcherForm] = useState<MatcherFormState>(emptyMatcherForm)
   const [previewForServiceId, setPreviewForServiceId] = useState<string | null>(null)
   const [previewResult, setPreviewResult] = useState<MatcherPreviewResponse | null>(null)
+  const [expandedServiceIds, setExpandedServiceIds] = useState<Record<string, boolean>>({})
 
   const isReadOnly = role === 'viewer'
+
+  function setServiceExpanded(serviceId: string, expanded: boolean) {
+    setExpandedServiceIds((current) => ({
+      ...current,
+      [serviceId]: expanded,
+    }))
+  }
+
+  function toggleServiceExpanded(serviceId: string) {
+    setExpandedServiceIds((current) => ({
+      ...current,
+      [serviceId]: !current[serviceId],
+    }))
+  }
 
   const { data: partner, isLoading: partnerLoading, isError: partnerError } = useQuery({
     queryKey: ['partner', mandantId, partnerId],
@@ -156,6 +177,7 @@ export function ServiceManagementPage() {
     mutationFn: () => createPartnerService(mandantId, partnerId!, toCreatePayload(createForm)),
     onSuccess: async () => {
       setCreateForm(emptyForm)
+      setShowCreateForm(false)
       setFormError(null)
       setMatcherError(null)
       setNotice('Leistung gespeichert. Bitte prüfe die neu erzeugten Vorschläge in der Review-Queue.')
@@ -305,79 +327,112 @@ export function ServiceManagementPage() {
       )}
 
       {!isReadOnly && partner.is_active && (
-        <div className="mb-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="text-base font-semibold text-gray-800">Neue Leistung</h2>
-          <p className="mt-1 text-sm text-gray-500">Neue Leistungen können mit optionalem Geltungszeitraum angelegt werden. Ohne Datumsangaben ist die Leistung immer gültig.</p>
-          <ServiceForm
-            form={createForm}
-            onChange={setCreateForm}
-            onSubmit={() => createMutation.mutate()}
-            submitLabel="Leistung anlegen"
-            loading={createMutation.isPending}
-          />
+        <div className="mb-6 space-y-3">
+          <button
+            type="button"
+            onClick={() => {
+              setNotice(null)
+              setFormError(null)
+              setMatcherError(null)
+              setShowCreateForm((current) => !current)
+            }}
+            className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100"
+          >
+            {showCreateForm ? 'Neue Leistung ausblenden' : 'Neue Leistung'}
+          </button>
+
+          {showCreateForm && (
+            <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+              <h2 className="text-base font-semibold text-gray-800">Neue Leistung</h2>
+              <p className="mt-1 text-sm text-gray-500">Neue Leistungen können mit optionalem Geltungszeitraum angelegt werden. Ohne Datumsangaben ist die Leistung immer gültig.</p>
+              <ServiceForm
+                form={createForm}
+                onChange={setCreateForm}
+                onSubmit={() => createMutation.mutate()}
+                submitLabel="Leistung anlegen"
+                loading={createMutation.isPending}
+                onCancel={() => {
+                  setShowCreateForm(false)
+                  setCreateForm(emptyForm)
+                  setFormError(null)
+                }}
+              />
+            </div>
+          )}
         </div>
       )}
 
       <div className="space-y-4">
         {services.map((service) => {
           const isEditing = editingServiceId === service.id
+          const isExpanded = expandedServiceIds[service.id] ?? false
 
           return (
-            <div key={service.id} className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-base font-semibold text-gray-900">{service.name}</h2>
+            <section key={service.id} className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-lg font-semibold text-gray-900">{service.name}</h2>
                     {service.is_base_service && (
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
                         Basisleistung
                       </span>
                     )}
+                    <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+                      {serviceTypeLabels[service.service_type]}
+                    </span>
+                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                      Steuer {service.tax_rate}%
+                    </span>
+                    <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
+                      Matcher {service.matchers.length}
+                    </span>
                   </div>
-                  {service.description && (
-                    <p className="mt-2 text-sm text-gray-600">{service.description}</p>
+                  {service.description ? (
+                    <p className="mt-2 max-w-3xl text-sm text-gray-600">{service.description}</p>
+                  ) : (
+                    <p className="mt-2 text-sm text-gray-400">Keine Beschreibung hinterlegt.</p>
+                  )}
+                  <div className="mt-3 grid gap-2 text-sm text-gray-600 sm:grid-cols-2 xl:grid-cols-4">
+                    <div className="rounded-xl bg-gray-50 px-3 py-2">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Zeitraum</div>
+                      <div className="mt-1 font-medium text-gray-700">{formatDateRange(service)}</div>
+                    </div>
+                    <div className="rounded-xl bg-gray-50 px-3 py-2">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Erfolgsneutral</div>
+                      <div className="mt-1 font-medium text-gray-700">{service.erfolgsneutral ? 'Ja' : 'Nein'}</div>
+                    </div>
+                    <div className="rounded-xl bg-gray-50 px-3 py-2">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Partner</div>
+                      <div className="mt-1 font-medium text-gray-700">{partner.display_name ?? partner.name}</div>
+                    </div>
+                    <div className="rounded-xl bg-gray-50 px-3 py-2">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Status</div>
+                      <div className="mt-1 font-medium text-gray-700">{partner.is_active ? 'Aktiv' : 'Inaktiv'}</div>
+                    </div>
+                    <div className="rounded-xl bg-gray-50 px-3 py-2">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Buchungszeilen</div>
+                      <div className="mt-1 font-medium text-gray-700">{service.journal_line_count}</div>
+                    </div>
+                  </div>
+                  {service.is_base_service && (
+                    <p className="mt-3 text-xs text-gray-500">
+                      Die Basisleistung bleibt erhalten und ihr Name ist nicht editierbar.
+                    </p>
                   )}
                 </div>
-                <div className="text-right text-sm text-gray-500">
-                  <div>Typ: {serviceTypeLabels[service.service_type]}</div>
-                  <div>Steuer: {service.tax_rate}%</div>
-                  <div>Erfolgsneutral: {service.erfolgsneutral ? 'Ja' : 'Nein'}</div>
-                  <div>Zeitraum: {formatDateRange(service)}</div>
-                  <div>Matcher: {service.matchers.length}</div>
-                </div>
-              </div>
 
-              {isEditing ? (
-                <div className="mt-5 border-t border-gray-100 pt-5">
-                  <ServiceForm
-                    form={editForm}
-                    onChange={setEditForm}
-                    onSubmit={() => updateMutation.mutate(service.id)}
-                    submitLabel="Änderungen speichern"
-                    loading={updateMutation.isPending}
-                    disableName={service.is_base_service}
-                    onCancel={() => {
-                      setEditingServiceId(null)
-                      setFormError(null)
-                    }}
-                  />
-                </div>
-              ) : (
-                <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-4">
+                <div className="flex shrink-0 flex-wrap items-center gap-2 lg:max-w-[260px] lg:justify-end">
+                  <button
+                    type="button"
+                    onClick={() => toggleServiceExpanded(service.id)}
+                    aria-label={`${service.name} Details ${isExpanded ? 'ausblenden' : 'anzeigen'}`}
+                    className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    {isExpanded ? 'Details ausblenden' : 'Details anzeigen'}
+                  </button>
                   {!isReadOnly && partner.is_active && (
                     <>
-                      <button
-                        onClick={() => {
-                          setNotice(null)
-                          setFormError(null)
-                          setMatcherError(null)
-                          setEditingServiceId(service.id)
-                          setEditForm(toFormState(service))
-                        }}
-                        className="rounded border border-blue-200 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-50"
-                      >
-                        Bearbeiten
-                      </button>
                       <button
                         onClick={() => {
                           if (service.is_base_service) {
@@ -397,84 +452,304 @@ export function ServiceManagementPage() {
                       </button>
                     </>
                   )}
-                  {service.is_base_service && (
-                    <p className="text-xs text-gray-500">
-                      Die Basisleistung bleibt erhalten und ihr Name ist nicht editierbar.
-                    </p>
-                  )}
+                </div>
+              </div>
+
+              {isExpanded && (
+                <div className="mt-5 space-y-4 border-t border-gray-100 pt-5">
+                  <div className="grid gap-4 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+                    <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4">
+                      <div className="mb-3 flex items-start justify-between gap-3">
+                        <div>
+                          <h3 className="text-sm font-semibold text-gray-900">Stammdaten</h3>
+                          <p className="text-xs text-gray-500">Typ, Steuerlogik und Gültigkeit der Leistung.</p>
+                        </div>
+                        {!isEditing && !isReadOnly && partner.is_active && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNotice(null)
+                              setFormError(null)
+                              setMatcherError(null)
+                              setEditingServiceId(service.id)
+                              setEditForm(toFormState(service))
+                            }}
+                            className="rounded border border-blue-200 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-50"
+                          >
+                            Stammdaten bearbeiten
+                          </button>
+                        )}
+                      </div>
+
+                      {isEditing ? (
+                        <ServiceForm
+                          form={editForm}
+                          onChange={setEditForm}
+                          onSubmit={() => updateMutation.mutate(service.id)}
+                          submitLabel="Änderungen speichern"
+                          loading={updateMutation.isPending}
+                          disableName={service.is_base_service}
+                          onCancel={() => {
+                            setEditingServiceId(null)
+                            setFormError(null)
+                          }}
+                        />
+                      ) : (
+                        <dl className="grid gap-3 sm:grid-cols-2">
+                          <div className="rounded-lg bg-white px-3 py-3">
+                            <dt className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Typ</dt>
+                            <dd className="mt-1 text-sm font-medium text-gray-700">{serviceTypeLabels[service.service_type]}</dd>
+                          </div>
+                          <div className="rounded-lg bg-white px-3 py-3">
+                            <dt className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Steuer</dt>
+                            <dd className="mt-1 text-sm font-medium text-gray-700">{service.tax_rate}%</dd>
+                          </div>
+                          <div className="rounded-lg bg-white px-3 py-3">
+                            <dt className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Zeitraum</dt>
+                            <dd className="mt-1 text-sm font-medium text-gray-700">{formatDateRange(service)}</dd>
+                          </div>
+                          <div className="rounded-lg bg-white px-3 py-3">
+                            <dt className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Erfolgsneutral</dt>
+                            <dd className="mt-1 text-sm font-medium text-gray-700">{service.erfolgsneutral ? 'Ja' : 'Nein'}</dd>
+                          </div>
+                        </dl>
+                      )}
+                    </div>
+
+                    <div className="rounded-xl border border-gray-200 bg-white p-4">
+                      <MatcherSection
+                        service={service}
+                        isReadOnly={isReadOnly || !partner.is_active}
+                        createForm={createMatcherForms[service.id] ?? emptyMatcherForm}
+                        onCreateFormChange={(next) => {
+                          setCreateMatcherForms((current) => ({
+                            ...current,
+                            [service.id]: next,
+                          }))
+                          if (previewForServiceId === service.id) {
+                            setPreviewResult(null)
+                            setPreviewForServiceId(null)
+                          }
+                        }}
+                        editingMatcherId={editingMatcherId}
+                        editForm={editMatcherForm}
+                        onStartEdit={(matcher) => {
+                          setNotice(null)
+                          setMatcherError(null)
+                          setEditingMatcherId(matcher.id)
+                          setEditMatcherForm({
+                            pattern: matcher.pattern,
+                            pattern_type: matcher.pattern_type,
+                            internal_only: matcher.internal_only ?? false,
+                          })
+                          setServiceExpanded(service.id, true)
+                        }}
+                        onEditFormChange={setEditMatcherForm}
+                        onCancelEdit={() => {
+                          setEditingMatcherId(null)
+                          setEditMatcherForm(emptyMatcherForm)
+                          setMatcherError(null)
+                        }}
+                        onCreate={() => {
+                          const payload = createMatcherForms[service.id] ?? emptyMatcherForm
+                          setNotice(null)
+                          setPreviewResult(null)
+                          setPreviewForServiceId(null)
+                          setServiceExpanded(service.id, true)
+                          createMatcherMutation.mutate({
+                            serviceId: service.id,
+                            payload,
+                          })
+                        }}
+                        onUpdate={(matcherId) => {
+                          setNotice(null)
+                          updateMatcherMutation.mutate({
+                            serviceId: service.id,
+                            matcherId,
+                            payload: editMatcherForm,
+                          })
+                        }}
+                        onDelete={(matcherId) => {
+                          const confirmed = window.confirm('Matcher wirklich löschen?')
+                          if (!confirmed) return
+                          setNotice(null)
+                          deleteMatcherMutation.mutate({ serviceId: service.id, matcherId })
+                        }}
+                        onPreview={() => {
+                          const payload = createMatcherForms[service.id] ?? emptyMatcherForm
+                          setNotice(null)
+                          setServiceExpanded(service.id, true)
+                          previewMatcherMutation.mutate({ serviceId: service.id, payload })
+                        }}
+                        previewResult={previewForServiceId === service.id ? previewResult : null}
+                        previewLoading={previewMatcherMutation.isPending && previewMatcherMutation.variables?.serviceId === service.id}
+                        busy={createMatcherMutation.isPending || updateMatcherMutation.isPending || deleteMatcherMutation.isPending}
+                      />
+                    </div>
+                  </div>
+
+                  <ServiceJournalSection
+                    mandantId={mandantId}
+                    serviceId={service.id}
+                    serviceName={service.name}
+                    enabled={isExpanded}
+                  />
                 </div>
               )}
-
-              <div className="mt-5 border-t border-gray-100 pt-5">
-                <MatcherSection
-                  service={service}
-                  isReadOnly={isReadOnly || !partner.is_active}
-                  createForm={createMatcherForms[service.id] ?? emptyMatcherForm}
-                  onCreateFormChange={(next) => {
-                    setCreateMatcherForms((current) => ({
-                      ...current,
-                      [service.id]: next,
-                    }))
-                    if (previewForServiceId === service.id) {
-                      setPreviewResult(null)
-                      setPreviewForServiceId(null)
-                    }
-                  }}
-                  editingMatcherId={editingMatcherId}
-                  editForm={editMatcherForm}
-                  onStartEdit={(matcher) => {
-                    setNotice(null)
-                    setMatcherError(null)
-                    setEditingMatcherId(matcher.id)
-                    setEditMatcherForm({
-                      pattern: matcher.pattern,
-                      pattern_type: matcher.pattern_type,
-                      internal_only: matcher.internal_only ?? false,
-                    })
-                  }}
-                  onEditFormChange={setEditMatcherForm}
-                  onCancelEdit={() => {
-                    setEditingMatcherId(null)
-                    setEditMatcherForm(emptyMatcherForm)
-                    setMatcherError(null)
-                  }}
-                  onCreate={() => {
-                    const payload = createMatcherForms[service.id] ?? emptyMatcherForm
-                    setNotice(null)
-                    setPreviewResult(null)
-                    setPreviewForServiceId(null)
-                    createMatcherMutation.mutate({
-                      serviceId: service.id,
-                      payload,
-                    })
-                  }}
-                  onUpdate={(matcherId) => {
-                    setNotice(null)
-                    updateMatcherMutation.mutate({
-                      serviceId: service.id,
-                      matcherId,
-                      payload: editMatcherForm,
-                    })
-                  }}
-                  onDelete={(matcherId) => {
-                    const confirmed = window.confirm('Matcher wirklich löschen?')
-                    if (!confirmed) return
-                    setNotice(null)
-                    deleteMatcherMutation.mutate({ serviceId: service.id, matcherId })
-                  }}
-                  onPreview={() => {
-                    const payload = createMatcherForms[service.id] ?? emptyMatcherForm
-                    setNotice(null)
-                    previewMatcherMutation.mutate({ serviceId: service.id, payload })
-                  }}
-                  previewResult={previewForServiceId === service.id ? previewResult : null}
-                  previewLoading={previewMatcherMutation.isPending && previewMatcherMutation.variables?.serviceId === service.id}
-                  busy={createMatcherMutation.isPending || updateMatcherMutation.isPending || deleteMatcherMutation.isPending}
-                />
-              </div>
-            </div>
+            </section>
           )
         })}
+      </div>
+    </div>
+  )
+}
+
+function ServiceJournalSection({
+  mandantId,
+  serviceId,
+  serviceName,
+  enabled,
+}: {
+  mandantId: string
+  serviceId: string
+  serviceName: string
+  enabled: boolean
+}) {
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  const [sortBy, setSortBy] = useState<ServiceJournalSortField>('valuta_date')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+
+  function toggleSort(field: ServiceJournalSortField) {
+    if (sortBy === field) {
+      setSortDir((current) => (current === 'asc' ? 'desc' : 'asc'))
+      return
+    }
+    setSortBy(field)
+    setSortDir('desc')
+  }
+
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading,
+  } = useInfiniteQuery({
+    queryKey: ['service-journal', mandantId, serviceId, sortBy, sortDir],
+    queryFn: ({ pageParam = 1 }) => listJournalLines(mandantId, {
+      service_id: serviceId,
+      page: pageParam as number,
+      size: JOURNAL_PAGE_SIZE,
+      sort_by: sortBy,
+      sort_dir: sortDir,
+    }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => (lastPage.page < lastPage.pages ? lastPage.page + 1 : undefined),
+    enabled: enabled && !!mandantId && !!serviceId,
+  })
+
+  useEffect(() => {
+    if (!enabled || !sentinelRef.current || typeof IntersectionObserver === 'undefined') return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage) {
+          fetchNextPage()
+        }
+      },
+      { threshold: 0.1 },
+    )
+    observer.observe(sentinelRef.current)
+    return () => observer.disconnect()
+  }, [enabled, fetchNextPage, hasNextPage, isFetchingNextPage])
+
+  const lines = data?.pages.flatMap((page) => page.items) ?? []
+  const total = data?.pages[0]?.total ?? 0
+
+  function SortHeader({ field, label, align = 'left' }: { field: ServiceJournalSortField; label: string; align?: 'left' | 'right' }) {
+    const active = sortBy === field
+    return (
+      <th
+        className={`cursor-pointer select-none px-4 py-2 text-${align} hover:bg-gray-100`}
+        onClick={() => toggleSort(field)}
+      >
+        {label}
+        {active ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ' ↕'}
+      </th>
+    )
+  }
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+      <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+        <div>
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Buchungszeilen</h3>
+          <p className="text-xs text-gray-400">Alle aktuell dieser Leistung zugeordneten Buchungszeilen für {serviceName}.</p>
+        </div>
+        {total > 0 && <span className="text-xs text-gray-400">{total} gesamt</span>}
+      </div>
+
+      {isLoading && (
+        <div className="flex justify-center py-8">
+          <div className="h-6 w-6 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
+        </div>
+      )}
+
+      {!isLoading && lines.length === 0 && (
+        <p className="px-5 py-6 text-center text-sm text-gray-400">
+          Keine Buchungszeilen für diese Leistung.
+        </p>
+      )}
+
+      {lines.length > 0 && (
+        <table className="w-full table-fixed text-sm">
+          <thead className="bg-gray-50 text-xs font-medium uppercase text-gray-500">
+            <tr>
+              <SortHeader field="valuta_date" label="Valuta" />
+              <th className="w-[46%] cursor-pointer select-none px-4 py-2 text-left hover:bg-gray-100" onClick={() => toggleSort('text')}>
+                Text{sortBy === 'text' ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ' ↕'}
+              </th>
+              <SortHeader field="booking_date" label="Buchung" />
+              <SortHeader field="amount" label="Betrag" align="right" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {lines.map((line) => (
+              <tr key={line.id} className="hover:bg-gray-50">
+                <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-gray-500">
+                  {line.valuta_date}
+                </td>
+                <td className="px-4 py-3 text-gray-700">
+                  <div className="line-clamp-2 break-words">
+                    {line.text ?? line.partner_name_raw ?? <em className="text-gray-400">—</em>}
+                  </div>
+                  {line.partner_name_raw && (
+                    <div className="mt-1 text-xs text-gray-400">Buchungsname: {line.partner_name_raw}</div>
+                  )}
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-gray-500">
+                  {line.booking_date}
+                </td>
+                <td className={`whitespace-nowrap px-4 py-3 text-right font-mono text-sm ${
+                  Number(line.amount) < 0 ? 'text-red-600' : 'text-green-700'
+                }`}>
+                  {Number(line.amount).toLocaleString('de-DE', {
+                    style: 'currency',
+                    currency: line.currency,
+                  })}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <div ref={sentinelRef} className="py-2 text-center">
+        {isFetchingNextPage && (
+          <div className="inline-block h-5 w-5 animate-spin rounded-full border-4 border-blue-400 border-t-transparent" />
+        )}
+        {!hasNextPage && lines.length > 0 && (
+          <p className="text-xs text-gray-300">Alle {total} Zeilen geladen</p>
+        )}
       </div>
     </div>
   )

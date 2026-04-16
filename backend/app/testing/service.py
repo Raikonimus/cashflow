@@ -2,7 +2,7 @@ import re
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import func
+import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -14,6 +14,8 @@ from app.testing.schemas import (
     AssignmentMismatchItem,
     AssignmentTestJournalLine,
     PartnerAssignmentTestResponse,
+    ServiceAmountConsistencyItem,
+    ServiceAmountConsistencyTestResponse,
 )
 
 
@@ -36,6 +38,101 @@ class TestingService:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    async def run_service_amount_consistency_test(
+        self,
+        mandant_id: UUID,
+    ) -> ServiceAmountConsistencyTestResponse:
+        account_ids = set(
+            (
+                await self._session.exec(
+                    select(Account.id).where(Account.mandant_id == mandant_id)
+                )
+            ).all()
+        )
+
+        if not account_ids:
+            return ServiceAmountConsistencyTestResponse(total_checked_services=0, inconsistent_services=[])
+
+        lines = list(
+            (
+                await self._session.exec(
+                    select(JournalLine).where(
+                        sa.literal_column('journal_lines.account_id').in_(account_ids),
+                        sa.literal_column('journal_lines.service_id').is_not(None),
+                    )
+                )
+            ).all()
+        )
+
+        if not lines:
+            return ServiceAmountConsistencyTestResponse(total_checked_services=0, inconsistent_services=[])
+
+        service_ids = {line.service_id for line in lines if line.service_id is not None}
+        services = list(
+            (
+                await self._session.exec(
+                    select(Service, Partner)
+                    .join(Partner, Partner.id == Service.partner_id)  # type: ignore[arg-type]
+                    .where(sa.literal_column('services.id').in_(service_ids))
+                )
+            ).all()
+        )
+        service_meta_by_id = {
+            service.id: {
+                "service_name": service.name,
+                "partner_id": partner.id,
+                "partner_name": partner.display_name or partner.name,
+            }
+            for service, partner in services
+            if service.id is not None
+        }
+
+        lines_by_service: dict[UUID, list[JournalLine]] = {}
+        for line in lines:
+            if line.service_id is None:
+                continue
+            lines_by_service.setdefault(line.service_id, []).append(line)
+
+        inconsistent_services: list[ServiceAmountConsistencyItem] = []
+        for service_id, service_lines in lines_by_service.items():
+            positive_count = sum(1 for line in service_lines if line.amount > 0)
+            negative_count = sum(1 for line in service_lines if line.amount < 0)
+            if positive_count == 0 or negative_count == 0:
+                continue
+
+            service_meta = service_meta_by_id.get(service_id)
+            if service_meta is None:
+                continue
+
+            sorted_lines = sorted(
+                service_lines,
+                key=lambda line: (line.booking_date, line.valuta_date, str(line.id)),
+                reverse=True,
+            )
+            inconsistent_services.append(
+                ServiceAmountConsistencyItem(
+                    service_id=service_id,
+                    service_name=service_meta["service_name"],
+                    partner_id=service_meta["partner_id"],
+                    partner_name=service_meta["partner_name"],
+                    positive_line_count=positive_count,
+                    negative_line_count=negative_count,
+                    lines=[AssignmentTestJournalLine.model_validate(line) for line in sorted_lines],
+                )
+            )
+
+        inconsistent_services.sort(
+            key=lambda item: (
+                item.partner_name or "",
+                item.service_name,
+            )
+        )
+
+        return ServiceAmountConsistencyTestResponse(
+            total_checked_services=len(lines_by_service),
+            inconsistent_services=inconsistent_services,
+        )
+
     async def run_partner_assignment_consistency_test(
         self,
         mandant_id: UUID,
@@ -54,7 +151,7 @@ class TestingService:
         lines = list(
             (
                 await self._session.exec(
-                    select(JournalLine).where(JournalLine.account_id.in_(account_ids))
+                    select(JournalLine).where(sa.literal_column('journal_lines.account_id').in_(account_ids))
                 )
             ).all()
         )

@@ -19,6 +19,7 @@ export interface ServiceListItem {
   tax_rate_manual: boolean
   created_at: string
   updated_at: string
+  journal_line_count: number
   matchers: ServiceMatcherItem[]
 }
 

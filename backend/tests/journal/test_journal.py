@@ -166,6 +166,60 @@ class TestListJournalLines:
         assert data["total"] == 1
         assert data["items"][0]["account_id"] == str(acc1.id)
 
+    async def test_filter_by_service_id(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        user = await create_user(db_session, "service-filter@test.com", UserRole.viewer)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        account = await create_account_db(db_session, mandant.id)
+        run = await create_import_run_db(db_session, account.id, mandant.id, user.id)
+        partner = await create_partner_db(db_session, mandant.id, "Amazon EU")
+        token = await get_auth_token(client, user, mandant)
+
+        service = Service(
+            partner_id=partner.id,
+            name="Hosting",
+            service_type="supplier",
+            tax_rate="20.00",
+            created_at=utcnow(),
+            updated_at=utcnow(),
+        )
+        db_session.add(service)
+        await db_session.commit()
+        await db_session.refresh(service)
+
+        matching_line = await create_journal_line_db(
+            db_session,
+            account.id,
+            run.id,
+            partner_id=partner.id,
+        )
+        matching_line.service_id = service.id
+        db_session.add(matching_line)
+
+        other_line = await create_journal_line_db(
+            db_session,
+            account.id,
+            run.id,
+            partner_id=partner.id,
+            valuta_date="2025-02-20",
+        )
+        db_session.add(other_line)
+        await db_session.commit()
+
+        resp = await client.get(
+            f"/api/v1/mandants/{mandant.id}/journal",
+            params={"service_id": str(service.id)},
+            headers=_auth(token),
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 1
+        assert data["items"][0]["id"] == str(matching_line.id)
+        assert data["items"][0]["service_id"] == str(service.id)
+
     async def test_filter_by_year(
         self, client: AsyncClient, db_session: AsyncSession
     ):

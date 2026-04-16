@@ -74,6 +74,7 @@ describe('ServiceManagementPage', () => {
         tax_rate_manual: false,
         created_at: '2026-04-01T00:00:00Z',
         updated_at: '2026-04-01T00:00:00Z',
+        journal_line_count: 0,
         matchers: [],
       },
       {
@@ -91,6 +92,7 @@ describe('ServiceManagementPage', () => {
         tax_rate_manual: false,
         created_at: '2026-04-01T00:00:00Z',
         updated_at: '2026-04-01T00:00:00Z',
+        journal_line_count: 1,
         matchers: [
           {
             id: 'matcher-existing',
@@ -107,6 +109,43 @@ describe('ServiceManagementPage', () => {
     server.use(
       http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () => HttpResponse.json(partnerDetail)),
       http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () => HttpResponse.json(services)),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/journal`, ({ request }) => {
+        const url = new URL(request.url)
+        if (url.searchParams.get('service_id') !== 'service-hosting') {
+          return HttpResponse.json({ items: [], total: 0, page: 1, size: 10, pages: 1 })
+        }
+
+        return HttpResponse.json({
+          items: [
+            {
+              id: 'line-1',
+              account_id: 'account-1',
+              import_run_id: 'run-1',
+              partner_id: PARTNER_ID,
+              partner_name: 'Amazon EU',
+              service_id: 'service-hosting',
+              service_name: 'Hosting',
+              service_assignment_mode: 'manual',
+              valuta_date: '2026-04-15',
+              booking_date: '2026-04-15',
+              amount: '-99.90',
+              currency: 'EUR',
+              text: 'AWS April',
+              partner_name_raw: 'Amazon EU Sarl',
+              partner_iban_raw: null,
+              partner_account_raw: null,
+              partner_blz_raw: null,
+              partner_bic_raw: null,
+              unmapped_data: null,
+              created_at: '2026-04-15T00:00:00Z',
+            },
+          ],
+          total: 1,
+          page: 1,
+          size: 10,
+          pages: 1,
+        })
+      }),
       http.post(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, async ({ request }) => {
         const body = (await request.json()) as Record<string, string | null>
         services.push({
@@ -124,6 +163,7 @@ describe('ServiceManagementPage', () => {
           tax_rate_manual: false,
           created_at: '2026-04-02T00:00:00Z',
           updated_at: '2026-04-02T00:00:00Z',
+          journal_line_count: 0,
           matchers: [],
         })
         return HttpResponse.json(services[services.length - 1], { status: 201 })
@@ -183,9 +223,18 @@ describe('ServiceManagementPage', () => {
     })
 
     await waitFor(() => expect(screen.getAllByText('Basisleistung')[0]).toBeInTheDocument())
+    expect(screen.getByText('2026-01-01 bis 2026-12-31')).toBeInTheDocument()
+    expect(screen.getAllByText('Buchungszeilen').length).toBeGreaterThan(0)
+    expect(screen.getByText('1')).toBeInTheDocument()
+    expect(screen.queryByText('AWS April')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Hosting Details anzeigen/i }))
+    await waitFor(() => expect(screen.getByText('AWS April')).toBeInTheDocument())
+    expect(screen.getByText(/Buchungsname: Amazon EU Sarl/)).toBeInTheDocument()
+
+    expect(screen.queryByText(/ohne datumsangaben ist die leistung immer gültig/i)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^Neue Leistung$/i }))
     expect(screen.getByText(/ohne datumsangaben ist die leistung immer gültig/i)).toBeInTheDocument()
     expect(screen.getByText(/leer gelassene datumsfelder bedeuten: immer gültig/i)).toBeInTheDocument()
-    expect(screen.getByText(/Zeitraum: 2026-01-01 bis 2026-12-31/)).toBeInTheDocument()
 
     fireEvent.change(screen.getAllByPlaceholderText(/z\. b\./i)[0], { target: { value: 'Support' } })
     fireEvent.change(screen.getByPlaceholderText(/optional/i), { target: { value: 'Premium Support' } })
@@ -195,10 +244,11 @@ describe('ServiceManagementPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /leistung anlegen/i }))
 
     await waitFor(() => expect(screen.getByText('Support')).toBeInTheDocument())
-    expect(screen.getByText(/Typ: Gesellschafter/)).toBeInTheDocument()
+    expect(screen.queryByText(/ohne datumsangaben ist die leistung immer gültig/i)).not.toBeInTheDocument()
+    expect(screen.getByText('Gesellschafter')).toBeInTheDocument()
     expect(screen.getByText(/Leistung gespeichert/)).toBeInTheDocument()
 
-    fireEvent.click(screen.getAllByRole('button', { name: /bearbeiten/i })[1])
+    fireEvent.click(screen.getByRole('button', { name: /stammdaten bearbeiten/i }))
     fireEvent.change(screen.getByDisplayValue('Hosting'), { target: { value: 'Cloud Hosting' } })
     fireEvent.click(screen.getByRole('button', { name: /änderungen speichern/i }))
 
@@ -253,6 +303,7 @@ describe('ServiceManagementPage', () => {
         tax_rate_manual: false,
         created_at: '2026-04-01T00:00:00Z',
         updated_at: '2026-04-01T00:00:00Z',
+        journal_line_count: 0,
         matchers: [],
       },
     ]
@@ -260,6 +311,8 @@ describe('ServiceManagementPage', () => {
     server.use(
       http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () => HttpResponse.json(partnerDetail)),
       http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () => HttpResponse.json(services)),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/journal`, () =>
+        HttpResponse.json({ items: [], total: 0, page: 1, size: 10, pages: 1 })),
     )
 
     await act(async () => {
@@ -267,11 +320,12 @@ describe('ServiceManagementPage', () => {
     })
 
     await waitFor(() => expect(screen.getAllByText('Basisleistung')[0]).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /Basisleistung Details anzeigen/i }))
     expect(screen.getByText(/Die Basisleistung bleibt erhalten/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /löschen/i })).toBeDisabled()
     expect(screen.getByText(/Für die Basisleistung sind keine Matcher erlaubt/)).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /bearbeiten/i }))
+    fireEvent.click(screen.getByRole('button', { name: /stammdaten bearbeiten/i }))
     expect(screen.getByDisplayValue('Basisleistung')).toBeDisabled()
   })
 
@@ -294,6 +348,7 @@ describe('ServiceManagementPage', () => {
         tax_rate_manual: false,
         created_at: '2026-04-01T00:00:00Z',
         updated_at: '2026-04-01T00:00:00Z',
+        journal_line_count: 0,
         matchers: [],
       },
     ]
@@ -301,6 +356,8 @@ describe('ServiceManagementPage', () => {
     server.use(
       http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () => HttpResponse.json(partnerDetail)),
       http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () => HttpResponse.json(services)),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/journal`, () =>
+        HttpResponse.json({ items: [], total: 0, page: 1, size: 10, pages: 1 })),
       http.post(`/api/v1/mandants/${MANDANT_ID}/services/service-hosting/matchers/preview`, () =>
         HttpResponse.json({ detail: 'Invalid regex pattern: missing ), unterminated subpattern at position 0' }, { status: 422 }),
       ),
@@ -311,6 +368,7 @@ describe('ServiceManagementPage', () => {
     })
 
     await waitFor(() => expect(screen.getByText('Hosting')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /Hosting Details anzeigen/i }))
 
     expect(screen.getByRole('button', { name: /matcher anlegen/i })).toBeDisabled()
     fireEvent.change(screen.getByPlaceholderText(/z\. b\. hosting oder \^aws/i), { target: { value: '(' } })
@@ -339,6 +397,7 @@ describe('ServiceManagementPage', () => {
         tax_rate_manual: false,
         created_at: '2026-04-01T00:00:00Z',
         updated_at: '2026-04-01T00:00:00Z',
+        journal_line_count: 0,
         matchers: [],
       },
     ]
@@ -346,6 +405,8 @@ describe('ServiceManagementPage', () => {
     server.use(
       http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () => HttpResponse.json(partnerDetail)),
       http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () => HttpResponse.json(services)),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/journal`, () =>
+        HttpResponse.json({ items: [], total: 0, page: 1, size: 10, pages: 1 })),
       http.patch(`/api/v1/mandants/${MANDANT_ID}/services/service-hosting`, async ({ request }) => {
         const body = (await request.json()) as Record<string, string | null>
         expect(body.valid_from).toBeNull()
@@ -365,10 +426,11 @@ describe('ServiceManagementPage', () => {
 
     await waitFor(() => expect(screen.getByText('Hosting')).toBeInTheDocument())
 
-    fireEvent.click(screen.getByRole('button', { name: /bearbeiten/i }))
-    fireEvent.click(screen.getAllByRole('button', { name: /auf immer gültig zurücksetzen/i })[1])
+    fireEvent.click(screen.getByRole('button', { name: /Hosting Details anzeigen/i }))
+    fireEvent.click(screen.getByRole('button', { name: /stammdaten bearbeiten/i }))
+    fireEvent.click(screen.getByRole('button', { name: /auf immer gültig zurücksetzen/i }))
     fireEvent.click(screen.getByRole('button', { name: /änderungen speichern/i }))
 
-    await waitFor(() => expect(screen.getByText(/Zeitraum: Immer gültig/i)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getAllByText('Immer gültig').length).toBeGreaterThan(0))
   })
 })

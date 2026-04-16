@@ -121,6 +121,7 @@ class JournalService:
         *,
         account_id: UUID | None = None,
         partner_id: UUID | None = None,
+        service_id: UUID | None = None,
         year: int | None = None,
         month: int | None = None,
         has_partner: bool | None = None,
@@ -155,6 +156,9 @@ class JournalService:
 
         if partner_id is not None:
             query = query.where(JournalLine.partner_id == partner_id)
+
+        if service_id is not None:
+            query = query.where(JournalLine.service_id == service_id)
 
         if has_partner is True:
             query = query.where(JournalLine.partner_id.is_not(None))

@@ -41,6 +41,89 @@ class TestServices:
         assert len(items) == 1
         assert items[0]["is_base_service"] is True
         assert items[0]["name"] == "Basisleistung"
+        assert items[0]["journal_line_count"] == 0
+
+    async def test_list_services_includes_current_journal_line_count(self, client: AsyncClient, db_session: AsyncSession):
+        user = await create_user(db_session, "acc-count@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner(client, token, mandant.id)
+
+        service_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            json={"name": "Hosting", "service_type": "supplier", "tax_rate": "20.00"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert service_resp.status_code == 201
+        service_id = UUID(service_resp.json()["id"])
+
+        account = Account(
+            mandant_id=mandant.id,
+            name="Hauptkonto",
+            iban="AT001234567890123456",
+            account_number="123456",
+            bank_code="20111",
+            currency="EUR",
+            created_at=utcnow(),
+            updated_at=utcnow(),
+        )
+        db_session.add(account)
+        await db_session.flush()
+
+        import_run = ImportRun(
+            account_id=account.id,
+            mandant_id=mandant.id,
+            user_id=user.id,
+            filename="import.csv",
+            row_count=0,
+            status=ImportStatus.completed.value,
+            created_at=utcnow(),
+            completed_at=utcnow(),
+        )
+        db_session.add(import_run)
+        await db_session.flush()
+
+        db_session.add(
+            JournalLine(
+                account_id=account.id,
+                import_run_id=import_run.id,
+                partner_id=UUID(partner["id"]),
+                service_id=service_id,
+                valuta_date="2026-04-01",
+                booking_date="2026-04-01",
+                amount=Decimal("-50.00"),
+                currency="EUR",
+                text="Hosting April",
+                partner_name_raw="Amazon EU",
+                created_at=utcnow(),
+            )
+        )
+        db_session.add(
+            JournalLine(
+                account_id=account.id,
+                import_run_id=import_run.id,
+                partner_id=UUID(partner["id"]),
+                service_id=service_id,
+                valuta_date="2026-04-15",
+                booking_date="2026-04-15",
+                amount=Decimal("-75.00"),
+                currency="EUR",
+                text="Hosting Mai",
+                partner_name_raw="Amazon EU",
+                created_at=utcnow(),
+            )
+        )
+        await db_session.commit()
+
+        resp = await client.get(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 200
+        items = resp.json()
+        hosting = next(item for item in items if item["id"] == str(service_id))
+        assert hosting["journal_line_count"] == 2
 
     async def test_create_service(self, client: AsyncClient, db_session: AsyncSession):
         user = await create_user(db_session, "acc2@test.com", UserRole.accountant)

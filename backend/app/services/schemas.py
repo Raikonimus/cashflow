@@ -33,6 +33,7 @@ class ServiceResponse(BaseModel):
     tax_rate_manual: bool
     created_at: datetime
     updated_at: datetime
+    journal_line_count: int = 0
     matchers: list[ServiceMatcherResponse] = []
 
 

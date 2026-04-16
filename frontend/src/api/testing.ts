@@ -39,11 +39,35 @@ export interface PartnerAssignmentTestResponse {
   mismatches: AssignmentMismatchItem[]
 }
 
+export interface ServiceAmountConsistencyItem {
+  service_id: string
+  service_name: string
+  partner_id: string | null
+  partner_name: string | null
+  positive_line_count: number
+  negative_line_count: number
+  lines: AssignmentTestJournalLine[]
+}
+
+export interface ServiceAmountConsistencyTestResponse {
+  total_checked_services: number
+  inconsistent_services: ServiceAmountConsistencyItem[]
+}
+
 export async function runPartnerAssignmentTest(
   mandantId: string,
 ): Promise<PartnerAssignmentTestResponse> {
   const resp = await apiClient.post<PartnerAssignmentTestResponse>(
     `/mandants/${mandantId}/settings/tests/partner-assignment`,
+  )
+  return resp.data
+}
+
+export async function runServiceAmountConsistencyTest(
+  mandantId: string,
+): Promise<ServiceAmountConsistencyTestResponse> {
+  const resp = await apiClient.post<ServiceAmountConsistencyTestResponse>(
+    `/mandants/${mandantId}/settings/tests/service-amount-consistency`,
   )
   return resp.data
 }
