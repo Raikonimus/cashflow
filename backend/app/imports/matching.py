@@ -110,7 +110,13 @@ class PartnerMatchingService:
                 if row is not None:
                     partner_id = row.partner_id
                     # Auto-Anreicherung: Kontonummer + BIC ergänzen wenn noch nicht bekannt
-                    await self._maybe_add_account(partner_id, account_raw, blz_raw, bic_raw)
+                    await self._maybe_add_account(
+                        partner_id,
+                        account_raw,
+                        blz_raw,
+                        bic_raw,
+                        excluded_accounts=excluded_accounts,
+                    )
                     return PartnerMatchResult(partner_id=partner_id, outcome=MatchOutcome.iban_match)
                 _diag["iban"] = {"provided": True, "excluded": False, "found": False, "normalized": normalized}
         else:
@@ -172,8 +178,14 @@ class PartnerMatchingService:
             if row_name is not None:
                 assert row_name.id is not None
                 partner_id = row_name.id
-                await self._maybe_add_iban(partner_id, iban_raw)
-                await self._maybe_add_account(partner_id, account_raw, blz_raw, bic_raw)
+                await self._maybe_add_iban(partner_id, iban_raw, excluded_ibans=excluded_ibans)
+                await self._maybe_add_account(
+                    partner_id,
+                    account_raw,
+                    blz_raw,
+                    bic_raw,
+                    excluded_accounts=excluded_accounts,
+                )
                 name_diag = {"provided": True, "found": True, "value": name_raw}
                 iban_diag = _diag.get("iban") if isinstance(_diag.get("iban"), dict) else {"provided": bool(iban_raw)}
                 return PartnerMatchResult(
@@ -200,8 +212,14 @@ class PartnerMatchingService:
         _diag["service_matchers"] = svc_diag
         if len(matched_by_service) == 1:
             pid, pname = matched_by_service[0]
-            await self._maybe_add_iban(pid, iban_raw)
-            await self._maybe_add_account(pid, account_raw, blz_raw, bic_raw)
+            await self._maybe_add_iban(pid, iban_raw, excluded_ibans=excluded_ibans)
+            await self._maybe_add_account(
+                pid,
+                account_raw,
+                blz_raw,
+                bic_raw,
+                excluded_accounts=excluded_accounts,
+            )
             return PartnerMatchResult(
                 partner_id=pid,
                 outcome=MatchOutcome.service_matcher_match,
@@ -265,15 +283,28 @@ class PartnerMatchingService:
         # Alle verfügbaren Identifier direkt beim neuen Partner speichern
         if name_raw:
             self._session.add(PartnerName(partner_id=new_partner.id, name=name_raw, created_at=utcnow()))  # type: ignore[arg-type]
-        await self._maybe_add_iban(new_partner.id, iban_raw)  # type: ignore[arg-type]
-        await self._maybe_add_account(new_partner.id, account_raw, blz_raw, bic_raw)  # type: ignore[arg-type]
+        await self._maybe_add_iban(new_partner.id, iban_raw, excluded_ibans=excluded_ibans)  # type: ignore[arg-type]
+        await self._maybe_add_account(
+            new_partner.id,
+            account_raw,
+            blz_raw,
+            bic_raw,
+            excluded_accounts=excluded_accounts,
+        )  # type: ignore[arg-type]
         return PartnerMatchResult(partner_id=new_partner.id, outcome=MatchOutcome.new_partner)  # type: ignore[arg-type]
 
-    async def _maybe_add_iban(self, partner_id: UUID, iban_raw: str | None) -> None:
+    async def _maybe_add_iban(
+        self,
+        partner_id: UUID,
+        iban_raw: str | None,
+        excluded_ibans: frozenset[str] = frozenset(),
+    ) -> None:
         """Fügt IBAN zum Partner hinzu, wenn sie noch nicht registriert ist."""
         if not iban_raw:
             return
         normalized = _normalize_iban(iban_raw)
+        if normalized in excluded_ibans:
+            return
         existing = (await self._session.exec(
             select(PartnerIban).where(PartnerIban.iban == normalized)
         )).first()
@@ -281,12 +312,19 @@ class PartnerMatchingService:
             self._session.add(PartnerIban(partner_id=partner_id, iban=normalized, created_at=utcnow()))
 
     async def _maybe_add_account(
-        self, partner_id: UUID, account_raw: str | None, blz_raw: str | None, bic_raw: str | None = None
+        self,
+        partner_id: UUID,
+        account_raw: str | None,
+        blz_raw: str | None,
+        bic_raw: str | None = None,
+        excluded_accounts: frozenset[str] = frozenset(),
     ) -> None:
         """Fügt BLZ+Kontonummer (+BIC) zum Partner hinzu, wenn noch nicht registriert."""
         if not account_raw:
             return
         normalized_acct = _normalize_account(account_raw)
+        if normalized_acct in excluded_accounts:
+            return
         normalized_blz = blz_raw.strip() if blz_raw else None
         normalized_bic = bic_raw.strip().upper() if bic_raw else None
         existing = (await self._session.exec(

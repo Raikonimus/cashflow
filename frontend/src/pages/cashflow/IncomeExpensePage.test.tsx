@@ -261,6 +261,98 @@ describe('IncomeExpensePage', () => {
     expect(beratungIndex).toBeLessThan(adobeIndex)
   })
 
+  it('sorts expense services by most negative yearly total first', async () => {
+    setup('viewer')
+
+    server.use(
+      http.get(`/api/v1/mandants/${MANDANT_ID}/reports/income-expense`, () =>
+        HttpResponse.json({
+          year: 2026,
+          base_currency: 'EUR',
+          sections: {
+            income: {
+              currency: 'EUR',
+              excluded_currency_count: 0,
+              excluded_currency_amount_gross: '0.00',
+              groups: [],
+              totals: makeCells('0.00'),
+            },
+            expense: {
+              currency: 'EUR',
+              excluded_currency_count: 0,
+              excluded_currency_amount_gross: '0.00',
+              groups: [
+                {
+                  group_id: 'group-expense',
+                  group_name: 'Betrieb',
+                  sort_order: 1,
+                  collapsed: false,
+                  assigned_service_count: 3,
+                  active_years: [2026],
+                  subtotal_cells: makeCells('-350.00'),
+                  services: [
+                    {
+                      service_id: 'service-small-negative',
+                      service_name: 'Klein',
+                      partner_name: 'Lieferant A',
+                      service_type: 'supplier',
+                      erfolgsneutral: false,
+                      cells: makeCells('-50.00'),
+                    },
+                    {
+                      service_id: 'service-most-negative',
+                      service_name: 'Groß',
+                      partner_name: 'Lieferant B',
+                      service_type: 'supplier',
+                      erfolgsneutral: false,
+                      cells: makeCells('-200.00'),
+                    },
+                    {
+                      service_id: 'service-middle-negative',
+                      service_name: 'Mittel',
+                      partner_name: 'Lieferant C',
+                      service_type: 'supplier',
+                      erfolgsneutral: false,
+                      cells: makeCells('-100.00'),
+                    },
+                  ],
+                },
+              ],
+              totals: makeCells('-350.00'),
+            },
+            neutral: {
+              currency: 'EUR',
+              excluded_currency_count: 0,
+              excluded_currency_amount_gross: '0.00',
+              groups: [],
+              totals: makeCells('0.00'),
+            },
+          },
+        }),
+      ),
+    )
+
+    await act(async () => {
+      renderPage()
+    })
+
+    await waitFor(() => expect(screen.getByText('Lieferant B / Groß')).toBeInTheDocument())
+
+    const expenseSection = screen.getByRole('heading', { name: 'Ausgaben' }).closest('section')
+    expect(expenseSection).not.toBeNull()
+    const expenseRows = within(expenseSection as HTMLElement).getAllByRole('row')
+    const expenseText = expenseRows.map((row) => row.textContent ?? '')
+    const largestNegativeIndex = expenseText.findIndex((text) => text.includes('Lieferant B / Groß'))
+    const middleNegativeIndex = expenseText.findIndex((text) => text.includes('Lieferant C / Mittel'))
+    const smallestNegativeIndex = expenseText.findIndex((text) => text.includes('Lieferant A / Klein'))
+
+    expect(largestNegativeIndex).toBeGreaterThan(-1)
+    expect(middleNegativeIndex).toBeGreaterThan(-1)
+    expect(smallestNegativeIndex).toBeGreaterThan(-1)
+    expect(largestNegativeIndex).toBeLessThan(middleNegativeIndex)
+    expect(middleNegativeIndex).toBeLessThan(smallestNegativeIndex)
+  })
+
   it('shows a backend error when the matrix endpoint fails', async () => {
     setup('accountant')
 

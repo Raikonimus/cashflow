@@ -71,6 +71,21 @@ function getYearTotal(cells: MatrixCells): number {
   return Number.isNaN(numeric) ? 0 : numeric
 }
 
+function compareServicesByYearTotal(
+  sectionKey: ServiceGroupSection,
+  left: IncomeExpenseGroupRow['services'][number],
+  right: IncomeExpenseGroupRow['services'][number],
+): number {
+  const leftTotal = getYearTotal(left.cells)
+  const rightTotal = getYearTotal(right.cells)
+
+  if (sectionKey === 'expense') {
+    return leftTotal - rightTotal
+  }
+
+  return rightTotal - leftTotal
+}
+
 function getServiceDisplayName(service: IncomeExpenseGroupRow['services'][number]): string {
   if (service.partner_name) {
     if (service.service_name === BASE_SERVICE_NAME) {
@@ -211,10 +226,10 @@ function SectionTable({
         ...group,
         services: group.services
           .filter((service) => hasNonZeroYearTotal(service.cells))
-          .sort((left, right) => getYearTotal(right.cells) - getYearTotal(left.cells)),
+          .sort((left, right) => compareServicesByYearTotal(sectionKey, left, right)),
       }))
       .filter((group) => group.services.length > 0 || canEdit),
-    [canEdit, section.groups],
+    [canEdit, section.groups, sectionKey],
   )
   const showTotals = hasNonZeroYearTotal(section.totals)
   const excludedCurrencyAmount = Number.parseFloat(section.excluded_currency_amount_gross)

@@ -4,11 +4,12 @@ from uuid import uuid4
 
 import pytest
 import pytest_asyncio
+from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.imports.matching import MatchOutcome, PartnerMatchingService, ReviewItemFactory
 from app.imports.models import JournalLine, utcnow
-from app.partners.models import Partner, PartnerIban, PartnerName
+from app.partners.models import Partner, PartnerAccount, PartnerIban, PartnerName
 
 # Re-use shared fixtures from the imports package
 from tests.imports import (  # noqa: F401
@@ -272,6 +273,32 @@ class TestNameMatch:
 
         assert result.outcome == MatchOutcome.name_match
         assert result.partner_id == partner.id
+
+    async def test_name_match_does_not_auto_add_excluded_account(self, db_session: AsyncSession):
+        mandant = await create_mandant(db_session)
+        partner = await _create_active_partner(
+            db_session, mandant.id, "JETBRAINS", alias="JETBRAINS"
+        )
+
+        svc = PartnerMatchingService(db_session)
+        result = await svc.match(
+            mandant_id=mandant.id,
+            iban_raw=None,
+            name_raw="JETBRAINS",
+            account_raw="40100101600",
+            blz_raw="20111",
+            excluded_accounts=frozenset({"40100101600"}),
+        )
+
+        assert result.outcome == MatchOutcome.name_match
+        assert result.partner_id == partner.id
+
+        stored_accounts = (
+            await db_session.exec(
+                select(PartnerAccount).where(PartnerAccount.partner_id == partner.id)
+            )
+        ).all()
+        assert stored_accounts == []
 
     async def test_iban_not_found_falls_back_to_partner_name_without_alias(self, db_session: AsyncSession):
         """Kombination: IBAN unbekannt + Partner nur mit partners.name (kein PartnerName-Eintrag)."""
