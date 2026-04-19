@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import { faGear } from '@fortawesome/free-solid-svg-icons'
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { useQuery } from '@tanstack/react-query'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { listReviewItems } from '@/api/review'
@@ -134,21 +136,25 @@ export function AppLayout() {
                 </>
               )}
 
+
+            </div>
+
+            {/* Rechts: Einstellungen + Mandant + Logout */}
+            <div className="flex items-center gap-3 text-sm text-gray-400">
               {settingsItems.length > 0 ? (
                 <div className="relative">
                   <button
                     type="button"
                     onClick={() => setSettingsOpen((current) => !current)}
-                    className={`${linkBase} ${settingsActive || settingsOpen ? linkActive : ''} inline-flex items-center gap-2`}
+                    className={`${linkBase} ${settingsActive || settingsOpen ? linkActive : ''} inline-flex items-center`}
                     aria-haspopup="menu"
                     aria-expanded={settingsOpen}
                     aria-label="Einstellungen"
                   >
-                    <SettingsIcon />
-                    <span>Einstellungen</span>
+                    <FontAwesomeIcon icon={faGear} aria-hidden="true" className="h-4 w-4" />
                   </button>
                   {settingsOpen ? (
-                    <div className="absolute left-0 top-full z-20 mt-2 min-w-56 overflow-hidden rounded-xl border border-gray-700 bg-gray-800 shadow-lg">
+                    <div className="absolute right-0 top-full z-20 mt-2 min-w-56 overflow-hidden rounded-xl border border-gray-700 bg-gray-800 shadow-lg">
                       <div className="py-2">
                         {settingsItems.map((item) => (
                           <NavLink
@@ -165,10 +171,6 @@ export function AppLayout() {
                   ) : null}
                 </div>
               ) : null}
-            </div>
-
-            {/* Rechts: Mandant + Logout */}
-            <div className="flex items-center gap-3 text-sm text-gray-400">
               {selectedMandant && (
                 <span className="rounded bg-gray-700 px-2 py-1 text-xs text-gray-200">
                   {selectedMandant.name}
@@ -193,11 +195,4 @@ export function AppLayout() {
   )
 }
 
-function SettingsIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4 fill-none stroke-current" strokeWidth="1.8">
-      <path d="M10.325 4.317a1 1 0 0 1 1.35-.936l.626.273a1 1 0 0 0 .798 0l.626-.273a1 1 0 0 1 1.35.936l.056.68a1 1 0 0 0 .51.78l.587.334a1 1 0 0 1 .364 1.364l-.33.597a1 1 0 0 0 0 .798l.33.597a1 1 0 0 1-.364 1.364l-.587.334a1 1 0 0 0-.51.78l-.055.68a1 1 0 0 1-1.351.936l-.626-.273a1 1 0 0 0-.798 0l-.626.273a1 1 0 0 1-1.35-.936l-.056-.68a1 1 0 0 0-.51-.78l-.587-.334a1 1 0 0 1-.364-1.364l.33-.597a1 1 0 0 0 0-.798l-.33-.597a1 1 0 0 1 .364-1.364l.587-.334a1 1 0 0 0 .51-.78l.056-.68Z" />
-      <circle cx="12" cy="12" r="3.2" />
-    </svg>
-  )
-}
+
