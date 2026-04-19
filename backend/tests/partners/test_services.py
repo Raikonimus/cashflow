@@ -778,3 +778,85 @@ class TestServices:
         _, assigned_group = assignments[0]
         assert assigned_group.name == "Sonderkosten"
         assert assigned_group.is_default is False
+
+    async def test_service_in_default_group_not_overwritten_by_matrix_load(self, client: AsyncClient, db_session: AsyncSession):
+        """Regression test: wenn kein Gruppenname dem bevorzugten Standard entspricht,
+        darf ensure_service_group_assignment eine bestehende Zuweisung in der richtigen
+        Sektion NICHT überschreiben – auch wenn die aktuelle Gruppe is_default=True hat."""
+        user = await create_user(db_session, "acc-snap-back@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner(client, token, mandant.id, name="Erste Bank")
+
+        # Eine benutzerdefinierte Einnahmengruppe VOR dem ersten Service anlegen,
+        # damit sie in der DB vor der automatisch erzeugten "Kunden"-Gruppe steht.
+        # ensure_service_group_assignment wählt ohne ORDER BY section_groups[0], also
+        # typischerweise die zuerst eingefügte Gruppe – das ist der Auslöser des Bugs.
+        other_group_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/service-groups",
+            json={"section": "income", "name": "Andere Einnahmen", "sort_order": 0},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert other_group_resp.status_code == 201
+
+        # Service anlegen → ensure_default_groups erzeugt "Kunden" (is_default=True)
+        # Service wird automatisch "Kunden" zugeordnet (preferred name trifft zu)
+        service_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            json={"name": "Habenzinsen", "service_type": "customer", "tax_rate": "0.00"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert service_resp.status_code == 201
+        service_id = service_resp.json()["id"]
+
+        # "Kunden" umbenennen → preferred name "Kunden" existiert nicht mehr
+        income_groups_resp = await client.get(
+            f"/api/v1/mandants/{mandant.id}/service-groups",
+            params={"section": "income"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        kunden_group = next((g for g in income_groups_resp.json() if g["name"] == "Kunden"), None)
+        assert kunden_group is not None
+        kunden_group_id = kunden_group["id"]
+        await client.patch(
+            f"/api/v1/mandants/{mandant.id}/service-groups/{kunden_group_id}",
+            json={"name": "Zinserträge"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        # Sicherstellen: Service ist aktuell in "Zinserträge" (is_default=True)
+        rows_before = (
+            await db_session.exec(
+                select(ServiceGroupAssignment, ServiceGroup)
+                .join(ServiceGroup, ServiceGroup.id == ServiceGroupAssignment.service_group_id)
+                .where(ServiceGroupAssignment.mandant_id == mandant.id, ServiceGroupAssignment.service_id == UUID(service_id))
+            )
+        ).all()
+        assert len(rows_before) == 1
+        _, group_before = rows_before[0]
+        assert group_before.name == "Zinserträge"
+        assert group_before.is_default is True
+
+        # Matrix laden – triggert ensure_service_group_assignment für alle Services
+        matrix_resp = await client.get(
+            f"/api/v1/mandants/{mandant.id}/reports/income-expense",
+            params={"year": 2026},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert matrix_resp.status_code == 200
+
+        # Nach dem Matrix-Reload muss der Service noch in "Zinserträge" sein,
+        # nicht in "Andere Einnahmen" verschoben worden sein
+        rows_after = (
+            await db_session.exec(
+                select(ServiceGroupAssignment, ServiceGroup)
+                .join(ServiceGroup, ServiceGroup.id == ServiceGroupAssignment.service_group_id)
+                .where(ServiceGroupAssignment.mandant_id == mandant.id, ServiceGroupAssignment.service_id == UUID(service_id))
+            )
+        ).all()
+        assert len(rows_after) == 1
+        _, group_after = rows_after[0]
+        assert group_after.name == "Zinserträge", (
+            f"Service-Zuweisung wurde fälschlicherweise von 'Zinserträge' nach '{group_after.name}' verschoben"
+        )

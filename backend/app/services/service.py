@@ -685,6 +685,21 @@ class ServiceManagementService:
             current_group = await self._session.get(ServiceGroup, assignment.service_group_id)
         if current_group is not None and not current_group.is_default:
             return assignment
+        if current_group is not None and current_group.section == service_section.value:
+            # Default-Gruppe in der richtigen Sektion: nur in die bevorzugte Gruppe verschieben,
+            # wenn diese explizit existiert. Gibt es keinen passenden Gruppennamen, bleibt die
+            # Zuweisung erhalten (verhindert Zurücksetzen auf section_groups[0]).
+            preferred_name = self._preferred_default_group_name(service)
+            if preferred_name is not None:
+                preferred_group = next(
+                    (g for g in groups_by_section[service_section] if g.name == preferred_name),
+                    None,
+                )
+                if preferred_group is not None and assignment.service_group_id != preferred_group.id:
+                    assignment.service_group_id = preferred_group.id
+                    assignment.updated_at = _utcnow()
+                    self._session.add(assignment)
+            return assignment
         if assignment.service_group_id != target_group.id:
             assignment.service_group_id = target_group.id
             assignment.updated_at = _utcnow()
