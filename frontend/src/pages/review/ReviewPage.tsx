@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { useAuthStore } from '@/store/auth-store'
@@ -16,7 +16,7 @@ const outcomeLabels: Record<string, string> = {
   new_partner: 'Neuer Partner',
 }
 
-type ReviewTab = 'all' | 'no_partner' | 'new_partner' | 'iban' | 'service' | 'service_type'
+type ReviewTab = 'all' | 'no_partner' | 'new_partner' | 'iban' | 'service' | 'service_type' | 'manual_service'
 
 const TAB_CONFIG: { id: ReviewTab; label: string; types: string[] | null }[] = [
   { id: 'all', label: 'Alle', types: null },
@@ -25,6 +25,7 @@ const TAB_CONFIG: { id: ReviewTab; label: string; types: string[] | null }[] = [
   { id: 'iban', label: 'IBAN-Abweichung', types: ['name_match_with_iban'] },
   { id: 'service', label: 'Leistung unklar', types: ['service_assignment', 'service_matcher_ambiguous'] },
   { id: 'service_type', label: 'Leistungstyp', types: ['service_type_review'] },
+  { id: 'manual_service', label: 'Manuelle Leistung', types: ['manual_service_assignment'] },
 ]
 
 export function ReviewPage() {
@@ -205,7 +206,7 @@ function ReviewCard({
   const { data: services = [] } = useQuery({
     queryKey: ['partner-services', mandantId, item.journal_line?.partner_id],
     queryFn: () => listPartnerServices(mandantId, item.journal_line!.partner_id!),
-    enabled: mode === 'service-select' && !!item.journal_line?.partner_id,
+    enabled: (mode === 'service-select' || item.item_type === 'manual_service_assignment') && !!item.journal_line?.partner_id,
   })
 
   async function searchPartners(q: string) {
@@ -219,6 +220,7 @@ function ReviewCard({
   }
 
   const isServiceTypeReview = item.item_type === 'service_type_review'
+  const isManualServiceAssignment = item.item_type === 'manual_service_assignment'
   const lineCount = item.assigned_journal_lines.length
 
   return (
@@ -234,7 +236,11 @@ function ReviewCard({
             )}
           </div>
           <h2 className="mt-3 text-lg font-semibold text-slate-900">{resolveHeadline(item)}</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-500">{formatReviewReason(item.context.reason ?? item.context.match_outcome)}</p>
+          <p className="mt-2 text-sm leading-6 text-slate-500">
+            {isManualServiceAssignment
+              ? (item.journal_line?.text ?? '—')
+              : formatReviewReason(item.context.reason ?? item.context.match_outcome)}
+          </p>
         </div>
         {item.journal_line ? (
           <div className="rounded-2xl bg-slate-50 px-4 py-3 text-right text-sm text-slate-600">
@@ -247,6 +253,15 @@ function ReviewCard({
       <div className="mt-5 grid gap-4 lg:grid-cols-3">
         {isServiceTypeReview ? (
           <InfoTile title="Partner" body={item.service?.partner_name ?? 'Unbekannter Partner'} />
+        ) : isManualServiceAssignment ? (
+          <InfoTile
+            title="Partner"
+            body={item.journal_line?.partner_name ?? item.journal_line?.partner_name_raw ?? 'Unbekannt'}
+            footer={item.journal_line?.partner_id
+              ? <Link to={`/partners/${item.journal_line.partner_id}`} className="text-blue-600 hover:underline text-xs">Zur Partnerseite →</Link>
+              : undefined
+            }
+          />
         ) : (
           <InfoTile title="Buchung" body={item.journal_line?.text ?? item.context.text ?? 'Kein Buchungstext vorhanden'} footer={item.journal_line?.partner_name_raw ?? item.context.partner_name_raw ?? 'Ohne Partnername'} />
         )}
@@ -288,7 +303,27 @@ function ReviewCard({
 
       {mode === 'idle' ? (
         <div className="mt-5 flex flex-wrap gap-2">
-          {isServiceTypeReview ? (
+          {isManualServiceAssignment ? (
+            <div className="w-full">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Leistung auswählen</p>
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                {(services as ServiceListItem[]).filter((s) => !s.is_base_service).map((service) => (
+                  <button
+                    key={service.id}
+                    onClick={() => adjustServiceMutation.mutate(service.id)}
+                    disabled={adjustServiceMutation.isPending}
+                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left hover:bg-slate-100 disabled:opacity-50"
+                  >
+                    <p className="text-sm font-semibold text-slate-900">{service.name}</p>
+                    <p className="mt-1 text-xs text-slate-500">{serviceTypeLabels[service.service_type]} · {service.tax_rate}%</p>
+                  </button>
+                ))}
+                {(services as ServiceListItem[]).filter((s) => !s.is_base_service).length === 0 && (
+                  <p className="text-sm text-slate-400 col-span-3">Keine weiteren Leistungen vorhanden. Bitte zuerst im <Link to={`/partners/${item.journal_line?.partner_id}/services`} className="text-blue-600 hover:underline">Partner-Service-Manager</Link> anlegen.</p>
+                )}
+              </div>
+            </div>
+          ) : isServiceTypeReview ? (
             <>
               <button onClick={() => confirmMutation.mutate()} disabled={confirmMutation.isPending} className="rounded-xl bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50">
                 Freigeben
@@ -416,6 +451,9 @@ function resolveHeadline(item: ReviewItem) {
   if (item.item_type === 'new_partner') {
     return item.context.partner_name_raw ?? 'Neuen Partner prüfen'
   }
+  if (item.item_type === 'manual_service_assignment') {
+    return item.journal_line?.partner_name ?? item.journal_line?.partner_name_raw ?? 'Leistung manuell zuordnen'
+  }
   return item.context.partner_name_raw ?? item.journal_line?.partner_name_raw ?? 'Partner-Zuordnung prüfen'
 }
 
@@ -431,6 +469,9 @@ function resolveCurrentState(item: ReviewItem) {
   }
   if (item.item_type === 'new_partner') {
     return 'Automatisch neu angelegt'
+  }
+  if (item.item_type === 'manual_service_assignment') {
+    return 'Basisleistung'
   }
   return outcomeLabels[item.context.match_outcome ?? ''] ?? 'Automatische Zuordnung'
 }
@@ -456,6 +497,9 @@ function resolveSuggestedState(item: ReviewItem) {
   }
   if (item.item_type === 'name_match_with_iban') {
     return item.journal_line?.partner_name ?? item.context.suggested_partner_name ?? 'Zuordnung manuell prüfen'
+  }
+  if (item.item_type === 'manual_service_assignment') {
+    return 'Leistung manuell auswählen'
   }
   return item.context.suggested_partner_name ?? 'Partner manuell prüfen'
 }
@@ -509,12 +553,12 @@ function IbanDeviationPanel({ item }: { item: ReviewItem }) {
   )
 }
 
-function InfoTile({ title, body, footer }: { title: string; body: string; footer?: string }) {
+function InfoTile({ title, body, footer }: { title: string; body: string; footer?: React.ReactNode }) {
   return (
     <div className="rounded-2xl bg-slate-50 p-4">
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</p>
       <p className="mt-2 text-sm font-semibold text-slate-900">{body}</p>
-      {footer ? <p className="mt-1 text-sm text-slate-500">{footer}</p> : null}
+      {footer ? <div className="mt-1 text-sm text-slate-500">{footer}</div> : null}
     </div>
   )
 }

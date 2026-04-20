@@ -263,12 +263,23 @@ class PartnerService:
         if "display_name" in body.model_fields_set:
             dn = body.display_name
             partner.display_name = dn.strip() or None if dn else None
+        old_manual_assignment = partner.manual_assignment
         if body.manual_assignment is not None:
             partner.manual_assignment = body.manual_assignment
         partner.updated_at = _utcnow()
         self._session.add(partner)
         await self._session.commit()
         await self._session.refresh(partner)
+
+        # Trigger review item creation/deletion when manual_assignment changes
+        if body.manual_assignment is not None and old_manual_assignment != body.manual_assignment:
+            service_svc = ServiceManagementService(self._session)
+            if body.manual_assignment:
+                await service_svc.create_manual_assignment_reviews_for_partner(partner_id, mandant_id)
+            else:
+                await service_svc.delete_manual_assignment_reviews_for_partner(partner_id)
+            await self._session.commit()
+
         return await self.get_partner_detail(partner_id, mandant_id)
 
     async def create_partner(

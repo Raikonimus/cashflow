@@ -8,6 +8,7 @@ export const reviewTypeLabels: Record<string, string> = {
   service_assignment: 'Leistungs-Zuordnung',
   service_matcher_ambiguous: 'Mehrdeutiger Matcher',
   service_type_review: 'Leistungstyp',
+  manual_service_assignment: 'Manuelle Leistungszuordnung',
 }
 
 export const serviceTypeLabels: Record<string, string> = {

@@ -762,6 +762,16 @@ class ServiceManagementService:
         else:
             await self._clear_service_assignment_review(line.id)
 
+        # Trigger manual-assignment review if partner requires it and line lands on base service
+        if assignment.reason in ("no_match_base_service", "multiple_matches"):
+            partner = await self._session.get(Partner, line.partner_id)
+            if partner is not None and partner.manual_assignment:
+                await self._upsert_manual_service_assignment_review(mandant_id, line.id)
+            else:
+                await self._clear_manual_service_assignment_review(line.id)
+        else:
+            await self._clear_manual_service_assignment_review(line.id)
+
         await self.detect_service_type_for_service(mandant_id, line.service_id)
 
     async def manually_assign_journal_line(
@@ -783,6 +793,7 @@ class ServiceManagementService:
         line.service_assignment_mode = "manual"
         self._session.add(line)
         await self._clear_service_assignment_review(line.id)
+        await self._clear_manual_service_assignment_review(line.id)
         await self.detect_service_type_for_service(mandant_id, service.id)
 
     async def revalidate_partner_lines(self, partner_id: UUID) -> None:
@@ -814,16 +825,28 @@ class ServiceManagementService:
                     reason=assignment.reason,
                     matching_service_ids=assignment.matching_service_ids,
                 )
+                if partner.manual_assignment:
+                    await self._upsert_manual_service_assignment_review(partner.mandant_id, line.id)
+                else:
+                    await self._clear_manual_service_assignment_review(line.id)
                 continue
 
             if line.service_id == assignment.service_id:
                 await self._clear_service_assignment_review(line.id)
+                if assignment.reason == "no_match_base_service" and partner.manual_assignment:
+                    await self._upsert_manual_service_assignment_review(partner.mandant_id, line.id)
+                else:
+                    await self._clear_manual_service_assignment_review(line.id)
                 continue
 
             line.service_id = assignment.service_id
             line.service_assignment_mode = "auto"
             self._session.add(line)
             await self._clear_service_assignment_review(line.id)
+            if assignment.reason == "no_match_base_service" and partner.manual_assignment:
+                await self._upsert_manual_service_assignment_review(partner.mandant_id, line.id)
+            else:
+                await self._clear_manual_service_assignment_review(line.id)
 
         for service_id in touched_service_ids:
             await self.detect_service_type_for_service(partner.mandant_id, service_id)
@@ -1287,6 +1310,82 @@ class ServiceManagementService:
             review.resolved_by = None
             review.resolved_at = None
         self._session.add(review)
+
+    async def create_manual_assignment_reviews_for_partner(
+        self, partner_id: UUID, mandant_id: UUID
+    ) -> None:
+        """Creates manual_service_assignment review items for all journal lines
+        currently on the base service of the given partner."""
+        base_service = (
+            await self._session.exec(
+                select(Service).where(Service.partner_id == partner_id, Service.is_base_service == True)  # noqa: E712
+            )
+        ).first()
+        if base_service is None:
+            return
+        lines = (
+            await self._session.exec(
+                select(JournalLine).where(JournalLine.service_id == base_service.id)
+            )
+        ).all()
+        for line in lines:
+            await self._upsert_manual_service_assignment_review(mandant_id, line.id)
+        if lines:
+            await self._session.flush()
+
+    async def delete_manual_assignment_reviews_for_partner(self, partner_id: UUID) -> None:
+        """Deletes all open manual_service_assignment review items for a partner's lines."""
+        reviews = (
+            await self._session.exec(
+                select(ReviewItem)
+                .join(JournalLine, ReviewItem.journal_line_id == JournalLine.id)
+                .where(
+                    ReviewItem.item_type == "manual_service_assignment",
+                    ReviewItem.status == "open",
+                    JournalLine.partner_id == partner_id,
+                )
+            )
+        ).all()
+        for review in reviews:
+            await self._session.delete(review)
+
+    async def _get_manual_service_assignment_review(self, journal_line_id: UUID) -> ReviewItem | None:
+        return (
+            await self._session.exec(
+                select(ReviewItem).where(
+                    ReviewItem.item_type == "manual_service_assignment",
+                    ReviewItem.journal_line_id == journal_line_id,
+                    ReviewItem.status == "open",
+                )
+            )
+        ).first()
+
+    async def _upsert_manual_service_assignment_review(
+        self,
+        mandant_id: UUID,
+        journal_line_id: UUID,
+    ) -> None:
+        review = await self._get_manual_service_assignment_review(journal_line_id)
+        if review is not None:
+            return  # already open, no action needed
+        review = ReviewItem(
+            mandant_id=mandant_id,
+            item_type="manual_service_assignment",
+            journal_line_id=journal_line_id,
+            context={},
+            status="open",
+            created_at=_utcnow(),
+            updated_at=_utcnow(),
+        )
+        self._session.add(review)
+
+    async def _clear_manual_service_assignment_review(self, journal_line_id: UUID | None) -> None:
+        if journal_line_id is None:
+            return
+        review = await self._get_manual_service_assignment_review(journal_line_id)
+        if review is None:
+            return
+        await self._session.delete(review)
 
     async def _clear_service_assignment_review(self, journal_line_id: UUID | None) -> None:
         if journal_line_id is None:

@@ -240,6 +240,11 @@ class ReviewService:
                 raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="service_type is required for service type reviews")
             return await self._adjust_service_type_review(item, mandant_id, actor_id, body.service_type, body.tax_rate, body.erfolgsneutral)
 
+        if item.item_type == "manual_service_assignment":
+            if body.service_id is None:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="service_id is required for manual service assignment reviews")
+            return await self._adjust_manual_service_assignment(item, mandant_id, actor_id, body.service_id)
+
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Adjust is not supported for this review item type")
 
     async def reject(self, item_id: UUID, mandant_id: UUID, actor_id: UUID) -> ReviewItem:
@@ -486,6 +491,48 @@ class ReviewService:
                     "item_type": item.item_type,
                     "journal_line_id": str(journal_line.id),
                     "old_service_id": str(previous_service_id) if previous_service_id else None,
+                    "new_service_id": str(service_id),
+                },
+            )
+        )
+
+        await self._session.commit()
+        await self._session.refresh(item)
+        return item
+
+    async def _adjust_manual_service_assignment(
+        self,
+        item: ReviewItem,
+        mandant_id: UUID,
+        actor_id: UUID,
+        service_id: UUID,
+    ) -> ReviewItem:
+        if item.journal_line_id is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found")
+
+        journal_line = await self._session.get(JournalLine, item.journal_line_id)
+        if journal_line is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found")
+
+        item.status = "adjusted"
+        item.resolved_by = actor_id
+        item.resolved_at = utcnow()
+        item.updated_at = utcnow()
+        self._session.add(item)
+        await self._session.flush()
+
+        service_svc = ServiceManagementService(self._session)
+        await service_svc.manually_assign_journal_line(mandant_id, journal_line, service_id)
+
+        self._session.add(
+            AuditLog(
+                mandant_id=mandant_id,
+                event_type="review.adjusted",
+                actor_id=actor_id,
+                payload={
+                    "item_id": str(item.id),
+                    "item_type": item.item_type,
+                    "journal_line_id": str(journal_line.id),
                     "new_service_id": str(service_id),
                 },
             )

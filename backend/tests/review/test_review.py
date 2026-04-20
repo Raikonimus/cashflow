@@ -1226,3 +1226,227 @@ class TestReviewArchive:
             headers=_auth(token),
         )
         assert resp.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# manual_service_assignment review items
+# ---------------------------------------------------------------------------
+
+async def _create_partner_with_base_service(
+    session: AsyncSession, mandant_id, name: str, *, manual_assignment: bool = False
+) -> tuple["Partner", "Service"]:
+    from app.services.service import ensure_base_service
+    partner = await create_partner_db(session, mandant_id, name)
+    partner.manual_assignment = manual_assignment
+    session.add(partner)
+    await session.flush()
+    base = await ensure_base_service(session, partner.id)
+    await session.commit()
+    await session.refresh(partner)
+    await session.refresh(base)
+    return partner, base
+
+
+async def _add_journal_line_on_service(
+    session: AsyncSession, partner_id, service_id, text: str = "Test"
+) -> JournalLine:
+    line = JournalLine(
+        id=uuid4(),
+        account_id=uuid4(),
+        import_run_id=uuid4(),
+        partner_id=partner_id,
+        service_id=service_id,
+        service_assignment_mode="auto",
+        valuta_date="2026-03-01",
+        booking_date="2026-03-01",
+        amount=Decimal("-99.00"),
+        currency="EUR",
+        text=text,
+        created_at=utcnow(),
+    )
+    session.add(line)
+    await session.commit()
+    await session.refresh(line)
+    return line
+
+
+class TestManualServiceAssignmentReview:
+    async def test_adjust_assigns_service_and_archives_item(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Adjusting a manual_service_assignment item with a service_id assigns the
+        journal line to that service and moves the review item to the archive."""
+        user = await create_user(db_session, "msa-adjust@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+
+        partner, base_service = await _create_partner_with_base_service(
+            db_session, mandant.id, "Test GmbH", manual_assignment=True
+        )
+        line = await _add_journal_line_on_service(db_session, partner.id, base_service.id)
+
+        # Create manual_service_assignment review item
+        item = ReviewItem(
+            mandant_id=mandant.id,
+            item_type="manual_service_assignment",
+            journal_line_id=line.id,
+            context={},
+            status="open",
+            created_at=utcnow(),
+            updated_at=utcnow(),
+        )
+        db_session.add(item)
+
+        # Create a non-base service to assign to
+        other_service = Service(
+            partner_id=partner.id,
+            name="Hosting",
+            service_type=ServiceType.supplier.value,
+            tax_rate=Decimal("20.00"),
+            is_base_service=False,
+            service_type_manual=True,
+            tax_rate_manual=True,
+            created_at=utcnow(),
+            updated_at=utcnow(),
+        )
+        db_session.add(other_service)
+        await db_session.commit()
+        await db_session.refresh(item)
+        await db_session.refresh(other_service)
+
+        resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/review/{item.id}/adjust",
+            headers=_auth(token),
+            json={"service_id": str(other_service.id)},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "adjusted"
+
+        # Journal line should now point to other_service
+        await db_session.refresh(line)
+        assert str(line.service_id) == str(other_service.id)
+        assert line.service_assignment_mode == "manual"
+
+    async def test_adjust_requires_service_id(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Adjusting without service_id returns 422."""
+        user = await create_user(db_session, "msa-no-svc@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+
+        partner, base_service = await _create_partner_with_base_service(
+            db_session, mandant.id, "Test GmbH 2", manual_assignment=True
+        )
+        line = await _add_journal_line_on_service(db_session, partner.id, base_service.id)
+
+        item = ReviewItem(
+            mandant_id=mandant.id,
+            item_type="manual_service_assignment",
+            journal_line_id=line.id,
+            context={},
+            status="open",
+            created_at=utcnow(),
+            updated_at=utcnow(),
+        )
+        db_session.add(item)
+        await db_session.commit()
+        await db_session.refresh(item)
+
+        resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/review/{item.id}/adjust",
+            headers=_auth(token),
+            json={"service_type": "supplier"},
+        )
+        assert resp.status_code == 422
+
+    async def test_setting_manual_assignment_true_creates_review_items(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """When manual_assignment is set to True via PATCH /partners/:id,
+        review items are created for all lines currently on the base service."""
+        user = await create_user(db_session, "msa-flip-true@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+
+        partner, base_service = await _create_partner_with_base_service(
+            db_session, mandant.id, "Trigger GmbH", manual_assignment=False
+        )
+        line1 = await _add_journal_line_on_service(db_session, partner.id, base_service.id, "Buchung 1")
+        line2 = await _add_journal_line_on_service(db_session, partner.id, base_service.id, "Buchung 2")
+
+        # Confirm no review items yet
+        existing = (
+            await db_session.exec(
+                select(ReviewItem).where(ReviewItem.item_type == "manual_service_assignment")
+            )
+        ).all()
+        assert len(existing) == 0
+
+        resp = await client.patch(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner.id}",
+            headers=_auth(token),
+            json={"manual_assignment": True},
+        )
+        assert resp.status_code == 200
+
+        created = (
+            await db_session.exec(
+                select(ReviewItem).where(
+                    ReviewItem.item_type == "manual_service_assignment",
+                    ReviewItem.status == "open",
+                    ReviewItem.mandant_id == mandant.id,
+                )
+            )
+        ).all()
+        line_ids = {str(r.journal_line_id) for r in created}
+        assert str(line1.id) in line_ids
+        assert str(line2.id) in line_ids
+
+    async def test_setting_manual_assignment_false_deletes_review_items(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """When manual_assignment is set to False, all open manual_service_assignment
+        review items for the partner are deleted."""
+        user = await create_user(db_session, "msa-flip-false@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+
+        partner, base_service = await _create_partner_with_base_service(
+            db_session, mandant.id, "Flip False GmbH", manual_assignment=True
+        )
+        line = await _add_journal_line_on_service(db_session, partner.id, base_service.id)
+
+        item = ReviewItem(
+            mandant_id=mandant.id,
+            item_type="manual_service_assignment",
+            journal_line_id=line.id,
+            context={},
+            status="open",
+            created_at=utcnow(),
+            updated_at=utcnow(),
+        )
+        db_session.add(item)
+        await db_session.commit()
+
+        resp = await client.patch(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner.id}",
+            headers=_auth(token),
+            json={"manual_assignment": False},
+        )
+        assert resp.status_code == 200
+
+        remaining = (
+            await db_session.exec(
+                select(ReviewItem).where(
+                    ReviewItem.item_type == "manual_service_assignment",
+                    ReviewItem.status == "open",
+                )
+            )
+        ).all()
+        assert len(remaining) == 0

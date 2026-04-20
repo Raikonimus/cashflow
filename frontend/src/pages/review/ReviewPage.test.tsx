@@ -268,3 +268,132 @@ describe('ReviewPage', () => {
     await waitFor(() => expect(screen.getByText(/keine einträge/i)).toBeTruthy())
   })
 })
+
+const MANUAL_SERVICE_ITEM = {
+  id: 'item-msa',
+  mandant_id: MANDANT_ID,
+  item_type: 'manual_service_assignment',
+  journal_line_id: 'line-msa',
+  service_id: null,
+  context: {},
+  status: 'open',
+  created_at: '2026-04-01T00:00:00Z',
+  updated_at: '2026-04-01T00:00:00Z',
+  resolved_by: null,
+  resolved_at: null,
+  journal_line: {
+    id: 'line-msa',
+    partner_id: 'partner-msa',
+    partner_name: 'Oesterreich Werbung',
+    partner_name_raw: 'OEWT',
+    service_id: 'service-base-msa',
+    service_assignment_mode: 'auto',
+    valuta_date: '2026-04-01',
+    booking_date: '2026-04-01',
+    amount: '-150.00',
+    currency: 'EUR',
+    text: 'Mitgliedsbeitrag April',
+    partner_iban_raw: null,
+  },
+  service: null,
+  assigned_journal_lines: [],
+}
+
+const PARTNER_MSA_SERVICES = [
+  {
+    id: 'service-base-msa',
+    partner_id: 'partner-msa',
+    name: 'Basisbeitrag',
+    service_type: 'membership',
+    tax_rate: '0.00',
+    valid_from: null,
+    valid_to: null,
+    service_type_manual: false,
+    tax_rate_manual: false,
+    is_base_service: true,
+  },
+  {
+    id: 'service-silver',
+    partner_id: 'partner-msa',
+    name: 'Silber-Mitgliedschaft',
+    service_type: 'membership',
+    tax_rate: '0.00',
+    valid_from: null,
+    valid_to: null,
+    service_type_manual: false,
+    tax_rate_manual: false,
+    is_base_service: false,
+  },
+  {
+    id: 'service-gold',
+    partner_id: 'partner-msa',
+    name: 'Gold-Mitgliedschaft',
+    service_type: 'membership',
+    tax_rate: '0.00',
+    valid_from: null,
+    valid_to: null,
+    service_type_manual: false,
+    tax_rate_manual: false,
+    is_base_service: false,
+  },
+]
+
+describe('ReviewPage – manual_service_assignment', () => {
+  it('renders item with correct badge and partner name', async () => {
+    setupUser()
+    server.use(
+      http.get(`/api/v1/mandants/${MANDANT_ID}/review`, () =>
+        HttpResponse.json({ items: [MANUAL_SERVICE_ITEM], total: 1, page: 1, size: 100, pages: 1 }),
+      ),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/partner-msa/services`, () =>
+        HttpResponse.json(PARTNER_MSA_SERVICES),
+      ),
+    )
+    await act(async () => { renderPage() })
+    await waitFor(() => expect(screen.getByText('Manuelle Leistungszuordnung')).toBeTruthy())
+    expect(screen.getAllByText('Oesterreich Werbung').length).toBeGreaterThan(0)
+  })
+
+  it('shows non-base services in inline grid and hides confirm/reject buttons', async () => {
+    setupUser()
+    server.use(
+      http.get(`/api/v1/mandants/${MANDANT_ID}/review`, () =>
+        HttpResponse.json({ items: [MANUAL_SERVICE_ITEM], total: 1, page: 1, size: 100, pages: 1 }),
+      ),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/partner-msa/services`, () =>
+        HttpResponse.json(PARTNER_MSA_SERVICES),
+      ),
+    )
+    await act(async () => { renderPage() })
+    await waitFor(() => expect(screen.getByText('Silber-Mitgliedschaft')).toBeTruthy())
+    expect(screen.getByText('Gold-Mitgliedschaft')).toBeTruthy()
+    // Base service must NOT appear in the grid
+    expect(screen.queryByText('Basisbeitrag')).toBeNull()
+    // Confirm / Reject buttons must not appear
+    expect(screen.queryByText(/^Bestätigen$/i)).toBeNull()
+    expect(screen.queryByText(/^Ablehnen$/i)).toBeNull()
+  })
+
+  it('calls adjust endpoint with service_id when a service is clicked', async () => {
+    setupUser()
+    let adjustBody: unknown = null
+    server.use(
+      http.get(`/api/v1/mandants/${MANDANT_ID}/review`, () =>
+        HttpResponse.json({ items: [MANUAL_SERVICE_ITEM], total: 1, page: 1, size: 100, pages: 1 }),
+      ),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/partner-msa/services`, () =>
+        HttpResponse.json(PARTNER_MSA_SERVICES),
+      ),
+      http.post(`/api/v1/mandants/${MANDANT_ID}/review/item-msa/adjust`, async ({ request }) => {
+        adjustBody = await request.json()
+        return HttpResponse.json({ ...MANUAL_SERVICE_ITEM, status: 'adjusted' })
+      }),
+    )
+    await act(async () => { renderPage() })
+    await waitFor(() => expect(screen.getByText('Silber-Mitgliedschaft')).toBeTruthy())
+    await act(async () => {
+      fireEvent.click(screen.getByText('Silber-Mitgliedschaft'))
+    })
+    await waitFor(() => expect(adjustBody).toMatchObject({ service_id: 'service-silver' }))
+  })
+})
