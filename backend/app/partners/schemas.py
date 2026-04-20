@@ -13,6 +13,7 @@ from app.services.models import ServiceType
 class CreatePartnerRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     iban: Optional[str] = Field(default=None, max_length=34)
+    manual_assignment: bool = False
 
 
 class PartnerIbanResponse(BaseModel):
@@ -46,6 +47,7 @@ class PartnerListItem(BaseModel):
     name: str
     display_name: str | None = None
     is_active: bool
+    manual_assignment: bool = False
     service_types: list[ServiceType] = Field(default_factory=list)
     iban_count: int
     name_count: int
@@ -61,6 +63,7 @@ class PartnerDetailResponse(BaseModel):
     name: str
     display_name: str | None = None
     is_active: bool
+    manual_assignment: bool = False
     ibans: list[PartnerIbanResponse]
     accounts: list[PartnerAccountResponse]
     names: list[PartnerNameResponse]
@@ -94,6 +97,7 @@ class PartnerNeighborsResponse(BaseModel):
 
 class UpdatePartnerRequest(BaseModel):
     display_name: str | None = None  # leer/None löscht den Anzeigenamen
+    manual_assignment: bool | None = None
 
 
 class AddIbanRequest(BaseModel):

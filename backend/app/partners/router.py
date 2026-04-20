@@ -81,7 +81,7 @@ async def create_partner(
     _access: None = Depends(require_mandant_access),
     svc: PartnerService = Depends(_partner_svc),
 ) -> PartnerDetailResponse:
-    partner = await svc.create_partner(mandant_id, name=body.name, iban=body.iban)
+    partner = await svc.create_partner(mandant_id, name=body.name, iban=body.iban, manual_assignment=body.manual_assignment)
     return await svc.get_partner_detail(partner.id, mandant_id)
 
 
@@ -105,7 +105,7 @@ async def update_partner(
     _access: None = Depends(require_mandant_access),
     svc: PartnerService = Depends(_partner_svc),
 ) -> PartnerDetailResponse:
-    return await svc.update_display_name(partner_id, mandant_id, body.display_name)
+    return await svc.update_display_name(partner_id, mandant_id, body)
 
 
 @partners_router.delete("/{mandant_id}/partners/{partner_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -5,9 +5,11 @@ import { Link } from 'react-router-dom'
 import {
   runPartnerAssignmentTest,
   runServiceAmountConsistencyTest,
+  setServiceAmountConsistencyLineStatus,
 } from '@/api/testing'
 import type {
   AssignmentMismatchItem,
+  AssignmentTestJournalLine,
   ServiceAmountConsistencyItem,
 } from '@/api/testing'
 import { useAuthStore } from '@/store/auth-store'
@@ -98,7 +100,19 @@ function InfoTile({ title, value }: Readonly<{ title: string; value: string }>) 
   )
 }
 
-function ServiceAmountConsistencyCard({ item }: Readonly<{ item: ServiceAmountConsistencyItem }>) {
+type ServiceAmountConsistencyCardProps = {
+  item: ServiceAmountConsistencyItem
+  isUpdatingLineId: string | null
+  onToggleLineStatus: (line: AssignmentTestJournalLine) => void
+}
+
+function ServiceAmountConsistencyCard({
+  item,
+  isUpdatingLineId,
+  onToggleLineStatus,
+}: Readonly<ServiceAmountConsistencyCardProps>) {
+  const ignoredLineCount = item.lines.filter((line) => line.service_amount_consistency_ok).length
+
   return (
     <article className="rounded-xl border border-rose-200 bg-rose-50/40 p-4 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -108,6 +122,11 @@ function ServiceAmountConsistencyCard({ item }: Readonly<{ item: ServiceAmountCo
           <p className="mt-1 text-xs text-slate-600">
             Eingänge: {item.positive_line_count} {' · '} Ausgänge: {item.negative_line_count}
           </p>
+          {ignoredLineCount > 0 ? (
+            <p className="mt-1 text-xs font-medium text-emerald-700">
+              {ignoredLineCount} Buchung{ignoredLineCount === 1 ? '' : 'en'} ist als in Ordnung markiert und wird im Test ignoriert.
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-col items-end gap-2">
           {item.partner_id ? (
@@ -130,17 +149,53 @@ function ServiceAmountConsistencyCard({ item }: Readonly<{ item: ServiceAmountCo
         </summary>
         <div className="mt-3 space-y-2">
           {item.lines.map((line) => (
-            <div key={line.id} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
+            <div
+              key={line.id}
+              className={[
+                'rounded-lg border px-3 py-3',
+                line.service_amount_consistency_ok
+                  ? 'border-emerald-200 bg-emerald-50/80'
+                  : 'border-slate-200 bg-slate-50',
+              ].join(' ')}
+            >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{line.booking_date}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{line.booking_date}</p>
+                    {line.service_amount_consistency_ok ? (
+                      <span className="rounded-full border border-emerald-300 bg-white px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                        Ist in Ordnung
+                      </span>
+                    ) : null}
+                  </div>
                   <p className="mt-1 text-sm text-slate-700">{line.text ?? '—'}</p>
+                  {line.service_amount_consistency_ok ? (
+                    <p className="mt-1 text-xs text-emerald-700">Diese Buchungszeile wird bei Test 2 ignoriert.</p>
+                  ) : null}
                 </div>
                 <div className="text-right">
                   <p className={`text-sm font-semibold ${getAmountToneClass(line.amount)}`}>{formatAmount(line.amount, line.currency)}</p>
                   <p className="mt-1 text-xs text-slate-500">
                     Rohdaten: {line.partner_name_raw ?? '—'} / {line.partner_account_raw ?? '—'}
                   </p>
+                  <button
+                    type="button"
+                    onClick={() => onToggleLineStatus(line)}
+                    disabled={isUpdatingLineId === line.id}
+                    className={[
+                      'mt-2 rounded-lg border px-3 py-2 text-xs font-semibold',
+                      line.service_amount_consistency_ok
+                        ? 'border-emerald-300 bg-white text-emerald-700 hover:border-emerald-400 hover:text-emerald-800'
+                        : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400 hover:text-slate-900',
+                      isUpdatingLineId === line.id ? 'cursor-not-allowed opacity-50' : '',
+                    ].join(' ')}
+                  >
+                    {isUpdatingLineId === line.id
+                      ? 'Speichert…'
+                      : line.service_amount_consistency_ok
+                        ? 'Markierung entfernen'
+                        : 'Als in Ordnung markieren'}
+                  </button>
                 </div>
               </div>
             </div>
@@ -198,6 +253,16 @@ export function TestingPage() {
 
   const serviceAmountMutation = useMutation({
     mutationFn: () => runServiceAmountConsistencyTest(mandantId),
+  })
+
+  const serviceAmountLineStatusMutation = useMutation({
+    mutationFn: ({ lineId, isOk }: { lineId: string; isOk: boolean }) =>
+      setServiceAmountConsistencyLineStatus(mandantId, lineId, isOk),
+    onSuccess: () => {
+      if (mandantId) {
+        serviceAmountMutation.mutate()
+      }
+    },
   })
 
   const isPending = selectedTest.id === 'partner-assignment'
@@ -330,7 +395,17 @@ export function TestingPage() {
           <MismatchCard key={item.journal_line.id} item={item} />
         ))}
         {selectedTest.id === 'service-link-consistency' && serviceAmountMutation.data?.inconsistent_services.map((item) => (
-          <ServiceAmountConsistencyCard key={item.service_id} item={item} />
+          <ServiceAmountConsistencyCard
+            key={item.service_id}
+            item={item}
+            isUpdatingLineId={serviceAmountLineStatusMutation.isPending ? serviceAmountLineStatusMutation.variables?.lineId ?? null : null}
+            onToggleLineStatus={(line) => {
+              serviceAmountLineStatusMutation.mutate({
+                lineId: line.id,
+                isOk: !line.service_amount_consistency_ok,
+              })
+            }}
+          />
         ))}
       </div>
     </div>

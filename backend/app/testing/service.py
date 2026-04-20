@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 import sqlalchemy as sa
+from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -15,6 +16,7 @@ from app.testing.schemas import (
     AssignmentTestJournalLine,
     PartnerAssignmentTestResponse,
     ServiceAmountConsistencyItem,
+    ServiceAmountConsistencyLineStatusResponse,
     ServiceAmountConsistencyTestResponse,
 )
 
@@ -37,6 +39,40 @@ class ExpectedAssignment:
 class TestingService:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def set_service_amount_consistency_ok(
+        self,
+        mandant_id: UUID,
+        line_id: UUID,
+        *,
+        is_ok: bool,
+    ) -> ServiceAmountConsistencyLineStatusResponse:
+        line = (
+            await self._session.exec(
+                select(JournalLine)
+                .join(Account, Account.id == JournalLine.account_id)  # type: ignore[arg-type]
+                .where(
+                    JournalLine.id == line_id,
+                    Account.mandant_id == mandant_id,
+                )
+            )
+        ).first()
+
+        if line is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Journal line not found",
+            )
+
+        line.service_amount_consistency_ok = is_ok
+        self._session.add(line)
+        await self._session.commit()
+        await self._session.refresh(line)
+
+        return ServiceAmountConsistencyLineStatusResponse(
+            journal_line_id=line.id,
+            service_amount_consistency_ok=line.service_amount_consistency_ok,
+        )
 
     async def run_service_amount_consistency_test(
         self,
@@ -95,8 +131,11 @@ class TestingService:
 
         inconsistent_services: list[ServiceAmountConsistencyItem] = []
         for service_id, service_lines in lines_by_service.items():
-            positive_count = sum(1 for line in service_lines if line.amount > 0)
-            negative_count = sum(1 for line in service_lines if line.amount < 0)
+            relevant_lines = [
+                line for line in service_lines if not line.service_amount_consistency_ok
+            ]
+            positive_count = sum(1 for line in relevant_lines if line.amount > 0)
+            negative_count = sum(1 for line in relevant_lines if line.amount < 0)
             if positive_count == 0 or negative_count == 0:
                 continue
 

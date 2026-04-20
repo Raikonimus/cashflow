@@ -7,6 +7,7 @@ export interface AssignmentTestJournalLine {
   partner_id: string | null
   service_id: string | null
   service_assignment_mode: string | null
+  service_amount_consistency_ok: boolean
   valuta_date: string
   booking_date: string
   amount: string
@@ -54,6 +55,11 @@ export interface ServiceAmountConsistencyTestResponse {
   inconsistent_services: ServiceAmountConsistencyItem[]
 }
 
+export interface ServiceAmountConsistencyLineStatusResponse {
+  journal_line_id: string
+  service_amount_consistency_ok: boolean
+}
+
 export async function runPartnerAssignmentTest(
   mandantId: string,
 ): Promise<PartnerAssignmentTestResponse> {
@@ -68,6 +74,18 @@ export async function runServiceAmountConsistencyTest(
 ): Promise<ServiceAmountConsistencyTestResponse> {
   const resp = await apiClient.post<ServiceAmountConsistencyTestResponse>(
     `/mandants/${mandantId}/settings/tests/service-amount-consistency`,
+  )
+  return resp.data
+}
+
+export async function setServiceAmountConsistencyLineStatus(
+  mandantId: string,
+  lineId: string,
+  isOk: boolean,
+): Promise<ServiceAmountConsistencyLineStatusResponse> {
+  const resp = await apiClient.post<ServiceAmountConsistencyLineStatusResponse>(
+    `/mandants/${mandantId}/settings/tests/service-amount-consistency/lines/${lineId}/ok`,
+    { is_ok: isOk },
   )
   return resp.data
 }

@@ -31,6 +31,7 @@ from app.partners.schemas import (
     PartnerNameResponse,
     PartnerNeighborsResponse,
     PaginatedPartnersResponse,
+    UpdatePartnerRequest,
 )
 from app.services.models import Service, ServiceType
 from app.services.service import ServiceManagementService
@@ -237,6 +238,7 @@ class PartnerService:
             name=partner.name,
             display_name=partner.display_name,
             is_active=partner.is_active,
+            manual_assignment=partner.manual_assignment,
             ibans=[PartnerIbanResponse.model_validate(i) for i in ibans_result.all()],
             accounts=[PartnerAccountResponse.model_validate(a) for a in accounts_result.all()],
             names=[PartnerNameResponse.model_validate(n) for n in names_result.all()],
@@ -255,11 +257,14 @@ class PartnerService:
         await self._session.commit()
 
     async def update_display_name(
-        self, partner_id: UUID, mandant_id: UUID, display_name: str | None
+        self, partner_id: UUID, mandant_id: UUID, body: UpdatePartnerRequest
     ) -> PartnerDetailResponse:
         partner = await self.get_partner(partner_id, mandant_id)
-        # Normalize empty string to None
-        partner.display_name = display_name.strip() or None if display_name else None
+        if "display_name" in body.model_fields_set:
+            dn = body.display_name
+            partner.display_name = dn.strip() or None if dn else None
+        if body.manual_assignment is not None:
+            partner.manual_assignment = body.manual_assignment
         partner.updated_at = _utcnow()
         self._session.add(partner)
         await self._session.commit()
@@ -267,7 +272,7 @@ class PartnerService:
         return await self.get_partner_detail(partner_id, mandant_id)
 
     async def create_partner(
-        self, mandant_id: UUID, name: str = "", iban: str | None = None
+        self, mandant_id: UUID, name: str = "", iban: str | None = None, manual_assignment: bool = False
     ) -> Partner:
         # Uniqueness: name within mandant
         existing = await self._session.exec(
@@ -280,7 +285,7 @@ class PartnerService:
             )
 
         now = _utcnow()
-        partner = Partner(mandant_id=mandant_id, name=name, created_at=now, updated_at=now)
+        partner = Partner(mandant_id=mandant_id, name=name, manual_assignment=manual_assignment, created_at=now, updated_at=now)
         self._session.add(partner)
         await self._session.flush()  # get ID before creating IBAN
 

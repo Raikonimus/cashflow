@@ -12,6 +12,7 @@ class AssignmentTestJournalLine(BaseModel):
     partner_id: UUID | None
     service_id: UUID | None
     service_assignment_mode: str | None
+    service_amount_consistency_ok: bool
     valuta_date: str
     booking_date: str
     amount: Decimal
@@ -59,3 +60,12 @@ class ServiceAmountConsistencyItem(BaseModel):
 class ServiceAmountConsistencyTestResponse(BaseModel):
     total_checked_services: int
     inconsistent_services: list[ServiceAmountConsistencyItem]
+
+
+class ServiceAmountConsistencyLineStatusUpdateRequest(BaseModel):
+    is_ok: bool
+
+
+class ServiceAmountConsistencyLineStatusResponse(BaseModel):
+    journal_line_id: UUID
+    service_amount_consistency_ok: bool

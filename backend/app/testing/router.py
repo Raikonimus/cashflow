@@ -6,7 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import require_mandant_access, require_role
 from app.core.database import get_session
-from app.testing.schemas import PartnerAssignmentTestResponse, ServiceAmountConsistencyTestResponse
+from app.testing.schemas import (
+    PartnerAssignmentTestResponse,
+    ServiceAmountConsistencyLineStatusResponse,
+    ServiceAmountConsistencyLineStatusUpdateRequest,
+    ServiceAmountConsistencyTestResponse,
+)
 from app.testing.service import TestingService
 
 
@@ -40,3 +45,16 @@ async def run_service_amount_consistency_test(
     svc: TestingServiceDep,
 ) -> ServiceAmountConsistencyTestResponse:
     return await svc.run_service_amount_consistency_test(mandant_id)
+
+
+@testing_router.post(
+    "/{mandant_id}/settings/tests/service-amount-consistency/lines/{line_id}/ok",
+    dependencies=[Depends(require_role("accountant")), Depends(require_mandant_access)],
+)
+async def set_service_amount_consistency_ok(
+    mandant_id: UUID,
+    line_id: UUID,
+    body: ServiceAmountConsistencyLineStatusUpdateRequest,
+    svc: TestingServiceDep,
+) -> ServiceAmountConsistencyLineStatusResponse:
+    return await svc.set_service_amount_consistency_ok(mandant_id, line_id, is_ok=body.is_ok)

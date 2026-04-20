@@ -981,6 +981,266 @@ describe('IncomeExpensePage', () => {
     expect(screen.getByRole('button', { name: 'Folgejahr ▶' })).toBeEnabled()
   })
 
+  it('shows a multi-year overview and allows switching back to the year view', async () => {
+    setup('viewer')
+
+    const requestedYears: number[] = []
+
+    server.use(
+      http.get(`/api/v1/mandants/${MANDANT_ID}/journal/years`, () => HttpResponse.json({ years: [2024, 2025, 2026] })),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/reports/income-expense`, ({ request }) => {
+        const requestUrl = new URL(request.url)
+        const requestedYear = Number(requestUrl.searchParams.get('year') ?? '2026')
+        requestedYears.push(requestedYear)
+
+        return HttpResponse.json({
+          year: requestedYear,
+          base_currency: 'EUR',
+          sections: {
+            income: {
+              currency: 'EUR',
+              excluded_currency_count: 0,
+              excluded_currency_amount_gross: '0.00',
+              groups: [
+                {
+                  group_id: 'group-growth',
+                  group_name: 'Wachstum',
+                  sort_order: 1,
+                  collapsed: false,
+                  assigned_service_count: 1,
+                  active_years: [2024, 2025, 2026],
+                  subtotal_cells: makeCells(String((requestedYear - 2023) * 100)),
+                  services: [
+                    {
+                      service_id: 'service-growth',
+                      service_name: 'Jahresabo',
+                      partner_name: 'Beispiel GmbH',
+                      service_type: 'customer',
+                      erfolgsneutral: false,
+                      cells: makeCells(String((requestedYear - 2023) * 100)),
+                    },
+                  ],
+                },
+              ],
+              totals: makeCells(String((requestedYear - 2023) * 100)),
+            },
+            expense: {
+              currency: 'EUR',
+              excluded_currency_count: 0,
+              excluded_currency_amount_gross: '0.00',
+              groups: [],
+              totals: makeCells('0.00'),
+            },
+            neutral: {
+              currency: 'EUR',
+              excluded_currency_count: 0,
+              excluded_currency_amount_gross: '0.00',
+              groups: [],
+              totals: makeCells('0.00'),
+            },
+          },
+        })
+      }),
+    )
+
+    await act(async () => {
+      renderPage()
+    })
+
+    await waitFor(() => expect(screen.getByText('Beispiel GmbH / Jahresabo')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mehrjahresübersicht' }))
+
+    await waitFor(() => expect(screen.getByText('Mehrjahresübersicht')).toBeInTheDocument())
+    await waitFor(() => expect(new Set(requestedYears)).toEqual(new Set([2024, 2025, 2026])))
+    expect(screen.getAllByText('2024').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('2025').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('2026').length).toBeGreaterThan(0)
+    expect(screen.getByText('Wachstum')).toBeInTheDocument()
+    expect(screen.getByText('Beispiel GmbH / Jahresabo')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Zur Jahresansicht' }))
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Mehrjahresübersicht' })).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: '◀ Vorjahr' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Folgejahr ▶' })).toBeDisabled()
+  })
+
+  it('supports drag and drop in the multi-year overview', async () => {
+    setup('accountant')
+
+    const incomeGroupsByYear = new Map<number, Array<Record<string, unknown>>>([
+      [2025, [
+        {
+          group_id: 'group-source',
+          group_name: 'Quelle',
+          sort_order: 1,
+          collapsed: false,
+          assigned_service_count: 1,
+          active_years: [2025, 2026],
+          subtotal_cells: makeCells('100.00'),
+          services: [
+            {
+              service_id: 'service-move',
+              service_name: 'Mehrjahr',
+              partner_name: 'Alpha GmbH',
+              service_type: 'customer',
+              erfolgsneutral: false,
+              cells: makeCells('100.00'),
+            },
+          ],
+        },
+        {
+          group_id: 'group-target',
+          group_name: 'Ziel',
+          sort_order: 2,
+          collapsed: false,
+          assigned_service_count: 0,
+          active_years: [2025, 2026],
+          subtotal_cells: makeCells('0.00'),
+          services: [],
+        },
+      ]],
+      [2026, [
+        {
+          group_id: 'group-source',
+          group_name: 'Quelle',
+          sort_order: 1,
+          collapsed: false,
+          assigned_service_count: 1,
+          active_years: [2025, 2026],
+          subtotal_cells: makeCells('200.00'),
+          services: [
+            {
+              service_id: 'service-move',
+              service_name: 'Mehrjahr',
+              partner_name: 'Alpha GmbH',
+              service_type: 'customer',
+              erfolgsneutral: false,
+              cells: makeCells('200.00'),
+            },
+          ],
+        },
+        {
+          group_id: 'group-target',
+          group_name: 'Ziel',
+          sort_order: 2,
+          collapsed: false,
+          assigned_service_count: 0,
+          active_years: [2025, 2026],
+          subtotal_cells: makeCells('0.00'),
+          services: [],
+        },
+      ]],
+    ])
+    const assignmentRequests: Array<{ serviceId: string; groupId: string }> = []
+
+    function buildResponseForYear(year: number) {
+      return {
+        year,
+        base_currency: 'EUR',
+        sections: {
+          income: {
+            currency: 'EUR',
+            excluded_currency_count: 0,
+            excluded_currency_amount_gross: '0.00',
+            groups: incomeGroupsByYear.get(year) ?? [],
+            totals: makeCells(year === 2025 ? '100.00' : '200.00'),
+          },
+          expense: {
+            currency: 'EUR',
+            excluded_currency_count: 0,
+            excluded_currency_amount_gross: '0.00',
+            groups: [],
+            totals: makeCells('0.00'),
+          },
+          neutral: {
+            currency: 'EUR',
+            excluded_currency_count: 0,
+            excluded_currency_amount_gross: '0.00',
+            groups: [],
+            totals: makeCells('0.00'),
+          },
+        },
+      }
+    }
+
+    server.use(
+      http.get(`/api/v1/mandants/${MANDANT_ID}/journal/years`, () => HttpResponse.json({ years: [2025, 2026] })),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/reports/income-expense`, ({ request }) => {
+        const requestUrl = new URL(request.url)
+        const requestedYear = Number(requestUrl.searchParams.get('year') ?? '2026')
+        return HttpResponse.json(buildResponseForYear(requestedYear))
+      }),
+      http.post(`/api/v1/mandants/${MANDANT_ID}/services/:serviceId/group-assignment`, async ({ params, request }) => {
+        const payload = await request.json() as { service_group_id: string }
+        assignmentRequests.push({ serviceId: String(params.serviceId), groupId: payload.service_group_id })
+
+        for (const groups of incomeGroupsByYear.values()) {
+          const sourceGroup = groups.find((group) => Array.isArray(group.services) && group.services.some((service) => service.service_id === params.serviceId))
+          const targetGroup = groups.find((group) => group.group_id === payload.service_group_id)
+          if (!sourceGroup || !targetGroup || !Array.isArray(sourceGroup.services) || !Array.isArray(targetGroup.services)) {
+            continue
+          }
+
+          const serviceIndex = sourceGroup.services.findIndex((service) => service.service_id === params.serviceId)
+          const [service] = sourceGroup.services.splice(serviceIndex, 1)
+          if (!service) {
+            continue
+          }
+          targetGroup.services.push(service)
+          sourceGroup.assigned_service_count = sourceGroup.services.length
+          targetGroup.assigned_service_count = targetGroup.services.length
+          sourceGroup.subtotal_cells = makeCells('0.00')
+          targetGroup.subtotal_cells = makeCells(service.cells.year_total.net)
+        }
+
+        return HttpResponse.json({
+          id: 'assignment-multi',
+          mandant_id: MANDANT_ID,
+          service_id: String(params.serviceId),
+          service_group_id: payload.service_group_id,
+          created_at: '2026-04-19T00:00:00Z',
+          updated_at: '2026-04-19T00:00:00Z',
+        })
+      }),
+    )
+
+    await act(async () => {
+      renderPage()
+    })
+
+    await waitFor(() => expect(screen.getByText('Alpha GmbH / Mehrjahr')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mehrjahresübersicht' }))
+
+    await waitFor(() => expect(screen.getByText('Ziel')).toBeInTheDocument())
+
+    const sourceRow = screen.getByText('Alpha GmbH / Mehrjahr').closest('tr')
+    const targetRow = screen.getByText('Ziel').closest('tr')
+    if (!sourceRow) {
+      throw new Error('Source row for multi-year service move not found')
+    }
+    if (!targetRow) {
+      throw new Error('Target row for multi-year service move not found')
+    }
+
+    const dataTransfer = createDataTransfer()
+    fireEvent.dragStart(sourceRow, { dataTransfer })
+    fireEvent.dragOver(targetRow, { dataTransfer })
+    fireEvent.drop(targetRow, { dataTransfer })
+
+    await waitFor(() => expect(assignmentRequests).toContainEqual({ serviceId: 'service-move', groupId: 'group-target' }))
+    await waitFor(() => {
+      const targetGroupRow = screen.getByText('Ziel').closest('tr')
+      const serviceRow = screen.getByText('Alpha GmbH / Mehrjahr').closest('tr')
+      if (!targetGroupRow || !serviceRow) {
+        throw new Error('Expected rows not found after multi-year service move')
+      }
+      expect(targetGroupRow.compareDocumentPosition(serviceRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
+  })
+
   it('keeps collapsed group state when switching years', async () => {
     setup('viewer')
 

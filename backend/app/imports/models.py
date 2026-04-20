@@ -45,6 +45,7 @@ class JournalLine(SQLModel, table=True):
     partner_id: Optional[UUID] = Field(default=None, foreign_key="partners.id", index=True)
     service_id: Optional[UUID] = Field(default=None, foreign_key="services.id", index=True)
     service_assignment_mode: Optional[str] = Field(default=None, max_length=20)
+    service_amount_consistency_ok: bool = Field(default=False)
     valuta_date: str = Field(max_length=10)   # stored as ISO 8601 string DATE
     booking_date: str = Field(max_length=10)  # stored as ISO 8601 string DATE
     amount: Decimal = Field(sa_column=Column(Numeric(15, 2), nullable=False))

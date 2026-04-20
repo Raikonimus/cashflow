@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Einnahmen & Ausgaben - Live Skizze</title>
+  <title>Einnahmen & Ausgaben nach Zahlungsprinzip - Live Skizze</title>
   <style>
     :root {
       --bg: #f7f4ee;
@@ -186,7 +186,7 @@
 <body>
   <div class="wrap">
     <header class="top">
-      <h1>Einnahmen & Ausgaben</h1>
+      <h1>Einnahmen & Ausgaben nach Zahlungsprinzip</h1>
       <div>Monatsmatrix auf Basis gespeicherter Daten</div>
     </header>
 
@@ -237,7 +237,7 @@
     const DEFAULT_GROUP_BY_TYPE = {
       customer: "Kunden",
       supplier: "Lieferanten",
-      authority: "Behorden",
+      authority: "Behörden",
       shareholder: "Gesellschafter",
       employee: "Mitarbeiter",
       unknown: "Unbekannt",
@@ -253,7 +253,7 @@
         jwtToken: "",
       },
       income: { groups: ["Kunden"], collapsed: {}, services: [] },
-      expense: { groups: ["Lieferanten", "Behorden", "Gesellschafter", "Mitarbeiter"], collapsed: {}, services: [] },
+      expense: { groups: ["Lieferanten", "Behörden", "Gesellschafter", "Mitarbeiter"], collapsed: {}, services: [] },
       groupMap: {},
     };
 

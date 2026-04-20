@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { http, HttpResponse } from 'msw'
@@ -16,6 +17,7 @@ const partnerDetail = {
   name: 'Amazon EU',
   display_name: null,
   is_active: true,
+  manual_assignment: false,
   ibans: [],
   accounts: [],
   names: [],
@@ -280,5 +282,51 @@ describe('PartnerDetailPage', () => {
 
     await waitFor(() => expect(screen.getByRole('columnheader', { name: /leistung/i })).toBeInTheDocument())
     expect(screen.getByText('Hosting')).toBeInTheDocument()
+  })
+
+  it('shows the manual assignment checkbox and toggles it', async () => {
+    setup()
+    const user = userEvent.setup()
+    let currentPartner = { ...partnerDetail, manual_assignment: false }
+
+    server.use(
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () => HttpResponse.json(currentPartner)),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/neighbors`, () => HttpResponse.json({ prev: null, next: null })),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () => HttpResponse.json([])),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/journal`, () => HttpResponse.json({ items: [], total: 0, page: 1, size: 25, pages: 1 })),
+      http.patch(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, async ({ request }) => {
+        const body = await request.json() as Record<string, unknown>
+        currentPartner = { ...currentPartner, ...body }
+        return HttpResponse.json(currentPartner)
+      }),
+    )
+
+    await act(async () => { renderPage() })
+
+    const checkbox = await screen.findByRole('checkbox', { name: /manuelle zuordnung/i })
+    expect(checkbox).not.toBeChecked()
+
+    await user.click(checkbox)
+
+    await waitFor(() => {
+      expect(currentPartner.manual_assignment).toBe(true)
+      expect(screen.getByRole('checkbox', { name: /manuelle zuordnung/i })).toBeChecked()
+    })
+  })
+
+  it('does not show the manual assignment checkbox for viewers', async () => {
+    setup('viewer')
+
+    server.use(
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () => HttpResponse.json(partnerDetail)),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/neighbors`, () => HttpResponse.json({ prev: null, next: null })),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () => HttpResponse.json([])),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/journal`, () => HttpResponse.json({ items: [], total: 0, page: 1, size: 25, pages: 1 })),
+    )
+
+    await act(async () => { renderPage() })
+
+    await waitFor(() => expect(screen.getByText('Amazon EU')).toBeInTheDocument())
+    expect(screen.queryByRole('checkbox', { name: /manuelle zuordnung/i })).not.toBeInTheDocument()
   })
 })

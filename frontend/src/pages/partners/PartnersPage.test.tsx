@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
@@ -41,6 +42,7 @@ const PARTNERS = [
     id: 'p1',
     name: 'Amazon EU',
     is_active: true,
+    manual_assignment: false,
     service_types: ['supplier', 'supplier', 'unknown'],
     iban_count: 2,
     name_count: 1,
@@ -51,6 +53,7 @@ const PARTNERS = [
     id: 'p2',
     name: 'Alter Partner',
     is_active: false,
+    manual_assignment: false,
     service_types: ['employee', 'shareholder'],
     iban_count: 0,
     name_count: 0,
@@ -304,5 +307,42 @@ describe('PartnersPage', () => {
 
     await waitFor(() => expect(screen.getByText('Alter Partner')).toBeInTheDocument())
     expect(screen.queryByText('Amazon EU')).not.toBeInTheDocument()
+  })
+
+  it('creates a new partner with manual_assignment checked', async () => {
+    setup()
+    const user = userEvent.setup()
+    let capturedBody: Record<string, unknown> = {}
+
+    server.use(
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners`, () =>
+        HttpResponse.json({ items: PARTNERS, total: 2, page: 1, size: 30, pages: 1 }),
+      ),
+      http.post(`/api/v1/mandants/${MANDANT_ID}/partners`, async ({ request }) => {
+        capturedBody = await request.json() as Record<string, unknown>
+        return HttpResponse.json(
+          { ...PARTNERS[0], id: 'p-new', name: capturedBody.name as string, manual_assignment: capturedBody.manual_assignment },
+          { status: 201 },
+        )
+      }),
+    )
+
+    await act(async () => { renderPage() })
+    await waitFor(() => expect(screen.getByText('Amazon EU')).toBeInTheDocument())
+
+    await user.click(screen.getByRole('button', { name: /neuer partner/i }))
+    await user.type(screen.getByPlaceholderText('Partnername'), 'Neuer Lieferant')
+
+    const manualCheckbox = screen.getByRole('checkbox', { name: /manuelle zuordnung/i })
+    expect(manualCheckbox).not.toBeChecked()
+    await user.click(manualCheckbox)
+    expect(manualCheckbox).toBeChecked()
+
+    await user.click(screen.getByRole('button', { name: /anlegen/i }))
+
+    await waitFor(() => {
+      expect(capturedBody.name).toBe('Neuer Lieferant')
+      expect(capturedBody.manual_assignment).toBe(true)
+    })
   })
 })

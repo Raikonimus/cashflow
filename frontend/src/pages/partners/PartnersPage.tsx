@@ -28,6 +28,7 @@ export function PartnersPage() {
   const [sortDir, setSortDir] = useState<SortDirection>('asc')
   const [showForm, setShowForm] = useState(false)
   const [newName, setNewName] = useState('')
+  const [newManualAssignment, setNewManualAssignment] = useState(false)
   const [showInactive, setShowInactive] = useState(false)
   const [selectedPartners, setSelectedPartners] = useState<Map<string, PartnerListItem>>(new Map())
   const [showBulkMerge, setShowBulkMerge] = useState(false)
@@ -53,10 +54,11 @@ export function PartnersPage() {
   }
 
   const createMutation = useMutation({
-    mutationFn: () => createPartner(mandantId, newName.trim()),
+    mutationFn: () => createPartner(mandantId, newName.trim(), newManualAssignment),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['partners', mandantId] })
       setNewName('')
+      setNewManualAssignment(false)
       setShowForm(false)
     },
   })
@@ -151,21 +153,32 @@ export function PartnersPage() {
             e.preventDefault()
             if (newName.trim()) createMutation.mutate()
           }}
-          className="mb-4 flex gap-2"
+          className="mb-4 space-y-2"
         >
-          <input
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            placeholder="Partnername"
-            className="flex-1 rounded border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <button
-            type="submit"
-            disabled={!newName.trim() || createMutation.isPending}
-            className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            Anlegen
-          </button>
+          <div className="flex gap-2">
+            <input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="Partnername"
+              className="flex-1 rounded border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              type="submit"
+              disabled={!newName.trim() || createMutation.isPending}
+              className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              Anlegen
+            </button>
+          </div>
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-600 select-none">
+            <input
+              type="checkbox"
+              checked={newManualAssignment}
+              onChange={(e) => setNewManualAssignment(e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300"
+            />
+            <span>Manuelle Zuordnung</span>
+          </label>
         </form>
       )}
 

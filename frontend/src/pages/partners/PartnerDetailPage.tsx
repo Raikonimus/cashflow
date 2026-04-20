@@ -15,6 +15,7 @@ import {
   deletePartnerName,
   getPartnerNeighbors,
   updatePartnerDisplayName,
+  updatePartner,
   deletePartner,
 } from '@/api/partners'
 import { listPartnerServices } from '@/api/services'
@@ -51,6 +52,7 @@ export function PartnerDetailPage() {
   const [editingDisplayName, setEditingDisplayName] = useState(false)
   const [displayNameDraft, setDisplayNameDraft] = useState('')
   const [deleteNotice, setDeleteNotice] = useState<string | null>(null)
+  const [manualAssignmentChecked, setManualAssignmentChecked] = useState<boolean | null>(null)
 
   const { data: partner, isLoading, isError } = useQuery({
     queryKey: ['partner', mandantId, partnerId],
@@ -143,6 +145,17 @@ export function PartnerDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['partners', mandantId] })
       setEditingDisplayName(false)
     },
+  })
+
+  const updateManualAssignmentMutation = useMutation({
+    mutationFn: (value: boolean) => updatePartner(mandantId, partnerId!, { manual_assignment: value }),
+    onMutate: (value) => setManualAssignmentChecked(value),
+    onSuccess: (updatedPartner) => {
+      queryClient.setQueryData(['partner', mandantId, partnerId], updatedPartner)
+      queryClient.invalidateQueries({ queryKey: ['partners', mandantId] })
+      setManualAssignmentChecked(null)
+    },
+    onError: () => setManualAssignmentChecked(null),
   })
 
   const deletePartnerMutation = useMutation({
@@ -256,6 +269,18 @@ export function PartnerDetailPage() {
                 {partner.display_name ? 'Anzeigenamen ändern' : '+ Anzeigenamen vergeben'}
               </button>
             )
+          )}
+          {!isReadOnly && partner.is_active && (
+            <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm text-gray-600 select-none">
+              <input
+                type="checkbox"
+                checked={manualAssignmentChecked ?? partner.manual_assignment}
+                onChange={(e) => updateManualAssignmentMutation.mutate(e.target.checked)}
+                disabled={updateManualAssignmentMutation.isPending}
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              <span>Manuelle Zuordnung</span>
+            </label>
           )}
         </div>
         {!isReadOnly && partner.is_active && (

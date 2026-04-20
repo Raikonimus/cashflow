@@ -19,6 +19,7 @@ class Partner(SQLModel, table=True):
     name: str = Field(max_length=255)
     display_name: Optional[str] = Field(default=None, max_length=255)
     is_active: bool = Field(default=True)
+    manual_assignment: bool = Field(default=False)
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 

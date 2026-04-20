@@ -47,6 +47,32 @@ interface DeleteGroupDialogState {
 }
 
 type CollapsedGroupsBySection = Record<ServiceGroupSection, Set<string>>
+type ViewMode = 'year' | 'multi-year'
+
+interface PeriodColumn {
+  key: string
+  label: string
+}
+
+interface DisplayServiceRow extends Omit<IncomeExpenseGroupRow['services'][number], 'cells'> {
+  periodValues: string[]
+}
+
+interface DisplayGroupRow extends Omit<IncomeExpenseGroupRow, 'subtotal_cells' | 'services'> {
+  periodValues: string[]
+  services: DisplayServiceRow[]
+}
+
+interface DisplaySection extends Omit<IncomeExpenseSection, 'groups' | 'totals'> {
+  groups: DisplayGroupRow[]
+  totals: string[]
+}
+
+interface DisplaySections {
+  income: DisplaySection
+  expense: DisplaySection
+  neutral: DisplaySection
+}
 
 function formatMoney(value: string, currency: string): string {
   const numeric = Number.parseFloat(value)
@@ -61,23 +87,47 @@ function cellsToArray(cells: MatrixCells): string[] {
   return MONTH_KEYS.map((key) => cells[key].net)
 }
 
+function parseAmount(value: string): number {
+  const numeric = Number.parseFloat(value)
+  return Number.isNaN(numeric) ? 0 : numeric
+}
+
+function formatAmount(value: number): string {
+  return value.toFixed(2)
+}
+
+function sumAmounts(values: string[]): string {
+  return formatAmount(values.reduce((sum, value) => sum + parseAmount(value), 0))
+}
+
+function buildPeriodValues(values: string[]): string[] {
+  return [sumAmounts(values), ...values]
+}
+
+function hasNonZeroAmount(value: string): boolean {
+  return Math.abs(parseAmount(value)) > 0.0000001
+}
+
+function hasNonZeroPeriodValues(values: string[]): boolean {
+  return values.some((value) => hasNonZeroAmount(value))
+}
+
 function hasNonZeroYearTotal(cells: MatrixCells): boolean {
   const numeric = Number.parseFloat(cells.year_total.net)
   return !Number.isNaN(numeric) && Math.abs(numeric) > 0.0000001
 }
 
-function getYearTotal(cells: MatrixCells): number {
-  const numeric = Number.parseFloat(cells.year_total.net)
-  return Number.isNaN(numeric) ? 0 : numeric
+function getPeriodTotal(periodValues: string[]): number {
+  return parseAmount(periodValues[0] ?? '0.00')
 }
 
-function compareServicesByYearTotal(
+function compareServicesByPeriodTotal(
   sectionKey: ServiceGroupSection,
-  left: IncomeExpenseGroupRow['services'][number],
-  right: IncomeExpenseGroupRow['services'][number],
+  left: DisplayServiceRow,
+  right: DisplayServiceRow,
 ): number {
-  const leftTotal = getYearTotal(left.cells)
-  const rightTotal = getYearTotal(right.cells)
+  const leftTotal = getPeriodTotal(left.periodValues)
+  const rightTotal = getPeriodTotal(right.periodValues)
 
   if (sectionKey === 'expense') {
     return leftTotal - rightTotal
@@ -97,6 +147,163 @@ function getServiceDisplayName(service: IncomeExpenseGroupRow['services'][number
     return `${service.partner_name} / ${service.service_name}`
   }
   return service.service_name
+}
+
+function toDisplaySection(section: IncomeExpenseSection): DisplaySection {
+  return {
+    ...section,
+    groups: section.groups.map((group) => ({
+      ...group,
+      periodValues: cellsToArray(group.subtotal_cells),
+      services: group.services.map((service) => ({
+        ...service,
+        periodValues: cellsToArray(service.cells),
+      })),
+    })),
+    totals: cellsToArray(section.totals),
+  }
+}
+
+function buildYearDisplaySections(sections: IncomeExpenseMatrixResponse['sections']): DisplaySections {
+  return {
+    income: toDisplaySection(sections.income),
+    expense: toDisplaySection(sections.expense),
+    neutral: toDisplaySection(sections.neutral),
+  }
+}
+
+function buildMultiYearDisplaySections(
+  matrices: IncomeExpenseMatrixResponse[],
+  years: number[],
+): DisplaySections {
+  function buildSection(sectionKey: ServiceGroupSection): DisplaySection {
+    const groups = new Map<string, {
+      group_id: string
+      group_name: string
+      sort_order: number
+      collapsed: boolean
+      assigned_service_count: number
+      active_years: Set<number>
+      periodValuesByYear: Map<number, string>
+      services: Map<string, DisplayServiceRow & { periodValuesByYear: Map<number, string> }>
+    }>()
+    const totalsByYear = new Map<number, string>()
+    let currency = 'EUR'
+    let excludedCurrencyCount = 0
+    let excludedCurrencyAmount = 0
+
+    function upsertService(
+      targetGroup: {
+        services: Map<string, DisplayServiceRow & { periodValuesByYear: Map<number, string> }>
+      },
+      service: IncomeExpenseGroupRow['services'][number],
+      year: number,
+    ) {
+      const existingService = targetGroup.services.get(service.service_id)
+      if (existingService) {
+        existingService.service_name = service.service_name
+        existingService.partner_name = service.partner_name
+        existingService.service_type = service.service_type
+        existingService.erfolgsneutral = service.erfolgsneutral
+        existingService.periodValuesByYear.set(year, service.cells.year_total.net)
+        return
+      }
+
+      targetGroup.services.set(service.service_id, {
+        ...service,
+        periodValues: [],
+        periodValuesByYear: new Map([[year, service.cells.year_total.net]]),
+      })
+    }
+
+    function upsertGroup(section: IncomeExpenseSection, group: IncomeExpenseGroupRow, year: number) {
+      currency = section.currency
+      const existingGroup = groups.get(group.group_id)
+      if (existingGroup) {
+        existingGroup.group_name = group.group_name
+        existingGroup.sort_order = group.sort_order
+        existingGroup.assigned_service_count = Math.max(existingGroup.assigned_service_count, group.assigned_service_count)
+        for (const activeYear of group.active_years) {
+          existingGroup.active_years.add(activeYear)
+        }
+        existingGroup.periodValuesByYear.set(year, group.subtotal_cells.year_total.net)
+        return existingGroup
+      }
+
+      const nextGroup = {
+        group_id: group.group_id,
+        group_name: group.group_name,
+        sort_order: group.sort_order,
+        collapsed: group.collapsed,
+        assigned_service_count: group.assigned_service_count,
+        active_years: new Set(group.active_years),
+        periodValuesByYear: new Map([[year, group.subtotal_cells.year_total.net]]),
+        services: new Map<string, DisplayServiceRow & { periodValuesByYear: Map<number, string> }>(),
+      }
+      groups.set(group.group_id, nextGroup)
+      return nextGroup
+    }
+
+    function toDisplayService(service: DisplayServiceRow & { periodValuesByYear: Map<number, string> }): DisplayServiceRow {
+      const serviceYearlyValues = years.map((entryYear) => service.periodValuesByYear.get(entryYear) ?? '0.00')
+      return {
+        service_id: service.service_id,
+        service_name: service.service_name,
+        partner_name: service.partner_name,
+        service_type: service.service_type,
+        erfolgsneutral: service.erfolgsneutral,
+        periodValues: buildPeriodValues(serviceYearlyValues),
+      }
+    }
+
+    for (const [index, matrix] of matrices.entries()) {
+      const year = years[index]
+      if (year === undefined) {
+        continue
+      }
+
+      const section = matrix.sections[sectionKey]
+      currency = section.currency
+      excludedCurrencyCount += section.excluded_currency_count
+      excludedCurrencyAmount += parseAmount(section.excluded_currency_amount_gross)
+      totalsByYear.set(year, section.totals.year_total.net)
+
+      for (const group of section.groups) {
+        const targetGroup = upsertGroup(section, group, year)
+        for (const service of group.services) {
+          upsertService(targetGroup, service, year)
+        }
+      }
+    }
+
+    return {
+      currency,
+      excluded_currency_count: excludedCurrencyCount,
+      excluded_currency_amount_gross: formatAmount(excludedCurrencyAmount),
+      groups: [...groups.values()]
+        .sort((left, right) => left.sort_order - right.sort_order || left.group_name.localeCompare(right.group_name, 'de'))
+        .map((group) => {
+          const yearlyValues = years.map((year) => group.periodValuesByYear.get(year) ?? '0.00')
+          return {
+            group_id: group.group_id,
+            group_name: group.group_name,
+            sort_order: group.sort_order,
+            collapsed: group.collapsed,
+            assigned_service_count: group.assigned_service_count,
+            active_years: [...group.active_years].sort((left, right) => left - right),
+            periodValues: buildPeriodValues(yearlyValues),
+            services: [...group.services.values()].map(toDisplayService),
+          }
+        }),
+      totals: buildPeriodValues(years.map((year) => totalsByYear.get(year) ?? '0.00')),
+    }
+  }
+
+  return {
+    income: buildSection('income'),
+    expense: buildSection('expense'),
+    neutral: buildSection('neutral'),
+  }
 }
 
 function parseDragPayload(raw: string): { serviceId: string; section: ServiceGroupSection } | null {
@@ -190,6 +397,7 @@ function TrashIcon() {
 
 function SectionTable({
   title,
+  columns,
   sectionKey,
   section,
   canEdit,
@@ -205,8 +413,9 @@ function SectionTable({
   pendingGroupIds,
 }: Readonly<{
   title: string
+  columns: PeriodColumn[]
   sectionKey: ServiceGroupSection
-  section: IncomeExpenseSection
+  section: DisplaySection
   canEdit: boolean
   onRequestCreateGroup: (section: ServiceGroupSection) => void
   onRequestRenameGroup: (group: GroupRef) => void
@@ -225,13 +434,13 @@ function SectionTable({
       .map((group) => ({
         ...group,
         services: group.services
-          .filter((service) => hasNonZeroYearTotal(service.cells))
-          .sort((left, right) => compareServicesByYearTotal(sectionKey, left, right)),
+          .filter((service) => hasNonZeroPeriodValues(service.periodValues))
+          .sort((left, right) => compareServicesByPeriodTotal(sectionKey, left, right)),
       }))
       .filter((group) => group.services.length > 0 || canEdit),
     [canEdit, section.groups, sectionKey],
   )
-  const showTotals = hasNonZeroYearTotal(section.totals)
+  const showTotals = hasNonZeroPeriodValues(section.totals)
   const excludedCurrencyAmount = Number.parseFloat(section.excluded_currency_amount_gross)
   const showExcludedCurrencyInfo = section.excluded_currency_count > 0
     || (!Number.isNaN(excludedCurrencyAmount) && Math.abs(excludedCurrencyAmount) > 0.0000001)
@@ -314,22 +523,22 @@ function SectionTable({
         </div>
       </header>
       <div className="overflow-x-auto">
-        <table className="min-w-[1200px] w-full table-fixed text-sm">
+        <table className="w-full min-w-[1200px] table-fixed text-sm">
           <colgroup>
             <col className={LABEL_COLUMN_WIDTH_CLASS} />
-            {MONTH_KEYS.map((key) => (
-              <col key={`${sectionKey}-col-${key}`} className={VALUE_COLUMN_WIDTH_CLASS} />
+            {columns.map((column) => (
+              <col key={`${sectionKey}-col-${column.key}`} className={VALUE_COLUMN_WIDTH_CLASS} />
             ))}
           </colgroup>
           <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
             <tr>
               <th className="sticky left-0 z-10 bg-gray-50 px-4 py-2 text-left">Leistung / Gruppe</th>
-              {HEADERS.map((label, index) => (
+              {columns.map((column, index) => (
                 <th
-                  key={label}
+                  key={column.key}
                   className={`px-3 py-2 text-right ${index === YEAR_COLUMN_INDEX ? 'bg-amber-100 font-semibold text-amber-900' : ''}`}
                 >
-                  {label}
+                  {column.label}
                 </th>
               ))}
             </tr>
@@ -428,7 +637,7 @@ function SectionTable({
                         </span>
                       )}
                     </td>
-                    {cellsToArray(group.subtotal_cells).map((value, index) => (
+                    {group.periodValues.map((value, index) => (
                       <td
                         key={`${group.group_id}-sub-${index}`}
                         className={`px-3 py-2 text-right ${index === YEAR_COLUMN_INDEX ? 'bg-amber-50 text-amber-950' : ''}`}
@@ -460,7 +669,7 @@ function SectionTable({
                         <td className="sticky left-0 z-10 bg-white px-4 py-2 text-left">
                           <span className="ml-6 block truncate" title={serviceDisplayName}>{serviceDisplayName}</span>
                         </td>
-                      {cellsToArray(service.cells).map((value, index) => (
+                      {service.periodValues.map((value, index) => (
                         <td
                           key={`${service.service_id}-${index}`}
                           className={`px-3 py-2 text-right ${index === YEAR_COLUMN_INDEX ? 'bg-amber-50/60 font-medium text-amber-950' : ''}`}
@@ -477,7 +686,7 @@ function SectionTable({
             {showTotals && (
               <tr className="bg-gray-100 font-semibold text-gray-900">
                 <td className="sticky left-0 z-10 bg-gray-100 px-4 py-2 text-left">Gesamtsumme</td>
-                {cellsToArray(section.totals).map((value, index) => (
+                {section.totals.map((value, index) => (
                   <td
                     key={`total-${sectionKey}-${index}`}
                     className={`px-3 py-2 text-right ${index === YEAR_COLUMN_INDEX ? 'bg-amber-100 text-amber-950' : ''}`}
@@ -498,6 +707,7 @@ export function IncomeExpensePage() {
   const mandantId = useAuthStore((s) => s.user?.mandant_id ?? '')
   const role = useAuthStore((s) => s.user?.role ?? '')
   const [year, setYear] = useState<number>(new Date().getFullYear())
+  const [viewMode, setViewMode] = useState<ViewMode>('year')
   const [pendingServiceId, setPendingServiceId] = useState<string | null>(null)
   const [createDialog, setCreateDialog] = useState<CreateGroupDialogState>({ open: false, section: 'income' })
   const [renameDialog, setRenameDialog] = useState<RenameGroupDialogState>({ open: false, group: null })
@@ -513,10 +723,10 @@ export function IncomeExpensePage() {
   const queryClient = useQueryClient()
   const canEdit = EDIT_ROLES.has(role)
 
-  const { data, isLoading, isError, error } = useQuery({
+  const yearMatrixQuery = useQuery({
     queryKey: ['income-expense-matrix', mandantId, year],
     queryFn: () => getIncomeExpenseMatrix(mandantId, year),
-    enabled: !!mandantId,
+    enabled: !!mandantId && viewMode === 'year',
   })
 
   const { data: yearsData } = useQuery({
@@ -525,16 +735,50 @@ export function IncomeExpensePage() {
     enabled: !!mandantId,
   })
 
-  const availableYears = yearsData?.years ?? []
+  const availableYears = useMemo(
+    () => [...(yearsData?.years ?? [])].sort((left, right) => left - right),
+    [yearsData?.years],
+  )
+
+  const multiYearMatrixQuery = useQuery({
+    queryKey: ['income-expense-multi-matrix', mandantId, availableYears.join(',')],
+    queryFn: () => Promise.all(availableYears.map((entryYear) => getIncomeExpenseMatrix(mandantId, entryYear))),
+    enabled: !!mandantId && viewMode === 'multi-year' && availableYears.length > 0,
+  })
+
   const canGoToPreviousYear = availableYears.includes(year - 1)
   const canGoToNextYear = availableYears.includes(year + 1)
 
-  const sections = useMemo(() => {
-    if (!data) {
+  const sections = useMemo<DisplaySections | null>(() => {
+    if (viewMode === 'multi-year') {
+      if (!multiYearMatrixQuery.data || availableYears.length === 0) {
+        return null
+      }
+      return buildMultiYearDisplaySections(multiYearMatrixQuery.data, availableYears)
+    }
+
+    if (!yearMatrixQuery.data) {
       return null
     }
-    return data.sections
-  }, [data])
+    return buildYearDisplaySections(yearMatrixQuery.data.sections)
+  }, [availableYears, multiYearMatrixQuery.data, viewMode, yearMatrixQuery.data])
+
+  const periodColumns = useMemo<PeriodColumn[]>(() => {
+    if (viewMode === 'multi-year') {
+      return [
+        { key: 'total', label: 'Gesamt' },
+        ...availableYears.map((entryYear) => ({ key: String(entryYear), label: String(entryYear) })),
+      ]
+    }
+    return [
+      { key: 'year_total', label: 'Jahr' },
+      ...MONTH_KEYS.slice(1).map((key, index) => ({ key, label: HEADERS[index + 1] })),
+    ]
+  }, [availableYears, viewMode])
+
+  const isLoading = viewMode === 'multi-year' ? multiYearMatrixQuery.isLoading : yearMatrixQuery.isLoading
+  const isError = viewMode === 'multi-year' ? multiYearMatrixQuery.isError : yearMatrixQuery.isError
+  const error = viewMode === 'multi-year' ? multiYearMatrixQuery.error : yearMatrixQuery.error
 
   const groupsBySection = useMemo(() => {
     if (!sections) {
@@ -551,11 +795,16 @@ export function IncomeExpensePage() {
     }
   }, [sections])
 
+  function invalidateMatrixQueries() {
+    queryClient.invalidateQueries({ queryKey: ['income-expense-matrix', mandantId] })
+    queryClient.invalidateQueries({ queryKey: ['income-expense-multi-matrix', mandantId] })
+  }
+
   const createGroupMutation = useMutation({
     mutationFn: ({ section, name, sortOrder }: { section: ServiceGroupSection; name: string; sortOrder: number }) =>
       createServiceGroup(mandantId, { section, name, sort_order: sortOrder }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['income-expense-matrix', mandantId, year] })
+      invalidateMatrixQueries()
     },
   })
 
@@ -563,7 +812,7 @@ export function IncomeExpensePage() {
     mutationFn: ({ groupId, name }: { groupId: string; name: string }) =>
       updateServiceGroup(mandantId, groupId, { name }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['income-expense-matrix', mandantId, year] })
+      invalidateMatrixQueries()
     },
   })
 
@@ -571,7 +820,7 @@ export function IncomeExpensePage() {
     mutationFn: ({ groupId, reassignToGroupId }: { groupId: string; reassignToGroupId?: string }) =>
       deleteServiceGroup(mandantId, groupId, reassignToGroupId ? { reassign_to_group_id: reassignToGroupId } : {}),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['income-expense-matrix', mandantId, year] })
+      invalidateMatrixQueries()
     },
   })
 
@@ -583,7 +832,7 @@ export function IncomeExpensePage() {
     },
     onSettled: () => {
       setPendingServiceId(null)
-      queryClient.invalidateQueries({ queryKey: ['income-expense-matrix', mandantId, year] })
+      invalidateMatrixQueries()
     },
   })
 
@@ -611,7 +860,7 @@ export function IncomeExpensePage() {
     },
     onSettled: () => {
       setPendingGroupIds([])
-      queryClient.invalidateQueries({ queryKey: ['income-expense-matrix', mandantId, year] })
+      invalidateMatrixQueries()
     },
   })
 
@@ -712,32 +961,62 @@ export function IncomeExpensePage() {
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-8 space-y-4">
       <header className="rounded-xl bg-gradient-to-r from-teal-700 to-emerald-700 px-5 py-4 text-white shadow">
-        <h1 className="text-2xl font-semibold">Einnahmen & Ausgaben</h1>
+        <h1 className="text-2xl font-semibold">Einnahmen & Ausgaben nach Zahlungsprinzip</h1>
         <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm text-teal-100">Monatsmatrix je Leistung mit Jahres- und Gruppensummen</p>
+          <p className="text-sm text-teal-100">
+            {viewMode === 'multi-year'
+              ? 'Jahressummen je Leistung und Gruppe über alle verfügbaren Jahre'
+              : 'Monatsmatrix je Leistung mit Jahres- und Gruppensummen'}
+          </p>
           <p className="text-xs uppercase tracking-wide text-teal-200">Alle Angaben in €</p>
         </div>
         {!canEdit && <p className="mt-2 text-xs text-teal-200">Read-only Modus: Gruppen und Zuordnungen sind nicht bearbeitbar.</p>}
       </header>
 
       <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3">
-        <button
-          type="button"
-          onClick={() => setYear((prev) => prev - 1)}
-          disabled={!canGoToPreviousYear}
-          className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 disabled:hover:bg-white"
-        >
-          ◀ Vorjahr
-        </button>
-        <div className="rounded bg-gray-100 px-3 py-1.5 font-semibold text-gray-800">{year}</div>
-        <button
-          type="button"
-          onClick={() => setYear((prev) => prev + 1)}
-          disabled={!canGoToNextYear}
-          className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 disabled:hover:bg-white"
-        >
-          Folgejahr ▶
-        </button>
+        {viewMode === 'year' ? (
+          <>
+            <button
+              type="button"
+              onClick={() => setYear((prev) => prev - 1)}
+              disabled={!canGoToPreviousYear}
+              className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 disabled:hover:bg-white"
+            >
+              ◀ Vorjahr
+            </button>
+            <div className="rounded bg-gray-100 px-3 py-1.5 font-semibold text-gray-800">{year}</div>
+            <button
+              type="button"
+              onClick={() => setYear((prev) => prev + 1)}
+              disabled={!canGoToNextYear}
+              className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 disabled:hover:bg-white"
+            >
+              Folgejahr ▶
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('multi-year')}
+              disabled={availableYears.length === 0}
+              className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 disabled:hover:bg-white"
+            >
+              Mehrjahresübersicht
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => setViewMode('year')}
+              className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50"
+            >
+              Zur Jahresansicht
+            </button>
+            <div className="rounded bg-gray-100 px-3 py-1.5 font-semibold text-gray-800">Mehrjahresübersicht</div>
+            {availableYears.length > 0 && (
+              <div className="text-sm text-gray-500">{availableYears[0]} bis {availableYears.at(-1)}</div>
+            )}
+          </>
+        )}
       </div>
 
       {isLoading && (
@@ -760,6 +1039,7 @@ export function IncomeExpensePage() {
         <>
           <SectionTable
             title={SECTION_LABELS.income}
+            columns={periodColumns}
             sectionKey="income"
             section={sections.income}
             canEdit={canEdit}
@@ -776,6 +1056,7 @@ export function IncomeExpensePage() {
           />
           <SectionTable
             title={SECTION_LABELS.expense}
+            columns={periodColumns}
             sectionKey="expense"
             section={sections.expense}
             canEdit={canEdit}
@@ -792,6 +1073,7 @@ export function IncomeExpensePage() {
           />
           <SectionTable
             title={SECTION_LABELS.neutral}
+            columns={periodColumns}
             sectionKey="neutral"
             section={sections.neutral}
             canEdit={canEdit}

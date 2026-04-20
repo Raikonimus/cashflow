@@ -6,6 +6,7 @@ export interface PartnerListItem {
   name: string
   display_name: string | null
   is_active: boolean
+  manual_assignment: boolean
   service_types: Array<'customer' | 'supplier' | 'employee' | 'shareholder' | 'authority' | 'unknown'>
   iban_count: number
   name_count: number
@@ -19,6 +20,7 @@ export interface PartnerDetail {
   name: string
   display_name: string | null
   is_active: boolean
+  manual_assignment: boolean
   ibans: PartnerIban[]
   accounts: PartnerAccount[]
   names: PartnerName[]
@@ -114,6 +116,18 @@ export async function updatePartnerDisplayName(
   return resp.data
 }
 
+export async function updatePartner(
+  mandantId: string,
+  partnerId: string,
+  payload: { display_name?: string | null; manual_assignment?: boolean },
+): Promise<PartnerDetail> {
+  const resp = await apiClient.patch<PartnerDetail>(
+    `/mandants/${mandantId}/partners/${partnerId}`,
+    payload,
+  )
+  return resp.data
+}
+
 export async function deletePartner(
   mandantId: string,
   partnerId: string,
@@ -134,10 +148,11 @@ export async function getPartnerNeighbors(
 export async function createPartner(
   mandantId: string,
   name: string,
+  manualAssignment = false,
 ): Promise<PartnerDetail> {
   const resp = await apiClient.post<PartnerDetail>(
     `/mandants/${mandantId}/partners`,
-    { name },
+    { name, manual_assignment: manualAssignment },
   )
   return resp.data
 }
