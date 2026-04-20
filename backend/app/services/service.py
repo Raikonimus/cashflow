@@ -10,7 +10,7 @@ from sqlalchemy import desc, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.imports.models import JournalLine, ReviewItem
+from app.imports.models import JournalLine, JournalLineSplit, ReviewItem
 from app.partners.conflict_utils import PartnerAssignmentCriteria, detect_conflicting_criteria, load_partner_assignment_criteria
 from app.partners.delete_utils import delete_partner_clean
 from app.partners.models import Partner
@@ -140,11 +140,15 @@ class ServiceManagementService:
 
         for line in lines:
             changed_line_ids.append(line.id)
-            if line.service_id is not None:
-                old_service_ids.add(line.service_id)
+            splits = (
+                await self._session.exec(
+                    select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
+                )
+            ).all()
+            for split in splits:
+                old_service_ids.add(split.service_id)
+                await self._session.delete(split)
             line.partner_id = new_partner_id
-            line.service_id = None
-            line.service_assignment_mode = None
             self._session.add(line)
 
         await self._delete_open_line_reviews(changed_line_ids)
@@ -321,8 +325,6 @@ class ServiceManagementService:
 
         # Buchungszeilen laden, die noch NICHT zu dieser Leistung gehören
         # (eigene Zeilen anderer Leistungen + Zeilen anderer Partner)
-        # Achtung: UUID-Vergleich gegen service_id ist unzuverlässig (Hex vs Bindestriche),
-        # daher Filterung im Python-Loop.
         lines = (
             await self._session.exec(
                 select(JournalLine)
@@ -333,37 +335,39 @@ class ServiceManagementService:
             )
         ).all()
 
+        # Splits voraufladen: journal_line_id → [service_id, ...]
+        all_line_ids = [line.id for line in lines]
+        splits_for_lines: dict[UUID, list[UUID]] = {}
+        if all_line_ids:
+            all_splits = (
+                await self._session.exec(
+                    select(JournalLineSplit).where(
+                        JournalLineSplit.journal_line_id.in_(all_line_ids)  # type: ignore[attr-defined]
+                    )
+                )
+            ).all()
+            for sp in all_splits:
+                splits_for_lines.setdefault(sp.journal_line_id, []).append(sp.service_id)
+
         matched_lines: list[MatcherPreviewLineItem] = []
         partner_name_cache: dict[UUID, str | None] = {}
         service_name_cache: dict[UUID, str | None] = {}
         partner_conflict_cache: dict[UUID, PartnerAssignmentCriteria] = {}
-        service_id_hex = service_id.hex.lower()
 
         for line in lines:
-            # Zeilen, die bereits zu dieser Leistung gehören, überspringen
-            line_service_uuid: UUID | None = None
-            if line.service_id is not None:
-                try:
-                    line_service_uuid = UUID(str(line.service_id))
-                except (ValueError, TypeError):
-                    line_service_uuid = None
-            # Name der aktuell zugeordneten Leistung für die Vorschau auflösen.
-            line_service_name: str | None = None
-            if line_service_uuid is not None:
-                if line_service_uuid not in service_name_cache:
-                    current_service = await self._session.get(Service, line_service_uuid)
-                    service_name_cache[line_service_uuid] = current_service.name if current_service is not None else None
-                line_service_name = service_name_cache[line_service_uuid]
-            #if "Microsoft" == line_service_name:
-            #    pass
-            if line_service_uuid == service_id:
+            # Zeilen, die bereits (ausschließlich) zu dieser Leistung gehören, überspringen
+            line_service_ids = splits_for_lines.get(line.id, [])
+            if line_service_ids and all(sid == service_id for sid in line_service_ids):
                 continue
-            if line.service_id is not None:
-                # Fallback für inkonsistente UUID-String-Repräsentationen
-                # (z. B. mit/ohne Bindestriche oder mit Prefix).
-                line_service_hex = re.sub(r"[^0-9a-fA-F]", "", str(line.service_id)).lower()
-                if len(line_service_hex) == 32 and line_service_hex == service_id_hex:
-                    continue
+
+            # Name der aktuell zugeordneten Leistung für die Vorschau auflösen (erster Split).
+            line_service_name: str | None = None
+            if line_service_ids:
+                first_sid = line_service_ids[0]
+                if first_sid not in service_name_cache:
+                    current_service = await self._session.get(Service, first_sid)
+                    service_name_cache[first_sid] = current_service.name if current_service is not None else None
+                line_service_name = service_name_cache[first_sid]
             if not self._service_matches_line(service, [mock_matcher], line):
                 continue
             if line.partner_id not in partner_name_cache:
@@ -739,22 +743,18 @@ class ServiceManagementService:
 
     async def auto_assign_journal_line(self, mandant_id: UUID, line: JournalLine) -> None:
         if line.partner_id is None:
-            line.service_id = None
-            line.service_assignment_mode = None
-            self._session.add(line)
+            await self._delete_splits_for_line(line.id)
             return
 
         services, matchers_by_service = await self._load_partner_services(line.partner_id)
         assignment = await self._calculate_assignment(line, services, matchers_by_service)
-        line.service_id = assignment.service_id
-        line.service_assignment_mode = "auto"
-        self._session.add(line)
+        await self._replace_splits(line, [assignment.service_id], "auto")
 
         if assignment.reason == "multiple_matches":
             await self._upsert_service_assignment_review(
                 mandant_id=mandant_id,
                 journal_line_id=line.id,
-                current_service_id=line.service_id,
+                current_service_id=assignment.service_id,
                 proposed_service_id=None,
                 reason=assignment.reason,
                 matching_service_ids=assignment.matching_service_ids,
@@ -772,7 +772,7 @@ class ServiceManagementService:
         else:
             await self._clear_manual_service_assignment_review(line.id)
 
-        await self.detect_service_type_for_service(mandant_id, line.service_id)
+        await self.detect_service_type_for_service(mandant_id, assignment.service_id)
 
     async def manually_assign_journal_line(
         self,
@@ -789,9 +789,7 @@ class ServiceManagementService:
         if not self._is_service_valid_for_booking_date(service, line.booking_date):
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Service is not valid for journal line booking_date")
 
-        line.service_id = service.id
-        line.service_assignment_mode = "manual"
-        self._session.add(line)
+        await self._replace_splits(line, [service.id], "manual")
         await self._clear_service_assignment_review(line.id)
         await self._clear_manual_service_assignment_review(line.id)
         await self.detect_service_type_for_service(mandant_id, service.id)
@@ -810,8 +808,14 @@ class ServiceManagementService:
         touched_service_ids: set[UUID] = set()
 
         for line in lines:
-            if line.service_id is not None:
-                touched_service_ids.add(line.service_id)
+            current_splits = (
+                await self._session.exec(
+                    select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
+                )
+            ).all()
+            current_service_ids = {sp.service_id for sp in current_splits}
+            for sid in current_service_ids:
+                touched_service_ids.add(sid)
 
             assignment = await self._calculate_assignment(line, services, matchers_by_service)
             touched_service_ids.add(assignment.service_id)
@@ -820,7 +824,7 @@ class ServiceManagementService:
                 await self._upsert_service_assignment_review(
                     mandant_id=partner.mandant_id,
                     journal_line_id=line.id,
-                    current_service_id=line.service_id,
+                    current_service_id=next(iter(current_service_ids), None),
                     proposed_service_id=None,
                     reason=assignment.reason,
                     matching_service_ids=assignment.matching_service_ids,
@@ -831,7 +835,7 @@ class ServiceManagementService:
                     await self._clear_manual_service_assignment_review(line.id)
                 continue
 
-            if line.service_id == assignment.service_id:
+            if current_service_ids == {assignment.service_id}:
                 await self._clear_service_assignment_review(line.id)
                 if assignment.reason == "no_match_base_service" and partner.manual_assignment:
                     await self._upsert_manual_service_assignment_review(partner.mandant_id, line.id)
@@ -839,9 +843,7 @@ class ServiceManagementService:
                     await self._clear_manual_service_assignment_review(line.id)
                 continue
 
-            line.service_id = assignment.service_id
-            line.service_assignment_mode = "auto"
-            self._session.add(line)
+            await self._replace_splits(line, [assignment.service_id], "auto")
             await self._clear_service_assignment_review(line.id)
             if assignment.reason == "no_match_base_service" and partner.manual_assignment:
                 await self._upsert_manual_service_assignment_review(partner.mandant_id, line.id)
@@ -864,14 +866,24 @@ class ServiceManagementService:
         if service.service_type != ServiceType.unknown.value and existing_review is None:
             return
 
-        lines = (
+        splits = (
             await self._session.exec(
-                select(JournalLine).where(JournalLine.service_id == service.id).order_by(JournalLine.created_at)
+                select(JournalLineSplit)
+                .join(JournalLine, JournalLine.id == JournalLineSplit.journal_line_id)  # type: ignore[arg-type]
+                .where(JournalLineSplit.service_id == service.id)
+                .order_by(JournalLine.created_at)
             )
         ).all()
-        if not lines:
+        if not splits:
             await self._clear_service_type_review(service.id)
             return
+
+        line_ids = list({sp.journal_line_id for sp in splits})
+        lines = (
+            await self._session.exec(
+                select(JournalLine).where(JournalLine.id.in_(line_ids))  # type: ignore[attr-defined]
+            )
+        ).all()
 
         rules = await self._load_keyword_rules(mandant_id)
         votes: Counter[ServiceType] = Counter()
@@ -1030,7 +1042,7 @@ class ServiceManagementService:
         ).all()
         journal_line_count = (
             await self._session.exec(
-                select(func.count()).select_from(JournalLine).where(JournalLine.service_id == service.id)
+                select(func.count()).select_from(JournalLineSplit).where(JournalLineSplit.service_id == service.id)
             )
         ).one()
         return ServiceResponse(
@@ -1323,14 +1335,15 @@ class ServiceManagementService:
         ).first()
         if base_service is None:
             return
-        lines = (
+        splits = (
             await self._session.exec(
-                select(JournalLine).where(JournalLine.service_id == base_service.id)
+                select(JournalLineSplit).where(JournalLineSplit.service_id == base_service.id)
             )
         ).all()
-        for line in lines:
-            await self._upsert_manual_service_assignment_review(mandant_id, line.id)
-        if lines:
+        line_ids = list({sp.journal_line_id for sp in splits})
+        for line_id in line_ids:
+            await self._upsert_manual_service_assignment_review(mandant_id, line_id)
+        if line_ids:
             await self._session.flush()
 
     async def delete_manual_assignment_reviews_for_partner(self, partner_id: UUID) -> None:
@@ -1447,3 +1460,47 @@ class ServiceManagementService:
         if pattern_kind == ServiceMatcherType.string.value:
             return pattern.lower() in text.lower()
         return re.search(pattern, text, re.IGNORECASE) is not None
+
+    async def _replace_splits(
+        self,
+        line: JournalLine,
+        service_ids: list[UUID],
+        assignment_mode: str,
+    ) -> None:
+        """Ersetzt alle vorhandenen Splits einer Buchungszeile durch neue."""
+        existing_splits = (
+            await self._session.exec(
+                select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
+            )
+        ).all()
+        for split in existing_splits:
+            await self._session.delete(split)
+
+        total = Decimal(str(line.amount))
+        count = len(service_ids)
+        now = _utcnow()
+        for i, sid in enumerate(service_ids):
+            # Letzter Split bekommt den Rest (Rundungssicherheit)
+            if i < count - 1:
+                split_amount = (total / count).quantize(Decimal("0.01"))
+            else:
+                split_amount = total - (total / count).quantize(Decimal("0.01")) * (count - 1)
+            split = JournalLineSplit(
+                journal_line_id=line.id,
+                service_id=sid,
+                amount=split_amount,
+                assignment_mode=assignment_mode,
+                amount_consistency_ok=False,
+                created_at=now,
+                updated_at=now,
+            )
+            self._session.add(split)
+
+    async def _delete_splits_for_line(self, line_id: UUID) -> None:
+        splits = (
+            await self._session.exec(
+                select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line_id)
+            )
+        ).all()
+        for split in splits:
+            await self._session.delete(split)

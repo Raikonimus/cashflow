@@ -570,8 +570,6 @@ class ImportService:
                 account_id=row["account_id"],
                 import_run_id=row["import_run_id"],
                 partner_id=result.partner_id,
-                service_id=None,
-                service_assignment_mode=None,
                 valuta_date=row["valuta_date"],
                 booking_date=row["booking_date"],
                 amount=Decimal(row["amount"]),

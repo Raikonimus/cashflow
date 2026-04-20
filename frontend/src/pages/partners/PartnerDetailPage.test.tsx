@@ -253,7 +253,7 @@ describe('PartnerDetailPage', () => {
               partner_name: 'Amazon EU',
               service_id: 'service-1',
               service_name: 'Hosting',
-              service_assignment_mode: 'manual',
+              splits: [{ service_id: 'service-1', service_name: 'Hosting', amount: '-49.00', assignment_mode: 'manual', amount_consistency_ok: false }],
               valuta_date: '2026-04-01',
               booking_date: '2026-04-01',
               amount: '-49.00',

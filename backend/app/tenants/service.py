@@ -11,7 +11,7 @@ from sqlmodel import select
 from sqlalchemy.exc import IntegrityError
 
 from app.auth.models import MandantUser
-from app.imports.models import ImportRun, JournalLine, ReviewItem
+from app.imports.models import ImportRun, JournalLine, JournalLineSplit, ReviewItem
 from app.partners.models import AuditLog, Partner, PartnerAccount, PartnerIban, PartnerName
 from app.services.models import Service, ServiceMatcher, ServiceTypeKeyword
 from app.services.service import ServiceManagementService
@@ -240,7 +240,7 @@ class MandantService:
     async def _delete_journal_scope(self, mandant_id: UUID, include_related_reviews: bool = True) -> list[CleanupPreviewItem]:
         account_ids = await self._select_ids(Account.id, Account.mandant_id == mandant_id)
         journal_line_ids = await self._select_ids_for_values(JournalLine.id, JournalLine.account_id, account_ids)
-        touched_service_ids = await self._select_ids_for_values(JournalLine.service_id, JournalLine.account_id, account_ids, skip_none=True)
+        touched_service_ids = await self._select_ids_for_values(JournalLineSplit.service_id, JournalLineSplit.journal_line_id, journal_line_ids, skip_none=True)
         deleted_items: list[CleanupPreviewItem] = []
 
         if include_related_reviews:

@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.auth.models import UserRole
-from app.imports.models import ReviewItem, utcnow
+from app.imports.models import JournalLineSplit, ReviewItem, utcnow
 from app.services.models import Service
 from tests.journal import (
     assign_user_to_mandant,
@@ -91,8 +91,11 @@ class TestListJournalLines:
         await db_session.commit()
         await db_session.refresh(service)
 
-        line.service_id = service.id
-        db_session.add(line)
+        db_session.add(JournalLineSplit(
+            journal_line_id=line.id, service_id=service.id,
+            amount=line.amount, assignment_mode="auto",
+            amount_consistency_ok=False, created_at=utcnow(), updated_at=utcnow(),
+        ))
 
         prior_year_line = await create_journal_line_db(
             db_session,
@@ -102,8 +105,11 @@ class TestListJournalLines:
             valuta_date="2025-11-20",
             amount=Decimal("48.00"),
         )
-        prior_year_line.service_id = service.id
-        db_session.add(prior_year_line)
+        db_session.add(JournalLineSplit(
+            journal_line_id=prior_year_line.id, service_id=service.id,
+            amount=Decimal("48.00"), assignment_mode="auto",
+            amount_consistency_ok=False, created_at=utcnow(), updated_at=utcnow(),
+        ))
         await db_session.commit()
 
         token = await get_auth_token(client, user, mandant)
@@ -114,7 +120,7 @@ class TestListJournalLines:
 
         assert resp.status_code == 200
         payload = resp.json()
-        assert payload["items"][0]["service_name"] == "Hosting"
+        assert payload["items"][0]["splits"][0]["service_name"] == "Hosting"
 
     async def test_hides_internal_import_metadata_from_unmapped_data(
         self, client: AsyncClient, db_session: AsyncSession
@@ -195,8 +201,11 @@ class TestListJournalLines:
             run.id,
             partner_id=partner.id,
         )
-        matching_line.service_id = service.id
-        db_session.add(matching_line)
+        db_session.add(JournalLineSplit(
+            journal_line_id=matching_line.id, service_id=service.id,
+            amount=matching_line.amount, assignment_mode="auto",
+            amount_consistency_ok=False, created_at=utcnow(), updated_at=utcnow(),
+        ))
 
         other_line = await create_journal_line_db(
             db_session,
@@ -218,7 +227,7 @@ class TestListJournalLines:
         data = resp.json()
         assert data["total"] == 1
         assert data["items"][0]["id"] == str(matching_line.id)
-        assert data["items"][0]["service_id"] == str(service.id)
+        assert data["items"][0]["splits"][0]["service_id"] == str(service.id)
 
     async def test_filter_by_year(
         self, client: AsyncClient, db_session: AsyncSession
@@ -618,8 +627,11 @@ class TestIncomeExpenseMatrix:
             valuta_date="2026-01-15",
             amount=Decimal("120.00"),
         )
-        line.service_id = service.id
-        db_session.add(line)
+        db_session.add(JournalLineSplit(
+            journal_line_id=line.id, service_id=service.id,
+            amount=Decimal("120.00"), assignment_mode="auto",
+            amount_consistency_ok=False, created_at=utcnow(), updated_at=utcnow(),
+        ))
 
         prior_year_line = await create_journal_line_db(
             db_session,
@@ -629,8 +641,11 @@ class TestIncomeExpenseMatrix:
             valuta_date="2025-11-20",
             amount=Decimal("48.00"),
         )
-        prior_year_line.service_id = service.id
-        db_session.add(prior_year_line)
+        db_session.add(JournalLineSplit(
+            journal_line_id=prior_year_line.id, service_id=service.id,
+            amount=Decimal("48.00"), assignment_mode="auto",
+            amount_consistency_ok=False, created_at=utcnow(), updated_at=utcnow(),
+        ))
         await db_session.commit()
 
         token = await get_auth_token(client, user, mandant)

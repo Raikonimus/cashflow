@@ -6,7 +6,7 @@ from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.models import UserRole
-from app.imports.models import JournalLine, ReviewItem, utcnow
+from app.imports.models import JournalLine, JournalLineSplit, ReviewItem, utcnow
 from app.services.models import Service, ServiceMatcher, ServiceMatcherType, ServiceType
 from app.services.service import ensure_base_service
 from tests.imports import (
@@ -100,8 +100,12 @@ class TestImportServiceAssignment:
 
         line = (await db_session.exec(select(JournalLine))).first()
         assert line is not None
-        assert line.service_id == service.id
-        assert line.service_assignment_mode == "auto"
+        split = (await db_session.exec(
+            select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
+        )).first()
+        assert split is not None
+        assert split.service_id == service.id
+        assert split.assignment_mode == "auto"
 
     async def test_import_uses_base_service_and_creates_review_on_multiple_matches(
         self,
@@ -144,8 +148,12 @@ class TestImportServiceAssignment:
 
         line = (await db_session.exec(select(JournalLine))).first()
         assert line is not None
-        assert line.service_id == base_service.id
-        assert line.service_assignment_mode == "auto"
+        split = (await db_session.exec(
+            select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
+        )).first()
+        assert split is not None
+        assert split.service_id == base_service.id
+        assert split.assignment_mode == "auto"
 
         review = (
             await db_session.exec(

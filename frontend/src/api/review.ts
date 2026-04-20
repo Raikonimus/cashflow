@@ -2,12 +2,18 @@ import { apiClient } from './client'
 
 export type ReviewStatus = 'open' | 'confirmed' | 'adjusted' | 'rejected' | 'all'
 
+export interface ReviewJournalLineSplit {
+  service_id: string
+  amount: string
+  assignment_mode: 'auto' | 'manual'
+  amount_consistency_ok: boolean
+}
+
 export interface ReviewJournalLine {
   id: string
   partner_id: string | null
   partner_name: string | null
-  service_id: string | null
-  service_assignment_mode: 'auto' | 'manual' | null
+  splits: ReviewJournalLineSplit[]
   valuta_date: string
   booking_date: string
   amount: string

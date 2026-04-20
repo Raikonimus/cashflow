@@ -7,7 +7,7 @@ from sqlmodel import select
 from uuid import UUID
 
 from app.auth.models import UserRole
-from app.imports.models import ImportRun, JournalLine, ReviewItem
+from app.imports.models import ImportRun, JournalLine, JournalLineSplit, ReviewItem
 from app.imports.models import utcnow as import_utcnow
 from app.partners.models import Partner, PartnerAccount, PartnerIban, PartnerName
 from app.services.models import Service, ServiceMatcher
@@ -410,7 +410,6 @@ class TestPartnerCRUD:
             account_id=account.id,
             import_run_id=import_run.id,
             partner_id=partner_id,
-            service_id=base_service.id,
             valuta_date="2026-04-01",
             booking_date="2026-04-01",
             amount=Decimal("-10.00"),
@@ -422,6 +421,13 @@ class TestPartnerCRUD:
         db_session.add(line)
         await db_session.commit()
         await db_session.refresh(line)
+
+        db_session.add(JournalLineSplit(
+            journal_line_id=line.id, service_id=base_service.id,
+            amount=Decimal("-10.00"), assignment_mode="auto",
+            amount_consistency_ok=False, created_at=import_utcnow(), updated_at=import_utcnow(),
+        ))
+        await db_session.commit()
 
         review = ReviewItem(
             mandant_id=mandant.id,
@@ -454,7 +460,10 @@ class TestPartnerCRUD:
 
         await db_session.refresh(line)
         assert line.partner_id is None
-        assert line.service_id is None
+        remaining_splits = (await db_session.exec(
+            select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
+        )).all()
+        assert remaining_splits == []
 
         ibans = (await db_session.exec(select(PartnerIban).where(PartnerIban.partner_id == partner_id))).all()
         accounts = (await db_session.exec(select(PartnerAccount).where(PartnerAccount.partner_id == partner_id))).all()

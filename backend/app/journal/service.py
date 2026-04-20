@@ -10,7 +10,7 @@ from sqlalchemy import func, or_, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
-from app.imports.models import JournalLine
+from app.imports.models import JournalLine, JournalLineSplit
 from app.partners.models import AuditLog, Partner
 from app.services.models import Service
 from app.services.models import ServiceGroupAssignment, ServiceGroupSection, ServiceType
@@ -158,7 +158,10 @@ class JournalService:
             query = query.where(JournalLine.partner_id == partner_id)
 
         if service_id is not None:
-            query = query.where(JournalLine.service_id == service_id)
+            query = query.join(
+                JournalLineSplit,
+                JournalLineSplit.journal_line_id == JournalLine.id,  # type: ignore[arg-type]
+            ).where(JournalLineSplit.service_id == service_id)
 
         if has_partner is True:
             query = query.where(JournalLine.partner_id.is_not(None))
@@ -200,7 +203,10 @@ class JournalService:
                 f"lower(coalesce(partners.display_name, partners.name, journal_lines.partner_name_raw, '')) {order_dir}"
             )
         elif sort_by == "service_name":
-            query = query.outerjoin(Service, Service.id == JournalLine.service_id)  # type: ignore[arg-type]
+            query = query.outerjoin(
+                JournalLineSplit,
+                JournalLineSplit.journal_line_id == JournalLine.id,  # type: ignore[arg-type]
+            ).outerjoin(Service, Service.id == JournalLineSplit.service_id)  # type: ignore[arg-type]
             order_expr = text(f"lower(coalesce(services.name, '')) {order_dir}")
         else:
             order_expr = text("valuta_date DESC")  # fallback
@@ -226,7 +232,22 @@ class JournalService:
                 if partner.id in partner_ids
             }
 
-        service_ids = {ln.service_id for ln in lines if ln.service_id}
+        service_ids = {sp.service_id for ln in lines for sp in []}
+        # Batch-load splits for the returned lines
+        line_ids_batch = [ln.id for ln in lines]
+        splits_by_line: dict[UUID, list[JournalLineSplit]] = {}
+        if line_ids_batch:
+            all_splits = (
+                await self._session.exec(
+                    select(JournalLineSplit).where(
+                        JournalLineSplit.journal_line_id.in_(line_ids_batch)  # type: ignore[attr-defined]
+                    )
+                )
+            ).all()
+            for sp in all_splits:
+                splits_by_line.setdefault(sp.journal_line_id, []).append(sp)
+
+        service_ids = {sp.service_id for sps in splits_by_line.values() for sp in sps}
         service_names: dict = {}
         if service_ids:
             s_res = await self._session.exec(
@@ -243,7 +264,16 @@ class JournalService:
                     **{k: v for k, v in ln.model_dump().items() if k != "unmapped_data"},
                     "unmapped_data": _sanitize_unmapped_data(ln.unmapped_data),
                 },
-                service_name=service_names.get(ln.service_id) if ln.service_id else None,
+                splits=[
+                    {
+                        "service_id": sp.service_id,
+                        "service_name": service_names.get(sp.service_id),
+                        "amount": sp.amount,
+                        "assignment_mode": sp.assignment_mode,
+                        "amount_consistency_ok": sp.amount_consistency_ok,
+                    }
+                    for sp in splits_by_line.get(ln.id, [])
+                ],
                 partner_name=partner_names.get(ln.partner_id) if ln.partner_id else None,
             )
             for ln in lines
@@ -367,10 +397,10 @@ class JournalService:
         if account_ids:
             line_rows = (
                 await self._session.exec(
-                    select(JournalLine.service_id, JournalLine.valuta_date, JournalLine.amount)
+                    select(JournalLineSplit.service_id, JournalLine.valuta_date, JournalLineSplit.amount)
+                    .join(JournalLine, JournalLine.id == JournalLineSplit.journal_line_id)  # type: ignore[arg-type]
                     .where(
                         col(JournalLine.account_id).in_(account_ids),
-                        JournalLine.service_id.is_not(None),
                         text("journal_lines.valuta_date LIKE :valuta_year").bindparams(valuta_year=f"{year:04d}-%"),
                         JournalLine.currency == base_currency,
                     )
@@ -378,19 +408,17 @@ class JournalService:
             ).all()
             service_year_rows = (
                 await self._session.exec(
-                    select(JournalLine.service_id, func.substr(JournalLine.valuta_date, 1, 4).label("year"))
-                    .where(
-                        col(JournalLine.account_id).in_(account_ids),
-                        JournalLine.service_id.is_not(None),
-                    )
+                    select(JournalLineSplit.service_id, func.substr(JournalLine.valuta_date, 1, 4).label("year"))
+                    .join(JournalLine, JournalLine.id == JournalLineSplit.journal_line_id)  # type: ignore[arg-type]
+                    .where(col(JournalLine.account_id).in_(account_ids))
                 )
             ).all()
             excluded_rows = (
                 await self._session.exec(
-                    select(JournalLine.currency, JournalLine.amount)
+                    select(JournalLine.currency, JournalLineSplit.amount)
+                    .join(JournalLineSplit, JournalLineSplit.journal_line_id == JournalLine.id)  # type: ignore[arg-type]
                     .where(
                         col(JournalLine.account_id).in_(account_ids),
-                        JournalLine.service_id.is_not(None),
                         text("journal_lines.valuta_date LIKE :valuta_year").bindparams(valuta_year=f"{year:04d}-%"),
                         JournalLine.currency != base_currency,
                     )
@@ -434,10 +462,10 @@ class JournalService:
         if excluded_rows:
             line_rows_excluded_with_service = (
                 await self._session.exec(
-                    select(JournalLine.service_id, JournalLine.amount)
+                    select(JournalLineSplit.service_id, JournalLineSplit.amount)
+                    .join(JournalLine, JournalLine.id == JournalLineSplit.journal_line_id)  # type: ignore[arg-type]
                     .where(
                         col(JournalLine.account_id).in_(account_ids),
-                        JournalLine.service_id.is_not(None),
                         text("journal_lines.valuta_date LIKE :valuta_year").bindparams(valuta_year=f"{year:04d}-%"),
                         JournalLine.currency != base_currency,
                     )
@@ -644,17 +672,31 @@ class JournalService:
             if partner is not None:
                 partner_name = partner.display_name or partner.name
 
-        service_name = None
-        if line.service_id is not None:
-            service = await self._session.get(Service, line.service_id)
-            if service is not None:
-                service_name = service.name
+        splits = (await self._session.exec(
+            select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
+        )).all()
+        split_svc_ids = {sp.service_id for sp in splits}
+        service_names_map: dict = {}
+        if split_svc_ids:
+            s_res = await self._session.exec(
+                select(Service.id, Service.name).where(col(Service.id).in_(split_svc_ids))
+            )
+            service_names_map = {sid: sname for sid, sname in s_res.all()}
 
         return JournalLineResponse(
             **{
                 **{key: value for key, value in line.model_dump().items() if key != "unmapped_data"},
                 "unmapped_data": _sanitize_unmapped_data(line.unmapped_data),
             },
-            service_name=service_name,
+            splits=[
+                {
+                    "service_id": sp.service_id,
+                    "service_name": service_names_map.get(sp.service_id),
+                    "amount": sp.amount,
+                    "assignment_mode": sp.assignment_mode,
+                    "amount_consistency_ok": sp.amount_consistency_ok,
+                }
+                for sp in splits
+            ],
             partner_name=partner_name,
         )

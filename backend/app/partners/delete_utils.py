@@ -5,7 +5,7 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.imports.models import JournalLine, ReviewItem
+from app.imports.models import JournalLine, JournalLineSplit, ReviewItem
 from app.partners.models import Partner, PartnerAccount, PartnerIban, PartnerName
 from app.services.models import Service, ServiceMatcher
 
@@ -51,23 +51,18 @@ async def delete_partner_clean(
     if journal_lines:
         for line in journal_lines:
             line.partner_id = None
-            line.service_id = None
-            line.service_assignment_mode = None
             session.add(line)
+        line_ids = [line.id for line in journal_lines if line.id is not None]
+        if line_ids:
+            await session.exec(  # type: ignore[attr-defined]
+                delete(JournalLineSplit).where(JournalLineSplit.journal_line_id.in_(line_ids))  # type: ignore[attr-defined]
+            )
 
     if service_ids:
-        service_lines = list(
-            (
-                await session.exec(
-                    select(JournalLine).where(JournalLine.service_id.in_(service_ids))
-                )
-            ).all()
+        # Splits löschen, die auf diese Services verweisen
+        await session.exec(  # type: ignore[attr-defined]
+            delete(JournalLineSplit).where(JournalLineSplit.service_id.in_(service_ids))  # type: ignore[attr-defined]
         )
-        for line in service_lines:
-            line.service_id = None
-            line.service_assignment_mode = None
-            session.add(line)
-
         await session.exec(delete(ReviewItem).where(ReviewItem.service_id.in_(service_ids)))
         await session.exec(delete(ServiceMatcher).where(ServiceMatcher.service_id.in_(service_ids)))
         await session.exec(delete(Service).where(Service.id.in_(service_ids)))

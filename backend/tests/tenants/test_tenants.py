@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.auth.models import UserRole
-from app.imports.models import ImportRun, JournalLine, ReviewItem, utcnow
+from app.imports.models import ImportRun, JournalLine, JournalLineSplit, ReviewItem, utcnow
 from app.partners.models import AuditLog, Partner, PartnerName
 from app.services.models import Service, ServiceMatcher, ServiceTypeKeyword
 from app.tenants.models import Account, ColumnMappingConfig, Mandant
@@ -150,7 +150,6 @@ class TestMandantCRUD:
             account_id=account.id,
             import_run_id=run.id,
             partner_id=partner.id,
-            service_id=service.id,
             valuta_date="2026-04-01",
             booking_date="2026-04-01",
             amount=Decimal("10.00"),
@@ -160,6 +159,13 @@ class TestMandantCRUD:
             created_at=utcnow(),
         )
         db_session.add(line)
+        await db_session.flush()
+
+        db_session.add(JournalLineSplit(
+            journal_line_id=line.id, service_id=service.id,
+            amount=Decimal("10.00"), assignment_mode="auto",
+            amount_consistency_ok=False, created_at=utcnow(), updated_at=utcnow(),
+        ))
         await db_session.flush()
 
         db_session.add(ReviewItem(mandant_id=mandant.id, item_type="service_assignment", journal_line_id=line.id, context={"reason": "multiple_matches"}, status="open", created_at=utcnow(), updated_at=utcnow()))

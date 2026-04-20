@@ -8,14 +8,20 @@ from pydantic import BaseModel
 
 # ─── Journal Lines ────────────────────────────────────────────────────────────
 
+class JournalLineSplitResponse(BaseModel):
+    service_id: UUID
+    service_name: Optional[str] = None
+    amount: Decimal
+    assignment_mode: str
+    amount_consistency_ok: bool
+
+
 class JournalLineResponse(BaseModel):
     id: UUID
     account_id: UUID
     import_run_id: UUID
     partner_id: Optional[UUID]
-    service_id: Optional[UUID] = None
-    service_name: Optional[str] = None
-    service_assignment_mode: Optional[str] = None
+    splits: list[JournalLineSplitResponse] = []
     partner_name: Optional[str] = None
     valuta_date: str
     booking_date: str

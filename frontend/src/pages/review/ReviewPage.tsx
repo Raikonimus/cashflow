@@ -265,7 +265,7 @@ function ReviewCard({
         ) : (
           <InfoTile title="Buchung" body={item.journal_line?.text ?? item.context.text ?? 'Kein Buchungstext vorhanden'} footer={item.journal_line?.partner_name_raw ?? item.context.partner_name_raw ?? 'Ohne Partnername'} />
         )}
-        <InfoTile title="Aktuell" body={resolveCurrentState(item)} footer={item.journal_line?.service_assignment_mode ? `Modus: ${item.journal_line.service_assignment_mode}` : undefined} />
+        <InfoTile title="Aktuell" body={resolveCurrentState(item)} footer={item.journal_line?.splits?.[0]?.assignment_mode ? `Modus: ${item.journal_line.splits[0].assignment_mode}` : undefined} />
         <InfoTile
           title="Vorschlag"
           body={resolveSuggestedState(item)}

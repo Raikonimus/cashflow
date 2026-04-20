@@ -57,4 +57,4 @@ async def set_service_amount_consistency_ok(
     body: ServiceAmountConsistencyLineStatusUpdateRequest,
     svc: TestingServiceDep,
 ) -> ServiceAmountConsistencyLineStatusResponse:
-    return await svc.set_service_amount_consistency_ok(mandant_id, line_id, is_ok=body.is_ok)
+    return await svc.set_service_amount_consistency_ok(mandant_id, line_id, body.split_service_id, is_ok=body.is_ok)

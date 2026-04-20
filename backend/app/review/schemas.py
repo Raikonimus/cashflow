@@ -12,8 +12,7 @@ class ReviewJournalLineSummary(BaseModel):
     id: UUID
     partner_id: UUID | None
     partner_name: str | None = None
-    service_id: UUID | None
-    service_assignment_mode: str | None
+    splits: list[dict] = []
     valuta_date: str
     booking_date: str
     amount: Decimal

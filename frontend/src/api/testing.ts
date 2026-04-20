@@ -1,13 +1,18 @@
 import { apiClient } from './client'
 
+export interface JournalLineSplit {
+  service_id: string
+  amount: string
+  assignment_mode: 'auto' | 'manual'
+  amount_consistency_ok: boolean
+}
+
 export interface AssignmentTestJournalLine {
   id: string
   account_id: string
   import_run_id: string
   partner_id: string | null
-  service_id: string | null
-  service_assignment_mode: string | null
-  service_amount_consistency_ok: boolean
+  splits: JournalLineSplit[]
   valuta_date: string
   booking_date: string
   amount: string
@@ -57,7 +62,8 @@ export interface ServiceAmountConsistencyTestResponse {
 
 export interface ServiceAmountConsistencyLineStatusResponse {
   journal_line_id: string
-  service_amount_consistency_ok: boolean
+  split_service_id: string
+  amount_consistency_ok: boolean
 }
 
 export async function runPartnerAssignmentTest(
@@ -81,11 +87,12 @@ export async function runServiceAmountConsistencyTest(
 export async function setServiceAmountConsistencyLineStatus(
   mandantId: string,
   lineId: string,
+  splitServiceId: string,
   isOk: boolean,
 ): Promise<ServiceAmountConsistencyLineStatusResponse> {
   const resp = await apiClient.post<ServiceAmountConsistencyLineStatusResponse>(
     `/mandants/${mandantId}/settings/tests/service-amount-consistency/lines/${lineId}/ok`,
-    { is_ok: isOk },
+    { split_service_id: splitServiceId, is_ok: isOk },
   )
   return resp.data
 }

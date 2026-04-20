@@ -11,7 +11,7 @@ from sqlalchemy import desc, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
-from app.imports.models import JournalLine, ReviewItem, utcnow
+from app.imports.models import JournalLine, JournalLineSplit, ReviewItem, utcnow
 from app.partners.models import AuditLog, Partner, PartnerIban
 from app.review.schemas import (
     AdjustReviewRequest,
@@ -136,11 +136,18 @@ class ReviewService:
         context = await self._enrich_context(item, item.context)
         assigned_journal_lines: list[ReviewJournalLineSummary] = []
         if item.item_type == "service_type_review" and item.service_id is not None:
+            splits = (
+                await self._session.exec(
+                    select(JournalLineSplit)
+                    .join(JournalLine, JournalLine.id == JournalLineSplit.journal_line_id)  # type: ignore[arg-type]
+                    .where(JournalLineSplit.service_id == item.service_id)
+                    .order_by(JournalLine.created_at)
+                )
+            ).all()
+            line_ids = list({sp.journal_line_id for sp in splits})
             lines = (
                 await self._session.exec(
-                    select(JournalLine)
-                    .where(JournalLine.service_id == item.service_id)
-                    .order_by(JournalLine.created_at)
+                    select(JournalLine).where(JournalLine.id.in_(line_ids))  # type: ignore[attr-defined]
                 )
             ).all()
             assigned_journal_lines = [await self._serialize_journal_line(line) for line in lines]
@@ -424,7 +431,16 @@ class ReviewService:
 
         target_service_id = self._parse_optional_uuid(item.context.get("proposed_service_id"))
         if target_service_id is None:
-            target_service_id = self._parse_optional_uuid(item.context.get("current_service_id")) or journal_line.service_id
+            target_service_id = self._parse_optional_uuid(item.context.get("current_service_id"))
+        if target_service_id is None:
+            # Fallback: erster Split der Zeile
+            first_split = (
+                await self._session.exec(
+                    select(JournalLineSplit).where(JournalLineSplit.journal_line_id == journal_line.id)
+                )
+            ).first()
+            if first_split is not None:
+                target_service_id = first_split.service_id
         if target_service_id is None:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="No target service available for confirmation")
 
@@ -469,7 +485,13 @@ class ReviewService:
         if journal_line is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found")
 
-        previous_service_id = journal_line.service_id
+        # Vorherige Service-ID aus erstem Split ermitteln
+        previous_split = (
+            await self._session.exec(
+                select(JournalLineSplit).where(JournalLineSplit.journal_line_id == journal_line.id)
+            )
+        ).first()
+        previous_service_id = previous_split.service_id if previous_split else None
 
         item.status = "adjusted"
         item.resolved_by = actor_id
@@ -672,13 +694,26 @@ class ReviewService:
             if partner is not None:
                 partner_name = partner.display_name or partner.name
 
+        splits = (
+            await self._session.exec(
+                select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
+            )
+        ).all()
+
         return ReviewJournalLineSummary.model_validate(
             {
                 "id": line.id,
                 "partner_id": line.partner_id,
                 "partner_name": partner_name,
-                "service_id": line.service_id,
-                "service_assignment_mode": line.service_assignment_mode,
+                "splits": [
+                    {
+                        "service_id": str(sp.service_id),
+                        "amount": str(sp.amount),
+                        "assignment_mode": sp.assignment_mode,
+                        "amount_consistency_ok": sp.amount_consistency_ok,
+                    }
+                    for sp in splits
+                ],
                 "valuta_date": line.valuta_date,
                 "booking_date": line.booking_date,
                 "amount": line.amount,

@@ -941,7 +941,7 @@ function JournalSection({ mandantId, partnerId }: { mandantId: string; partnerId
                   </div>
                 </td>
                 <td className="px-4 py-2 text-sm text-gray-600">
-                  {line.service_name ?? <span className="text-xs text-gray-400">—</span>}
+                  {line.splits[0]?.service_name ?? <span className="text-xs text-gray-400">—</span>}
                 </td>
                 <td className={`px-4 py-2 text-right font-mono text-sm whitespace-nowrap ${
                   Number(line.amount) < 0 ? 'text-red-600' : 'text-green-700'

@@ -150,13 +150,11 @@ async def create_journal_line_db(
     valuta_date: str = "2025-01-15",
     amount: Decimal = Decimal("100.00"),
     partner_name_raw: str | None = "Lieferant GmbH",
-    service_amount_consistency_ok: bool = False,
 ) -> JournalLine:
     line = JournalLine(
         account_id=account_id,
         import_run_id=import_run_id,
         partner_id=partner_id,
-        service_amount_consistency_ok=service_amount_consistency_ok,
         valuta_date=valuta_date,
         booking_date=valuta_date,
         amount=amount,

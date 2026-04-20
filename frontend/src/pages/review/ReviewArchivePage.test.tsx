@@ -59,7 +59,7 @@ beforeEach(() => {
         resolved_by: 'user-1',
         resolved_at: '2025-03-02T12:00:00Z',
         journal_line: {
-          id: 'line-1', partner_id: 'partner-1', service_id: 'service-1', service_assignment_mode: 'manual', valuta_date: '2025-03-01', booking_date: '2025-03-01', amount: '-50.00', currency: 'EUR', text: 'Hosting April', partner_name_raw: 'Amazon EU',
+          id: 'line-1', partner_id: 'partner-1', splits: [{ service_id: 'service-1', amount: '-50.00', assignment_mode: 'manual', amount_consistency_ok: false }], valuta_date: '2025-03-01', booking_date: '2025-03-01', amount: '-50.00', currency: 'EUR', text: 'Hosting April', partner_name_raw: 'Amazon EU',
         },
         service: null,
         assigned_journal_lines: [],

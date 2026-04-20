@@ -5,14 +5,19 @@ from uuid import UUID
 from pydantic import BaseModel
 
 
+class JournalLineSplitResponse(BaseModel):
+    service_id: UUID
+    amount: Decimal
+    assignment_mode: str
+    amount_consistency_ok: bool
+
+
 class AssignmentTestJournalLine(BaseModel):
     id: UUID
     account_id: UUID
     import_run_id: UUID
     partner_id: UUID | None
-    service_id: UUID | None
-    service_assignment_mode: str | None
-    service_amount_consistency_ok: bool
+    splits: list[JournalLineSplitResponse] = []
     valuta_date: str
     booking_date: str
     amount: Decimal
@@ -63,9 +68,11 @@ class ServiceAmountConsistencyTestResponse(BaseModel):
 
 
 class ServiceAmountConsistencyLineStatusUpdateRequest(BaseModel):
+    split_service_id: UUID
     is_ok: bool
 
 
 class ServiceAmountConsistencyLineStatusResponse(BaseModel):
     journal_line_id: UUID
-    service_amount_consistency_ok: bool
+    split_service_id: UUID
+    amount_consistency_ok: bool

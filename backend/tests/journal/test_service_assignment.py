@@ -6,7 +6,8 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.models import UserRole
-from app.imports.models import utcnow
+from app.imports.models import JournalLineSplit, utcnow
+from sqlmodel import select
 from app.services.models import Service
 from app.services.service import ensure_base_service
 from tests.journal import (
@@ -75,12 +76,15 @@ class TestManualServiceAssignment:
         )
         assert resp.status_code == 200
         payload = resp.json()
-        assert payload["service_id"] == str(service.id)
-        assert payload["service_assignment_mode"] == "manual"
+        assert any(sp["service_id"] == str(service.id) for sp in payload["splits"])
+        assert any(sp["assignment_mode"] == "manual" for sp in payload["splits"])
 
-        await db_session.refresh(line)
-        assert line.service_id == service.id
-        assert line.service_assignment_mode == "manual"
+        split = (await db_session.exec(
+            select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
+        )).first()
+        assert split is not None
+        assert split.service_id == service.id
+        assert split.assignment_mode == "manual"
 
     async def test_assign_service_rejects_service_from_other_partner(
         self,

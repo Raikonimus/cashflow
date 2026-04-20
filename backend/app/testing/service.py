@@ -7,13 +7,14 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.imports.models import JournalLine
+from app.imports.models import JournalLine, JournalLineSplit
 from app.partners.models import Partner, PartnerAccount, PartnerIban, PartnerName
 from app.services.models import Service, ServiceMatcher, ServiceMatcherType
 from app.tenants.models import Account
 from app.testing.schemas import (
     AssignmentMismatchItem,
     AssignmentTestJournalLine,
+    JournalLineSplitResponse,
     PartnerAssignmentTestResponse,
     ServiceAmountConsistencyItem,
     ServiceAmountConsistencyLineStatusResponse,
@@ -44,9 +45,11 @@ class TestingService:
         self,
         mandant_id: UUID,
         line_id: UUID,
+        split_service_id: UUID,
         *,
         is_ok: bool,
     ) -> ServiceAmountConsistencyLineStatusResponse:
+        # Verify the line belongs to this mandant
         line = (
             await self._session.exec(
                 select(JournalLine)
@@ -64,14 +67,30 @@ class TestingService:
                 detail="Journal line not found",
             )
 
-        line.service_amount_consistency_ok = is_ok
-        self._session.add(line)
+        split = (
+            await self._session.exec(
+                select(JournalLineSplit).where(
+                    JournalLineSplit.journal_line_id == line_id,
+                    JournalLineSplit.service_id == split_service_id,
+                )
+            )
+        ).first()
+
+        if split is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Split not found for this line and service",
+            )
+
+        split.amount_consistency_ok = is_ok
+        self._session.add(split)
         await self._session.commit()
-        await self._session.refresh(line)
+        await self._session.refresh(split)
 
         return ServiceAmountConsistencyLineStatusResponse(
-            journal_line_id=line.id,
-            service_amount_consistency_ok=line.service_amount_consistency_ok,
+            journal_line_id=line_id,
+            split_service_id=split_service_id,
+            amount_consistency_ok=split.amount_consistency_ok,
         )
 
     async def run_service_amount_consistency_test(
@@ -89,21 +108,31 @@ class TestingService:
         if not account_ids:
             return ServiceAmountConsistencyTestResponse(total_checked_services=0, inconsistent_services=[])
 
-        lines = list(
+        # Splits laden für alle Lines dieses Mandanten
+        all_splits = list(
             (
                 await self._session.exec(
-                    select(JournalLine).where(
-                        sa.literal_column('journal_lines.account_id').in_(account_ids),
-                        sa.literal_column('journal_lines.service_id').is_not(None),
-                    )
+                    select(JournalLineSplit)
+                    .join(JournalLine, JournalLine.id == JournalLineSplit.journal_line_id)  # type: ignore[arg-type]
+                    .join(Account, Account.id == JournalLine.account_id)  # type: ignore[arg-type]
+                    .where(Account.mandant_id == mandant_id)
                 )
             ).all()
         )
 
-        if not lines:
+        if not all_splits:
             return ServiceAmountConsistencyTestResponse(total_checked_services=0, inconsistent_services=[])
 
-        service_ids = {line.service_id for line in lines if line.service_id is not None}
+        # JournalLines für Datumsfelder nachladen
+        line_ids = list({sp.journal_line_id for sp in all_splits})
+        lines_by_id: dict[UUID, JournalLine] = {}
+        if line_ids:
+            lines_res = await self._session.exec(
+                select(JournalLine).where(JournalLine.id.in_(line_ids))  # type: ignore[attr-defined]
+            )
+            lines_by_id = {ln.id: ln for ln in lines_res.all()}
+
+        service_ids = {sp.service_id for sp in all_splits}
         services = list(
             (
                 await self._session.exec(
@@ -123,19 +152,18 @@ class TestingService:
             if service.id is not None
         }
 
-        lines_by_service: dict[UUID, list[JournalLine]] = {}
-        for line in lines:
-            if line.service_id is None:
-                continue
-            lines_by_service.setdefault(line.service_id, []).append(line)
+        # Splits nach service_id gruppieren
+        splits_by_service: dict[UUID, list[JournalLineSplit]] = {}
+        for sp in all_splits:
+            splits_by_service.setdefault(sp.service_id, []).append(sp)
 
         inconsistent_services: list[ServiceAmountConsistencyItem] = []
-        for service_id, service_lines in lines_by_service.items():
-            relevant_lines = [
-                line for line in service_lines if not line.service_amount_consistency_ok
+        for service_id, service_splits in splits_by_service.items():
+            relevant_splits = [
+                sp for sp in service_splits if not sp.amount_consistency_ok
             ]
-            positive_count = sum(1 for line in relevant_lines if line.amount > 0)
-            negative_count = sum(1 for line in relevant_lines if line.amount < 0)
+            positive_count = sum(1 for sp in relevant_splits if sp.amount > 0)
+            negative_count = sum(1 for sp in relevant_splits if sp.amount < 0)
             if positive_count == 0 or negative_count == 0:
                 continue
 
@@ -143,11 +171,18 @@ class TestingService:
             if service_meta is None:
                 continue
 
+            # Zugehörige JournalLines sortiert
+            split_line_ids = list({sp.journal_line_id for sp in service_splits})
             sorted_lines = sorted(
-                service_lines,
+                [lines_by_id[lid] for lid in split_line_ids if lid in lines_by_id],
                 key=lambda line: (line.booking_date, line.valuta_date, str(line.id)),
                 reverse=True,
             )
+            # Splits je Line für Response aufbauen
+            splits_by_line: dict[UUID, list[JournalLineSplit]] = {}
+            for sp in service_splits:
+                splits_by_line.setdefault(sp.journal_line_id, []).append(sp)
+
             inconsistent_services.append(
                 ServiceAmountConsistencyItem(
                     service_id=service_id,
@@ -156,7 +191,21 @@ class TestingService:
                     partner_name=service_meta["partner_name"],
                     positive_line_count=positive_count,
                     negative_line_count=negative_count,
-                    lines=[AssignmentTestJournalLine.model_validate(line) for line in sorted_lines],
+                    lines=[
+                        AssignmentTestJournalLine(
+                            **{k: v for k, v in ln.model_dump().items()},
+                            splits=[
+                                JournalLineSplitResponse(
+                                    service_id=sp.service_id,
+                                    amount=sp.amount,
+                                    assignment_mode=sp.assignment_mode,
+                                    amount_consistency_ok=sp.amount_consistency_ok,
+                                )
+                                for sp in splits_by_line.get(ln.id, [])
+                            ],
+                        )
+                        for ln in sorted_lines
+                    ],
                 )
             )
 
@@ -168,7 +217,7 @@ class TestingService:
         )
 
         return ServiceAmountConsistencyTestResponse(
-            total_checked_services=len(lines_by_service),
+            total_checked_services=len(splits_by_service),
             inconsistent_services=inconsistent_services,
         )
 
@@ -436,9 +485,12 @@ class TestingService:
                 expected_partner_name=partner_name_by_id.get(expected.partner_id),
                 current_partner_id=None,
                 current_partner_name=None,
-                current_service_id=line.service_id,
-                current_service_name=current_service_names.get(line.service_id) if line.service_id else None,
-                journal_line=AssignmentTestJournalLine.model_validate(line.model_dump()),
+                current_service_id=None,
+                current_service_name=None,
+                journal_line=AssignmentTestJournalLine(
+                    **{k: v for k, v in line.model_dump().items()},
+                    splits=[],
+                ),
             )
 
         if expected.partner_id == current_partner_id:
@@ -453,9 +505,12 @@ class TestingService:
                 expected_partner_name=None,
                 current_partner_id=current_partner_id,
                 current_partner_name=partner_name_by_id.get(current_partner_id),
-                current_service_id=line.service_id,
-                current_service_name=current_service_names.get(line.service_id) if line.service_id else None,
-                journal_line=AssignmentTestJournalLine.model_validate(line.model_dump()),
+                current_service_id=None,
+                current_service_name=None,
+                journal_line=AssignmentTestJournalLine(
+                    **{k: v for k, v in line.model_dump().items()},
+                    splits=[],
+                ),
             )
 
         return AssignmentMismatchItem(
@@ -470,9 +525,12 @@ class TestingService:
             expected_partner_name=partner_name_by_id.get(expected.partner_id),
             current_partner_id=current_partner_id,
             current_partner_name=partner_name_by_id.get(current_partner_id),
-            current_service_id=line.service_id,
-            current_service_name=current_service_names.get(line.service_id) if line.service_id else None,
-            journal_line=AssignmentTestJournalLine.model_validate(line.model_dump()),
+            current_service_id=line.partner_id,  # placeholder – service not on line anymore
+            current_service_name=None,
+            journal_line=AssignmentTestJournalLine(
+                **{k: v for k, v in line.model_dump().items()},
+                splits=[],
+            ),
         )
 
     @staticmethod

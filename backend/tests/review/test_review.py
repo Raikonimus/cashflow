@@ -9,7 +9,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth.models import UserRole
-from app.imports.models import JournalLine, ReviewItem, utcnow
+from app.imports.models import JournalLine, JournalLineSplit, ReviewItem, utcnow
 from app.partners.models import AuditLog, Partner, PartnerIban
 from app.services.models import Service, ServiceType
 
@@ -109,8 +109,6 @@ async def _create_service_assignment_review_item(
         account_id=uuid4(),
         import_run_id=uuid4(),
         partner_id=partner_id,
-        service_id=current_service_id,
-        service_assignment_mode="auto",
         valuta_date="2026-01-15",
         booking_date="2026-01-15",
         amount=Decimal("100.00"),
@@ -121,6 +119,14 @@ async def _create_service_assignment_review_item(
     )
     session.add(line)
     await session.flush()
+
+    if current_service_id is not None:
+        session.add(JournalLineSplit(
+            journal_line_id=line.id, service_id=current_service_id,
+            amount=Decimal("100.00"), assignment_mode="auto",
+            amount_consistency_ok=False, created_at=now, updated_at=now,
+        ))
+        await session.flush()
 
     item = ReviewItem(
         mandant_id=mandant_id,
@@ -168,8 +174,6 @@ async def _create_service_type_review_item(
             account_id=uuid4(),
             import_run_id=uuid4(),
             partner_id=partner_id,
-            service_id=service.id,
-            service_assignment_mode="auto",
             valuta_date="2026-01-31",
             booking_date="2026-01-31",
             amount=amount,
@@ -180,6 +184,14 @@ async def _create_service_type_review_item(
         )
         session.add(line)
         lines.append(line)
+    await session.flush()
+
+    for ln in lines:
+        session.add(JournalLineSplit(
+            journal_line_id=ln.id, service_id=service.id,
+            amount=ln.amount, assignment_mode="auto",
+            amount_consistency_ok=False, created_at=now, updated_at=now,
+        ))
     await session.flush()
 
     item = ReviewItem(
@@ -599,9 +611,12 @@ class TestReassignReviewItem:
         line, item = await _create_review_item(
             db_session, mandant.id, partner_id=old_partner.id
         )
-        line.service_id = current_service.id
-        line.service_assignment_mode = "auto"
-        db_session.add(line)
+        now = utcnow()
+        db_session.add(JournalLineSplit(
+            journal_line_id=line.id, service_id=current_service.id,
+            amount=line.amount, assignment_mode="auto", amount_consistency_ok=False,
+            created_at=now, updated_at=now,
+        ))
         await db_session.flush()
         db_session.add(
             ReviewItem(
@@ -758,7 +773,7 @@ class TestServiceAssignmentReviewItem:
         assert review_item["context"]["proposed_service_name"] == "Hosting"
         assert review_item["journal_line"]["id"] == str(line.id)
         assert review_item["journal_line"]["partner_name"] == "Amazon EU"
-        assert review_item["journal_line"]["service_id"] == str(current_service.id)
+        assert any(sp["service_id"] == str(current_service.id) for sp in review_item["journal_line"]["splits"])
 
     async def test_confirm_assigns_proposed_service_and_sets_manual_mode(
         self, client: AsyncClient, db_session: AsyncSession
@@ -786,9 +801,14 @@ class TestServiceAssignmentReviewItem:
         assert resp.status_code == 200
         assert resp.json()["status"] == "confirmed"
 
-        await db_session.refresh(line)
-        assert line.service_id == proposed_service.id
-        assert line.service_assignment_mode == "manual"
+        splits = (
+            await db_session.exec(
+                select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
+            )
+        ).all()
+        assert len(splits) == 1
+        assert splits[0].service_id == proposed_service.id
+        assert splits[0].assignment_mode == "manual"
 
     async def test_adjust_assigns_selected_service_and_sets_manual_mode(
         self, client: AsyncClient, db_session: AsyncSession
@@ -818,9 +838,14 @@ class TestServiceAssignmentReviewItem:
         assert resp.status_code == 200
         assert resp.json()["status"] == "adjusted"
 
-        await db_session.refresh(line)
-        assert line.service_id == selected_service.id
-        assert line.service_assignment_mode == "manual"
+        splits = (
+            await db_session.exec(
+                select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
+            )
+        ).all()
+        assert len(splits) == 1
+        assert splits[0].service_id == selected_service.id
+        assert splits[0].assignment_mode == "manual"
 
     async def test_adjust_rejects_service_from_other_partner(
         self, client: AsyncClient, db_session: AsyncSession
@@ -968,8 +993,12 @@ class TestServiceAssignmentReviewItem:
         assert resp.json()["status"] == "rejected"
 
         await db_session.refresh(line)
-        assert line.service_id == current_service.id
-        assert line.service_assignment_mode == "auto"
+        split = (await db_session.exec(
+            select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
+        )).first()
+        assert split is not None
+        assert split.service_id == current_service.id
+        assert split.assignment_mode == "auto"
 
 
 class TestServiceTypeReviewItem:
@@ -1250,21 +1279,26 @@ async def _create_partner_with_base_service(
 async def _add_journal_line_on_service(
     session: AsyncSession, partner_id, service_id, text: str = "Test"
 ) -> JournalLine:
+    now = utcnow()
     line = JournalLine(
         id=uuid4(),
         account_id=uuid4(),
         import_run_id=uuid4(),
         partner_id=partner_id,
-        service_id=service_id,
-        service_assignment_mode="auto",
         valuta_date="2026-03-01",
         booking_date="2026-03-01",
         amount=Decimal("-99.00"),
         currency="EUR",
         text=text,
-        created_at=utcnow(),
+        created_at=now,
     )
     session.add(line)
+    await session.flush()
+    session.add(JournalLineSplit(
+        journal_line_id=line.id, service_id=service_id,
+        amount=Decimal("-99.00"), assignment_mode="auto",
+        amount_consistency_ok=False, created_at=now, updated_at=now,
+    ))
     await session.commit()
     await session.refresh(line)
     return line
@@ -1326,8 +1360,12 @@ class TestManualServiceAssignmentReview:
 
         # Journal line should now point to other_service
         await db_session.refresh(line)
-        assert str(line.service_id) == str(other_service.id)
-        assert line.service_assignment_mode == "manual"
+        split = (await db_session.exec(
+            select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
+        )).first()
+        assert split is not None
+        assert str(split.service_id) == str(other_service.id)
+        assert split.assignment_mode == "manual"
 
     async def test_adjust_requires_service_id(
         self, client: AsyncClient, db_session: AsyncSession

@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.auth.models import UserRole
-from app.imports.models import ImportRun, ImportStatus, JournalLine, ReviewItem, utcnow
+from app.imports.models import ImportRun, ImportStatus, JournalLine, JournalLineSplit, ReviewItem, utcnow
 from app.services.models import ServiceGroup, ServiceGroupAssignment
 from app.tenants.models import Account
 from tests.partners.conftest import assign_user_to_mandant, create_mandant, create_user, get_auth_token
@@ -89,7 +89,6 @@ class TestServices:
                 account_id=account.id,
                 import_run_id=import_run.id,
                 partner_id=UUID(partner["id"]),
-                service_id=service_id,
                 valuta_date="2026-04-01",
                 booking_date="2026-04-01",
                 amount=Decimal("-50.00"),
@@ -99,12 +98,19 @@ class TestServices:
                 created_at=utcnow(),
             )
         )
+        await db_session.flush()
+        line1 = (await db_session.exec(select(JournalLine).where(JournalLine.text == "Hosting April"))).first()
+        if line1:
+            db_session.add(JournalLineSplit(
+                journal_line_id=line1.id, service_id=service_id,
+                amount=Decimal("-50.00"), assignment_mode="auto",
+                amount_consistency_ok=False, created_at=utcnow(), updated_at=utcnow(),
+            ))
         db_session.add(
             JournalLine(
                 account_id=account.id,
                 import_run_id=import_run.id,
                 partner_id=UUID(partner["id"]),
-                service_id=service_id,
                 valuta_date="2026-04-15",
                 booking_date="2026-04-15",
                 amount=Decimal("-75.00"),
@@ -114,6 +120,14 @@ class TestServices:
                 created_at=utcnow(),
             )
         )
+        await db_session.flush()
+        line2 = (await db_session.exec(select(JournalLine).where(JournalLine.text == "Hosting Mai"))).first()
+        if line2:
+            db_session.add(JournalLineSplit(
+                journal_line_id=line2.id, service_id=service_id,
+                amount=Decimal("-75.00"), assignment_mode="auto",
+                amount_consistency_ok=False, created_at=utcnow(), updated_at=utcnow(),
+            ))
         await db_session.commit()
 
         resp = await client.get(
@@ -351,8 +365,12 @@ class TestServices:
         assert matcher_resp.json()["internal_only"] is False
 
         await db_session.refresh(line)
-        assert str(line.service_id) == service_id
-        assert line.service_assignment_mode == "auto"
+        split = (await db_session.exec(
+            select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
+        )).first()
+        assert split is not None
+        assert str(split.service_id) == service_id
+        assert split.assignment_mode == "auto"
 
         review = (
             await db_session.exec(
@@ -401,8 +419,6 @@ class TestServices:
             account_id=account.id,
             import_run_id=run.id,
             partner_id=UUID(partner["id"]),
-            service_id=UUID(service_id),
-            service_assignment_mode="auto",
             valuta_date="2026-02-15",
             booking_date="2026-02-15",
             amount=Decimal("100.00"),
@@ -412,6 +428,12 @@ class TestServices:
             created_at=now,
         )
         db_session.add(line)
+        await db_session.flush()
+        db_session.add(JournalLineSplit(
+            journal_line_id=line.id, service_id=UUID(service_id),
+            amount=Decimal("100.00"), assignment_mode="auto",
+            amount_consistency_ok=False, created_at=now, updated_at=now,
+        ))
         await db_session.commit()
 
         preview_resp = await client.post(
@@ -457,8 +479,6 @@ class TestServices:
             account_id=account.id,
             import_run_id=run.id,
             partner_id=UUID(partner["id"]),
-            service_id=UUID(base_service_id),
-            service_assignment_mode="auto",
             valuta_date="2026-01-15",
             booking_date="2026-01-15",
             amount=Decimal("100.00"),
@@ -470,6 +490,13 @@ class TestServices:
         db_session.add(line)
         await db_session.commit()
         await db_session.refresh(line)
+
+        db_session.add(JournalLineSplit(
+            journal_line_id=line.id, service_id=UUID(base_service_id),
+            amount=Decimal("100.00"), assignment_mode="auto",
+            amount_consistency_ok=False, created_at=now, updated_at=now,
+        ))
+        await db_session.commit()
 
         first_service_resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
@@ -502,7 +529,11 @@ class TestServices:
         assert second_matcher_resp.status_code == 201
 
         await db_session.refresh(line)
-        assert str(line.service_id) == first_service_id
+        split = (await db_session.exec(
+            select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
+        )).first()
+        assert split is not None
+        assert str(split.service_id) == first_service_id
 
         review = (
             await db_session.exec(
@@ -561,8 +592,6 @@ class TestServices:
             account_id=account.id,
             import_run_id=run.id,
             partner_id=UUID(source_partner["id"]),
-            service_id=UUID(source_base_service_id),
-            service_assignment_mode="auto",
             valuta_date="2026-03-10",
             booking_date="2026-03-10",
             amount=Decimal("42.00"),
@@ -575,6 +604,13 @@ class TestServices:
         await db_session.commit()
         await db_session.refresh(foreign_line)
 
+        db_session.add(JournalLineSplit(
+            journal_line_id=foreign_line.id, service_id=UUID(source_base_service_id),
+            amount=Decimal("42.00"), assignment_mode="auto",
+            amount_consistency_ok=False, created_at=now, updated_at=now,
+        ))
+        await db_session.commit()
+
         matcher_resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/services/{service_id}/matchers",
             json={"pattern": "hosting", "pattern_type": "string", "internal_only": True},
@@ -585,7 +621,11 @@ class TestServices:
 
         await db_session.refresh(foreign_line)
         assert str(foreign_line.partner_id) == source_partner["id"]
-        assert str(foreign_line.service_id) == source_base_service_id
+        foreign_split = (await db_session.exec(
+            select(JournalLineSplit).where(JournalLineSplit.journal_line_id == foreign_line.id)
+        )).first()
+        assert foreign_split is not None
+        assert str(foreign_split.service_id) == source_base_service_id
 
     async def test_service_group_crud_and_assignment(self, client: AsyncClient, db_session: AsyncSession):
         user = await create_user(db_session, "acc-groups@test.com", UserRole.accountant)

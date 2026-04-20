@@ -1,14 +1,20 @@
 import { apiClient } from './client'
 
+export interface JournalLineSplit {
+  service_id: string
+  service_name: string | null
+  amount: string
+  assignment_mode: 'auto' | 'manual'
+  amount_consistency_ok: boolean
+}
+
 export interface JournalLine {
   id: string
   account_id: string
   import_run_id: string
   partner_id: string | null
   partner_name: string | null
-  service_id: string | null
-  service_name: string | null
-  service_assignment_mode?: string | null
+  splits: JournalLineSplit[]
   valuta_date: string
   booking_date: string
   amount: string

@@ -324,7 +324,7 @@ class PartnerService:
     ) -> "AccountPreviewResponse":
         """Gibt alle Buchungszeilen zurück, die zu dieser IBAN passen,
         aber NICHT zum angegebenen Partner gehören."""
-        from app.imports.models import JournalLine
+        from app.imports.models import JournalLine, JournalLineSplit
         from app.partners.schemas import AccountPreviewLineItem, AccountPreviewResponse
         from decimal import Decimal
 
@@ -358,20 +358,34 @@ class PartnerService:
         )
         lines = [ln for ln in lines if ln.account_id in account_ids]
 
+        # Splits vorladen (erste Split pro Zeile für Service-Name)
+        if lines:
+            line_ids_iban = [ln.id for ln in lines if ln.id is not None]
+            splits_result_iban = await self._session.exec(
+                select(JournalLineSplit).where(JournalLineSplit.journal_line_id.in_(line_ids_iban))  # type: ignore[attr-defined]
+            )
+            splits_by_line_iban: dict[UUID, UUID | None] = {}
+            for sp in splits_result_iban.all():
+                if sp.journal_line_id not in splits_by_line_iban:
+                    splits_by_line_iban[sp.journal_line_id] = sp.service_id
+        else:
+            splits_by_line_iban = {}
+
         partner_name_cache: dict[UUID | None, str | None] = {}
         service_name_cache: dict[UUID | None, str | None] = {None: None}
         partner_conflict_cache: dict[UUID, PartnerAssignmentCriteria] = {}
         matched: list[AccountPreviewLineItem] = []
         for line in lines:
+            svc_id = splits_by_line_iban.get(line.id) if line.id else None
             if line.partner_id not in partner_name_cache:
                 if line.partner_id is None:
                     partner_name_cache[None] = None
                 else:
                     p = await self._session.get(Partner, line.partner_id)
                     partner_name_cache[line.partner_id] = ((p.display_name or p.name) if p else None)
-            if line.service_id not in service_name_cache:
-                current_service = await self._session.get(Service, line.service_id)
-                service_name_cache[line.service_id] = current_service.name if current_service else None
+            if svc_id not in service_name_cache:
+                current_service = await self._session.get(Service, svc_id)
+                service_name_cache[svc_id] = current_service.name if current_service else None
             conflict_reasons: list[str] = []
             if line.partner_id is not None and line.partner_id != partner_id:
                 if line.partner_id not in partner_conflict_cache:
@@ -381,7 +395,7 @@ class PartnerService:
                 journal_line_id=line.id,
                 partner_name_raw=line.partner_name_raw,
                 current_partner_name=partner_name_cache.get(line.partner_id),
-                current_service_name=service_name_cache.get(line.service_id),
+                current_service_name=service_name_cache.get(svc_id),
                 has_conflicting_partner_criteria=bool(conflict_reasons),
                 conflicting_partner_criteria=conflict_reasons,
                 booking_date=line.booking_date,
@@ -561,20 +575,35 @@ class PartnerService:
         )
         lines = [ln for ln in lines if ln.account_id in account_ids]
 
+        # Splits vorladen (erste Split pro Zeile für Service-Name)
+        if lines:
+            line_ids_acct = [ln.id for ln in lines if ln.id is not None]
+            from app.imports.models import JournalLineSplit
+            splits_result_acct = await self._session.exec(
+                select(JournalLineSplit).where(JournalLineSplit.journal_line_id.in_(line_ids_acct))  # type: ignore[attr-defined]
+            )
+            splits_by_line_acct: dict[UUID, UUID | None] = {}
+            for sp in splits_result_acct.all():
+                if sp.journal_line_id not in splits_by_line_acct:
+                    splits_by_line_acct[sp.journal_line_id] = sp.service_id
+        else:
+            splits_by_line_acct = {}
+
         partner_name_cache: dict[UUID | None, str | None] = {}
         service_name_cache: dict[UUID | None, str | None] = {None: None}
         partner_conflict_cache: dict[UUID, PartnerAssignmentCriteria] = {}
         matched: list[AccountPreviewLineItem] = []
         for line in lines:
+            svc_id = splits_by_line_acct.get(line.id) if line.id else None
             if line.partner_id not in partner_name_cache:
                 if line.partner_id is None:
                     partner_name_cache[None] = None
                 else:
                     p = await self._session.get(Partner, line.partner_id)
                     partner_name_cache[line.partner_id] = ((p.display_name or p.name) if p else None)
-            if line.service_id not in service_name_cache:
-                current_service = await self._session.get(Service, line.service_id)
-                service_name_cache[line.service_id] = current_service.name if current_service else None
+            if svc_id not in service_name_cache:
+                current_service = await self._session.get(Service, svc_id)
+                service_name_cache[svc_id] = current_service.name if current_service else None
             conflict_reasons: list[str] = []
             if line.partner_id is not None and line.partner_id != partner_id:
                 if line.partner_id not in partner_conflict_cache:
@@ -584,7 +613,7 @@ class PartnerService:
                 journal_line_id=line.id,
                 partner_name_raw=line.partner_name_raw,
                 current_partner_name=partner_name_cache.get(line.partner_id),
-                current_service_name=service_name_cache.get(line.service_id),
+                current_service_name=service_name_cache.get(svc_id),
                 has_conflicting_partner_criteria=bool(conflict_reasons),
                 conflicting_partner_criteria=conflict_reasons,
                 booking_date=line.booking_date,

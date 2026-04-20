@@ -125,7 +125,7 @@ describe('ServiceManagementPage', () => {
               partner_name: 'Amazon EU',
               service_id: 'service-hosting',
               service_name: 'Hosting',
-              service_assignment_mode: 'manual',
+              splits: [{ service_id: 'service-hosting', service_name: 'Hosting', amount: '-99.90', assignment_mode: 'manual', amount_consistency_ok: false }],
               valuta_date: '2026-04-15',
               booking_date: '2026-04-15',
               amount: '-99.90',

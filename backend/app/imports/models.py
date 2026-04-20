@@ -43,9 +43,6 @@ class JournalLine(SQLModel, table=True):
     account_id: UUID = Field(foreign_key="accounts.id", index=True)
     import_run_id: UUID = Field(foreign_key="import_runs.id", index=True)
     partner_id: Optional[UUID] = Field(default=None, foreign_key="partners.id", index=True)
-    service_id: Optional[UUID] = Field(default=None, foreign_key="services.id", index=True)
-    service_assignment_mode: Optional[str] = Field(default=None, max_length=20)
-    service_amount_consistency_ok: bool = Field(default=False)
     valuta_date: str = Field(max_length=10)   # stored as ISO 8601 string DATE
     booking_date: str = Field(max_length=10)  # stored as ISO 8601 string DATE
     amount: Decimal = Field(sa_column=Column(Numeric(15, 2), nullable=False))
@@ -58,6 +55,19 @@ class JournalLine(SQLModel, table=True):
     partner_bic_raw: Optional[str] = Field(default=None, max_length=11)      # BIC/SWIFT
     unmapped_data: Any = Field(default=None, sa_column=Column(JSON, nullable=True))
     created_at: datetime = Field(default_factory=utcnow)
+
+
+class JournalLineSplit(SQLModel, table=True):
+    __tablename__ = "journal_line_splits"
+
+    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
+    journal_line_id: UUID = Field(foreign_key="journal_lines.id", index=True)
+    service_id: UUID = Field(foreign_key="services.id", index=True)
+    amount: Decimal = Field(sa_column=Column(Numeric(15, 2), nullable=False))
+    assignment_mode: str = Field(max_length=20)  # 'auto' | 'manual'
+    amount_consistency_ok: bool = Field(default=False)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
 
 
 class ReviewItem(SQLModel, table=True):

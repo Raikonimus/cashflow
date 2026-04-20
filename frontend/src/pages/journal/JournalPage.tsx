@@ -340,8 +340,8 @@ export function JournalPage() {
                   </div>
                 </td>
                 <td className="w-[18%] px-3 py-2 text-sm text-gray-600">
-                  <div className="truncate" title={line.service_name ?? undefined}>
-                    {line.service_name ?? <span className="text-xs text-gray-400">—</span>}
+                  <div className="truncate" title={line.splits[0]?.service_name ?? undefined}>
+                    {line.splits[0]?.service_name ?? <span className="text-xs text-gray-400">—</span>}
                   </div>
                 </td>
                 <td className="w-[24%] px-3 py-2">
@@ -450,8 +450,8 @@ export function JournalPage() {
                 ['BLZ (roh)', tooltip.line.partner_blz_raw],
                 ['BIC (roh)', tooltip.line.partner_bic_raw],
                 ['Partner-ID', tooltip.line.partner_id],
-                ['Leistung', tooltip.line.service_name],
-                ['Leistungs-ID', tooltip.line.service_id],
+                ['Leistung', tooltip.line.splits[0]?.service_name],
+                ['Leistungs-ID', tooltip.line.splits[0]?.service_id],
                 ['Erstellt', new Date(tooltip.line.created_at + 'Z').toLocaleString('de-DE', { timeZone: 'Europe/Vienna' })],
                 ...(tooltip.line.unmapped_data
                   ? Object.entries(tooltip.line.unmapped_data).filter(([key]) => !INTERNAL_UNMAPPED_DATA_KEYS.has(key))
