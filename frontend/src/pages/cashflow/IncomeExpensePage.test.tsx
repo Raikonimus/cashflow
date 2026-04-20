@@ -1049,9 +1049,9 @@ describe('IncomeExpensePage', () => {
 
     await waitFor(() => expect(screen.getByText('Beispiel GmbH / Jahresabo')).toBeInTheDocument())
 
-    fireEvent.click(screen.getByRole('button', { name: 'Mehrjahresübersicht' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mehrjahresansicht' }))
 
-    await waitFor(() => expect(screen.getByText('Mehrjahresübersicht')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Mehrjahresansicht')).toBeInTheDocument())
     await waitFor(() => expect(new Set(requestedYears)).toEqual(new Set([2024, 2025, 2026])))
     expect(screen.getAllByText('2024').length).toBeGreaterThan(0)
     expect(screen.getAllByText('2025').length).toBeGreaterThan(0)
@@ -1061,7 +1061,7 @@ describe('IncomeExpensePage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Zur Jahresansicht' }))
 
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Mehrjahresübersicht' })).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Mehrjahresansicht' })).toBeInTheDocument())
     expect(screen.getByRole('button', { name: '◀ Vorjahr' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Folgejahr ▶' })).toBeDisabled()
   })
@@ -1212,7 +1212,7 @@ describe('IncomeExpensePage', () => {
 
     await waitFor(() => expect(screen.getByText('Alpha GmbH / Mehrjahr')).toBeInTheDocument())
 
-    fireEvent.click(screen.getByRole('button', { name: 'Mehrjahresübersicht' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mehrjahresansicht' }))
 
     await waitFor(() => expect(screen.getByText('Ziel')).toBeInTheDocument())
 

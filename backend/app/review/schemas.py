@@ -75,16 +75,30 @@ class NewPartnerRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
 
 
+class ServiceSplitEntry(BaseModel):
+    service_id: UUID
+    amount: Decimal
+
+
 class AdjustReviewRequest(BaseModel):
     service_id: UUID | None = None
     service_type: ServiceType | None = None
     tax_rate: Decimal | None = Field(default=None, ge=Decimal("0.00"), le=Decimal("100.00"))
     erfolgsneutral: bool | None = None
+    splits: list[ServiceSplitEntry] | None = None
 
     @model_validator(mode="after")
     def validate_payload(self) -> "AdjustReviewRequest":
-        if self.service_id is not None and (self.service_type is not None or self.tax_rate is not None or self.erfolgsneutral is not None):
+        has_service_id = self.service_id is not None
+        has_service_type = self.service_type is not None
+        has_splits = bool(self.splits)
+
+        if has_splits and (has_service_id or has_service_type):
+            raise ValueError("splits cannot be combined with service_id or service_type")
+        if has_splits and len(self.splits) < 2:  # type: ignore[arg-type]
+            raise ValueError("splits must contain at least 2 entries")
+        if has_service_id and (has_service_type or self.tax_rate is not None or self.erfolgsneutral is not None):
             raise ValueError("service_id cannot be combined with service_type, tax_rate or erfolgsneutral")
-        if self.service_id is None and self.service_type is None:
-            raise ValueError("either service_id or service_type must be provided")
+        if not has_service_id and not has_service_type and not has_splits:
+            raise ValueError("either service_id, service_type, or splits must be provided")
         return self

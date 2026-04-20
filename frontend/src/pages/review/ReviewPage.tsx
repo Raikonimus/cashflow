@@ -149,7 +149,7 @@ function ReviewCard({
   onResolved: (message: string) => void | Promise<void>
   onError: (message: string) => void
 }) {
-  const [mode, setMode] = useState<'idle' | 'reassign' | 'new-partner' | 'service-select' | 'type-adjust'>('idle')
+  const [mode, setMode] = useState<'idle' | 'reassign' | 'new-partner' | 'service-select' | 'type-adjust' | 'service-split'>('idle')
   const [partnerQuery, setPartnerQuery] = useState('')
   const [partnerResults, setPartnerResults] = useState<PartnerListItem[]>([])
   const [newPartnerName, setNewPartnerName] = useState('')
@@ -158,6 +158,7 @@ function ReviewCard({
   )
   const [taxRateDraft, setTaxRateDraft] = useState(item.service?.tax_rate ?? '')
   const [erfolgsneutralDraft, setErfolgsneutralDraft] = useState(Boolean(item.service?.erfolgsneutral))
+  const [splitAmounts, setSplitAmounts] = useState<Record<string, string>>({})
 
   const confirmMutation = useMutation({
     mutationFn: () => confirmReviewItem(mandantId, item.id),
@@ -207,6 +208,23 @@ function ReviewCard({
     queryKey: ['partner-services', mandantId, item.journal_line?.partner_id],
     queryFn: () => listPartnerServices(mandantId, item.journal_line!.partner_id!),
     enabled: (mode === 'service-select' || item.item_type === 'manual_service_assignment') && !!item.journal_line?.partner_id,
+  })
+
+  const nonBaseServices = services.filter((s) => !s.is_base_service)
+
+  const splitEntries = nonBaseServices
+    .map((svc) => ({ serviceId: svc.id, amount: Number.parseFloat(splitAmounts[svc.id] || '0') }))
+    .filter((e) => !Number.isNaN(e.amount) && e.amount !== 0)
+  const splitSum = splitEntries.reduce((acc, e) => acc + e.amount, 0)
+  const lineAmount = Number.parseFloat(item.journal_line?.amount ?? '0')
+  const isSplitValid = splitEntries.length >= 2 && Math.abs(splitSum - lineAmount) < 0.005
+
+  const adjustSplitsMutation = useMutation({
+    mutationFn: () => adjustReviewItem(mandantId, item.id, {
+      splits: splitEntries.map((e) => ({ service_id: e.serviceId, amount: e.amount.toFixed(2) })),
+    }),
+    onSuccess: async () => onResolved('Buchung wurde auf mehrere Leistungen aufgeteilt.'),
+    onError: () => onError('Aufteilung konnte nicht gespeichert werden.'),
   })
 
   async function searchPartners(q: string) {
@@ -307,7 +325,7 @@ function ReviewCard({
             <div className="w-full">
               <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Leistung auswählen</p>
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                {(services as ServiceListItem[]).filter((s) => !s.is_base_service).map((service) => (
+                {nonBaseServices.map((service) => (
                   <button
                     key={service.id}
                     onClick={() => adjustServiceMutation.mutate(service.id)}
@@ -318,10 +336,20 @@ function ReviewCard({
                     <p className="mt-1 text-xs text-slate-500">{serviceTypeLabels[service.service_type]} · {service.tax_rate}%</p>
                   </button>
                 ))}
-                {(services as ServiceListItem[]).filter((s) => !s.is_base_service).length === 0 && (
+                {nonBaseServices.length === 0 && (
                   <p className="text-sm text-slate-400 col-span-3">Keine weiteren Leistungen vorhanden. Bitte zuerst im <Link to={`/partners/${item.journal_line?.partner_id}/services`} className="text-blue-600 hover:underline">Partner-Service-Manager</Link> anlegen.</p>
                 )}
               </div>
+              {nonBaseServices.length > 1 && (
+                <div className="mt-3">
+                  <button
+                    onClick={() => { setSplitAmounts({}); setMode('service-split') }}
+                    className="text-sm text-blue-600 hover:underline"
+                  >
+                    <i className="fa-solid fa-scissors mr-1" />Buchung auf mehrere Leistungen aufteilen
+                  </button>
+                </div>
+              )}
             </div>
           ) : isServiceTypeReview ? (
             <>
@@ -427,6 +455,46 @@ function ReviewCard({
             ))}
           </div>
           <button onClick={() => setMode('idle')} className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Abbrechen</button>
+        </div>
+      ) : null}
+
+      {mode === 'service-split' ? (
+        <div className="mt-4 rounded-2xl bg-slate-50 p-4">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Buchung aufteilen</p>
+          <div className="space-y-2">
+            {nonBaseServices.map((service) => (
+              <div key={service.id} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-slate-900 truncate">{service.name}</p>
+                  <p className="text-xs text-slate-500">{serviceTypeLabels[service.service_type]} · {service.tax_rate}%</p>
+                </div>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={splitAmounts[service.id] ?? ''}
+                  onChange={(e) => setSplitAmounts((prev) => ({ ...prev, [service.id]: e.target.value }))}
+                  placeholder="0.00"
+                  className="w-28 rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-right focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-xs text-slate-500">
+              Summe: <span className={Math.abs(splitSum - lineAmount) < 0.005 && splitEntries.length > 0 ? 'font-semibold text-emerald-600' : 'font-semibold text-slate-700'}>{formatCurrency(splitSum.toFixed(2), item.journal_line?.currency ?? 'EUR')}</span>
+              {' '}/ {formatCurrency(item.journal_line?.amount ?? '0', item.journal_line?.currency ?? 'EUR')}
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => adjustSplitsMutation.mutate()}
+                disabled={!isSplitValid || adjustSplitsMutation.isPending}
+                className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50"
+              >
+                Zuordnen
+              </button>
+              <button onClick={() => setMode('idle')} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-white">Abbrechen</button>
+            </div>
+          </div>
         </div>
       ) : null}
     </article>

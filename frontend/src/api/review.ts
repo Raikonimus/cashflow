@@ -185,7 +185,13 @@ export async function confirmReviewItem(
 export async function adjustReviewItem(
   mandantId: string,
   itemId: string,
-  payload: { service_id?: string; service_type?: string; tax_rate?: string; erfolgsneutral?: boolean },
+  payload: {
+    service_id?: string
+    service_type?: string
+    tax_rate?: string
+    erfolgsneutral?: boolean
+    splits?: { service_id: string; amount: string }[]
+  },
 ): Promise<ReviewItem> {
   const resp = await apiClient.post<ReviewItem>(
     `/mandants/${mandantId}/review/${itemId}/adjust`,

@@ -685,6 +685,12 @@ function ServiceJournalSection({
 
   const allExpanded = yearGroups.length > 0 && yearGroups.every(([year]) => expandedYears[year])
 
+  useEffect(() => {
+    if (yearGroups.length === 1) {
+      setExpandedYears({ [yearGroups[0][0]]: true })
+    }
+  }, [yearGroups.length])
+
   function toggleAllYears() {
     if (allExpanded) {
       setExpandedYears({})

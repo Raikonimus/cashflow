@@ -794,6 +794,41 @@ class ServiceManagementService:
         await self._clear_manual_service_assignment_review(line.id)
         await self.detect_service_type_for_service(mandant_id, service.id)
 
+    async def manually_assign_journal_line_splits(
+        self,
+        mandant_id: UUID,
+        line: JournalLine,
+        splits: list[tuple[UUID, Decimal]],
+    ) -> None:
+        """Ordnet eine Buchungszeile manuell mehreren Leistungen mit expliziten Beträgen zu."""
+        if line.partner_id is None:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Journal line has no partner")
+
+        if len(splits) < 2:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="At least 2 splits are required")
+
+        total = sum(amount for _, amount in splits)
+        line_amount = Decimal(str(line.amount))
+        if abs(total - line_amount) > Decimal("0.01"):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Split amounts do not sum to journal line amount")
+
+        seen_ids: set[UUID] = set()
+        for service_id, _ in splits:
+            if service_id in seen_ids:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Duplicate service_id in splits")
+            seen_ids.add(service_id)
+            service = await self._get_service(service_id, mandant_id)
+            if service.partner_id != line.partner_id:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Service does not belong to journal line partner")
+            if not self._is_service_valid_for_booking_date(service, line.booking_date):
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Service is not valid for journal line booking_date")
+
+        await self._replace_splits_with_amounts(line, splits, "manual")
+        await self._clear_service_assignment_review(line.id)
+        await self._clear_manual_service_assignment_review(line.id)
+        for service_id, _ in splits:
+            await self.detect_service_type_for_service(mandant_id, service_id)
+
     async def revalidate_partner_lines(self, partner_id: UUID) -> None:
         partner = await self._session.get(Partner, partner_id)
         if partner is None:
@@ -1460,6 +1495,34 @@ class ServiceManagementService:
         if pattern_kind == ServiceMatcherType.string.value:
             return pattern.lower() in text.lower()
         return re.search(pattern, text, re.IGNORECASE) is not None
+
+    async def _replace_splits_with_amounts(
+        self,
+        line: JournalLine,
+        service_amounts: list[tuple[UUID, Decimal]],
+        assignment_mode: str,
+    ) -> None:
+        """Ersetzt alle vorhandenen Splits durch neue mit expliziten Beträgen."""
+        existing_splits = (
+            await self._session.exec(
+                select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
+            )
+        ).all()
+        for split in existing_splits:
+            await self._session.delete(split)
+
+        now = _utcnow()
+        for sid, amount in service_amounts:
+            split = JournalLineSplit(
+                journal_line_id=line.id,
+                service_id=sid,
+                amount=amount,
+                assignment_mode=assignment_mode,
+                amount_consistency_ok=False,
+                created_at=now,
+                updated_at=now,
+            )
+            self._session.add(split)
 
     async def _replace_splits(
         self,
