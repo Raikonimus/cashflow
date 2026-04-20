@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { listJournalLines } from '@/api/journal'
@@ -138,7 +138,11 @@ export function ServiceManagementPage() {
   const [editMatcherForm, setEditMatcherForm] = useState<MatcherFormState>(emptyMatcherForm)
   const [previewForServiceId, setPreviewForServiceId] = useState<string | null>(null)
   const [previewResult, setPreviewResult] = useState<MatcherPreviewResponse | null>(null)
-  const [expandedServiceIds, setExpandedServiceIds] = useState<Record<string, boolean>>({})
+  const [expandedServiceIds, setExpandedServiceIds] = useState<Record<string, boolean>>(() => {
+    const params = new URLSearchParams(globalThis.location.search)
+    const expand = params.get('expand')
+    return expand ? { [expand]: true } : {}
+  })
 
   const isReadOnly = role === 'viewer'
 
@@ -618,6 +622,7 @@ function ServiceJournalSection({
   const sentinelRef = useRef<HTMLDivElement>(null)
   const [sortBy, setSortBy] = useState<ServiceJournalSortField>('valuta_date')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const [expandedYears, setExpandedYears] = useState<Record<number, boolean>>({})
 
   function toggleSort(field: ServiceJournalSortField) {
     if (sortBy === field) {
@@ -665,17 +670,33 @@ function ServiceJournalSection({
   const lines = data?.pages.flatMap((page) => page.items) ?? []
   const total = data?.pages[0]?.total ?? 0
 
-  function SortHeader({ field, label, align = 'left' }: { field: ServiceJournalSortField; label: string; align?: 'left' | 'right' }) {
-    const active = sortBy === field
-    return (
-      <th
-        className={`cursor-pointer select-none px-4 py-2 text-${align} hover:bg-gray-100`}
-        onClick={() => toggleSort(field)}
-      >
-        {label}
-        {active ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ' ↕'}
-      </th>
-    )
+  const yearGroups = useMemo(() => {
+    const map = new Map<number, { lines: typeof lines; sum: number; currency: string }>()
+    for (const line of lines) {
+      const year = Number.parseInt(line.valuta_date.substring(0, 4), 10)
+      if (!map.has(year)) map.set(year, { lines: [], sum: 0, currency: line.currency })
+      const group = map.get(year)
+      if (!group) continue
+      group.lines.push(line)
+      group.sum += Number(line.amount)
+    }
+    return Array.from(map.entries()).sort((a, b) => b[0] - a[0])
+  }, [lines])
+
+  const allExpanded = yearGroups.length > 0 && yearGroups.every(([year]) => expandedYears[year])
+
+  function toggleAllYears() {
+    if (allExpanded) {
+      setExpandedYears({})
+    } else {
+      const next: Record<number, boolean> = {}
+      for (const [year] of yearGroups) next[year] = true
+      setExpandedYears(next)
+    }
+  }
+
+  function toggleYear(year: number) {
+    setExpandedYears((prev) => ({ ...prev, [year]: !prev[year] }))
   }
 
   return (
@@ -685,7 +706,18 @@ function ServiceJournalSection({
           <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Buchungszeilen</h3>
           <p className="text-xs text-gray-400">Alle aktuell dieser Leistung zugeordneten Buchungszeilen für {serviceName}.</p>
         </div>
-        {total > 0 && <span className="text-xs text-gray-400">{total} gesamt</span>}
+        <div className="flex items-center gap-3">
+          {total > 0 && <span className="text-xs text-gray-400">{total} gesamt</span>}
+          {yearGroups.length > 1 && (
+            <button
+              type="button"
+              onClick={toggleAllYears}
+              className="rounded border border-gray-200 px-2 py-1 text-xs text-gray-500 hover:bg-gray-50"
+            >
+              {allExpanded ? 'Alle zuklappen' : 'Alle aufklappen'}
+            </button>
+          )}
+        </div>
       </div>
 
       {isLoading && (
@@ -700,45 +732,77 @@ function ServiceJournalSection({
         </p>
       )}
 
-      {lines.length > 0 && (
+      {yearGroups.length > 0 && (
         <table className="w-full table-fixed text-sm">
           <thead className="bg-gray-50 text-xs font-medium uppercase text-gray-500">
             <tr>
-              <SortHeader field="valuta_date" label="Valuta" />
+              <th className="cursor-pointer select-none px-4 py-2 text-left hover:bg-gray-100" onClick={() => toggleSort('valuta_date')}>
+                Valuta{sortBy === 'valuta_date' ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ' ↕'}
+              </th>
               <th className="w-[46%] cursor-pointer select-none px-4 py-2 text-left hover:bg-gray-100" onClick={() => toggleSort('text')}>
                 Text{sortBy === 'text' ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ' ↕'}
               </th>
-              <SortHeader field="booking_date" label="Buchung" />
-              <SortHeader field="amount" label="Betrag" align="right" />
+              <th className="cursor-pointer select-none px-4 py-2 text-left hover:bg-gray-100" onClick={() => toggleSort('booking_date')}>
+                Buchung{sortBy === 'booking_date' ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ' ↕'}
+              </th>
+              <th className="cursor-pointer select-none px-4 py-2 text-right hover:bg-gray-100" onClick={() => toggleSort('amount')}>
+                Betrag{sortBy === 'amount' ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ' ↕'}
+              </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
-            {lines.map((line) => (
-              <tr key={line.id} className="hover:bg-gray-50">
-                <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-gray-500">
-                  {line.valuta_date}
-                </td>
-                <td className="px-4 py-3 text-gray-700">
-                  <div className="line-clamp-2 break-words">
-                    {line.text ?? line.partner_name_raw ?? <em className="text-gray-400">—</em>}
-                  </div>
-                  {line.partner_name_raw && (
-                    <div className="mt-1 text-xs text-gray-400">Buchungsname: {line.partner_name_raw}</div>
-                  )}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-gray-500">
-                  {line.booking_date}
-                </td>
-                <td className={`whitespace-nowrap px-4 py-3 text-right font-mono text-sm ${
-                  Number(line.amount) < 0 ? 'text-red-600' : 'text-green-700'
-                }`}>
-                  {Number(line.amount).toLocaleString('de-DE', {
-                    style: 'currency',
-                    currency: line.currency,
-                  })}
-                </td>
-              </tr>
-            ))}
+          <tbody>
+            {yearGroups.map(([year, group]) => {
+              const isOpen = expandedYears[year] ?? false
+              const yearSum = group.sum.toLocaleString('de-DE', { style: 'currency', currency: group.currency })
+              return (
+                <>
+                  <tr
+                    key={`year-${year}`}
+                    className="cursor-pointer border-t-2 border-gray-200 bg-gray-50 hover:bg-gray-100"
+                    onClick={() => toggleYear(year)}
+                  >
+                    <td className="px-4 py-2" colSpan={2}>
+                      <div className="flex items-center gap-2 font-semibold text-gray-800">
+                        <span className="text-xs text-gray-400">{isOpen ? '▼' : '▶'}</span>
+                        <span>{year}</span>
+                        <span className="text-xs font-normal text-gray-400">{group.lines.length} Zeile{group.lines.length !== 1 ? 'n' : ''}{hasNextPage ? '+' : ''}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2 text-right" colSpan={2}>
+                      <span className={`font-semibold tabular-nums ${
+                        group.sum < 0 ? 'text-red-600' : 'text-green-700'
+                      }`}>{yearSum}</span>
+                    </td>
+                  </tr>
+                  {isOpen && group.lines.map((line) => (
+                    <tr key={line.id} className="border-t border-gray-100 hover:bg-gray-50">
+                      <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-gray-500">
+                        {line.valuta_date}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700">
+                        <div className="line-clamp-2 break-words">
+                          {line.text ?? line.partner_name_raw ?? <em className="text-gray-400">—</em>}
+                        </div>
+                        {line.partner_name_raw && (
+                          <div className="mt-1 text-xs text-gray-400">Buchungsname: {line.partner_name_raw}</div>
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-gray-500">
+                        {line.booking_date}
+                      </td>
+                      <td className={`whitespace-nowrap px-4 py-3 text-right font-mono text-sm ${
+                        Number(line.amount) < 0 ? 'text-red-600' : 'text-green-700'
+                      }`}>
+                        {Number(line.amount).toLocaleString('de-DE', {
+                          style: 'currency',
+                          currency: line.currency,
+                        })}
+                      </td>
+                    </tr>
+                  ))}
+                </>
+              )
+            })}
           </tbody>
         </table>
       )}

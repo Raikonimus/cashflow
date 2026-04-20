@@ -499,6 +499,7 @@ class JournalService:
                     services_in_group.append(
                         IncomeExpenseServiceRow(
                             service_id=service.id,
+                            partner_id=service.partner_id,
                             service_name=service.name,
                             partner_name=service_partner_name.get(service.id),
                             service_type=service.service_type,

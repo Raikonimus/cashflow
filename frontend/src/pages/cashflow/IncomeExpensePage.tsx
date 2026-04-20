@@ -1,7 +1,8 @@
 import { Fragment, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { faPenToSquare, faTrashCan } from '@fortawesome/free-regular-svg-icons'
+import { faPenToSquare, faTrashCan, faArrowUpRightFromSquare } from '@fortawesome/free-solid-svg-icons'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { getIncomeExpenseMatrix, listJournalYears } from '@/api/journal'
 import type { IncomeExpenseGroupRow, IncomeExpenseSection, MatrixCells } from '@/api/journal'
@@ -248,6 +249,7 @@ function buildMultiYearDisplaySections(
       const serviceYearlyValues = years.map((entryYear) => service.periodValuesByYear.get(entryYear) ?? '0.00')
       return {
         service_id: service.service_id,
+        partner_id: service.partner_id,
         service_name: service.service_name,
         partner_name: service.partner_name,
         service_type: service.service_type,
@@ -667,7 +669,17 @@ function SectionTable({
                         }}
                       >
                         <td className="sticky left-0 z-10 bg-white px-4 py-2 text-left">
-                          <span className="ml-6 block truncate" title={serviceDisplayName}>{serviceDisplayName}</span>
+                          <span className="ml-6 flex items-center gap-1 truncate" title={serviceDisplayName}>
+                            <span className="truncate">{serviceDisplayName}</span>
+                            <Link
+                              to={`/partners/${service.partner_id}/services?expand=${service.service_id}`}
+                              className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] text-gray-400 hover:bg-gray-200/70 hover:text-gray-700"
+                              title="Zur Leistungsdetailansicht"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <FontAwesomeIcon icon={faArrowUpRightFromSquare} />
+                            </Link>
+                          </span>
                         </td>
                       {service.periodValues.map((value, index) => (
                         <td
@@ -961,7 +973,10 @@ export function IncomeExpensePage() {
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-8 space-y-4">
       <header className="rounded-xl bg-gradient-to-r from-teal-700 to-emerald-700 px-5 py-4 text-white shadow">
-        <h1 className="text-2xl font-semibold">Einnahmen & Ausgaben nach Zahlungsprinzip</h1>
+        <div className="flex items-baseline justify-between gap-4">
+          <h1 className="text-2xl font-semibold">Einnahmen & Ausgaben</h1>
+          <span className="text-2xl font-semibold text-teal-200">nach Zahlungsprinzip</span>
+        </div>
         <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm text-teal-100">
             {viewMode === 'multi-year'
@@ -973,48 +988,53 @@ export function IncomeExpensePage() {
         {!canEdit && <p className="mt-2 text-xs text-teal-200">Read-only Modus: Gruppen und Zuordnungen sind nicht bearbeitbar.</p>}
       </header>
 
-      <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3">
+      <div className="flex items-center rounded-lg border border-gray-200 bg-white px-4 py-3">
         {viewMode === 'year' ? (
           <>
-            <button
-              type="button"
-              onClick={() => setYear((prev) => prev - 1)}
-              disabled={!canGoToPreviousYear}
-              className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 disabled:hover:bg-white"
-            >
-              ◀ Vorjahr
-            </button>
-            <div className="rounded bg-gray-100 px-3 py-1.5 font-semibold text-gray-800">{year}</div>
-            <button
-              type="button"
-              onClick={() => setYear((prev) => prev + 1)}
-              disabled={!canGoToNextYear}
-              className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 disabled:hover:bg-white"
-            >
-              Folgejahr ▶
-            </button>
+            <div className="flex items-center gap-3">
+              <div className="rounded bg-gray-100 px-3 py-1.5 font-semibold text-gray-800">Jahresansicht</div>
+              <button
+                type="button"
+                onClick={() => setYear((prev) => prev - 1)}
+                disabled={!canGoToPreviousYear}
+                className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 disabled:hover:bg-white"
+              >
+                ◀ Vorjahr
+              </button>
+              <div className="rounded bg-gray-100 px-3 py-1.5 font-semibold text-gray-800">{year}</div>
+              <button
+                type="button"
+                onClick={() => setYear((prev) => prev + 1)}
+                disabled={!canGoToNextYear}
+                className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 disabled:hover:bg-white"
+              >
+                Folgejahr ▶
+              </button>
+            </div>
             <button
               type="button"
               onClick={() => setViewMode('multi-year')}
               disabled={availableYears.length === 0}
-              className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 disabled:hover:bg-white"
+              className="ml-auto rounded border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 disabled:hover:bg-white"
             >
-              Mehrjahresübersicht
+              Mehrjahresansicht
             </button>
           </>
         ) : (
           <>
+            <div className="flex items-center gap-3">
+              <div className="rounded bg-gray-100 px-3 py-1.5 font-semibold text-gray-800">Mehrjahresansicht</div>
+              {availableYears.length > 0 && (
+                <div className="text-sm text-gray-500">{availableYears[0]} bis {availableYears.at(-1)}</div>
+              )}
+            </div>
             <button
               type="button"
               onClick={() => setViewMode('year')}
-              className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50"
+              className="ml-auto rounded border px-3 py-1.5 text-sm hover:bg-gray-50"
             >
               Zur Jahresansicht
             </button>
-            <div className="rounded bg-gray-100 px-3 py-1.5 font-semibold text-gray-800">Mehrjahresübersicht</div>
-            {availableYears.length > 0 && (
-              <div className="text-sm text-gray-500">{availableYears[0]} bis {availableYears.at(-1)}</div>
-            )}
           </>
         )}
       </div>

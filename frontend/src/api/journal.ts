@@ -93,6 +93,7 @@ export interface MatrixCells {
 
 export interface IncomeExpenseServiceRow {
   service_id: string
+  partner_id: string
   service_name: string
   partner_name: string | null
   service_type: string

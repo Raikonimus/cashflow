@@ -313,95 +313,103 @@ export function PartnerDetailPage() {
         </div>
       )}
 
-      {/* IBANs */}
-      <Section title="IBANs">
-        {partner.ibans.length === 0 && (
-          <p className="text-sm text-gray-400">Keine IBANs hinterlegt.</p>
-        )}
-        {partner.ibans.map((i) => (
-          <ItemRow
-            key={i.id}
-            label={<code className="font-mono text-sm">{i.iban}</code>}
-            onDelete={isReadOnly ? undefined : () => deleteIbanMutation.mutate(i.id)}
-          />
-        ))}
-        {!isReadOnly && (
-          <InlineAddIban
-            iban={newIban}
-            onIbanChange={(value) => {
-              setNewIban(value)
-              setIbanPreview(null)
-            }}
-            onPreview={() => previewIbanMutation.mutate()}
-            previewLoading={previewIbanMutation.isPending}
-            previewLines={ibanPreview}
-            onSubmit={() => addIbanMutation.mutate(!!ibanPreview && ibanPreview.some((line) => !line.already_assigned))}
-            loading={addIbanMutation.isPending}
-            error={addIbanMutation.isError ? 'IBAN bereits vergeben oder ungültig.' : undefined}
-          />
-        )}
-      </Section>
+      {/* Regeln zur Partnerzuordnung */}
+      <div className="mb-6 rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div className="border-b border-gray-100 px-5 py-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Regeln zur Partnerzuordnung</h2>
+        </div>
+        <div className="divide-y divide-gray-100">
+          <div className="px-5 py-4">
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">IBANs</h3>
+            {partner.ibans.length === 0 && (
+              <p className="text-sm text-gray-400">Keine IBANs hinterlegt.</p>
+            )}
+            {partner.ibans.map((i) => (
+              <ItemRow
+                key={i.id}
+                label={<code className="font-mono text-sm">{i.iban}</code>}
+                onDelete={isReadOnly ? undefined : () => deleteIbanMutation.mutate(i.id)}
+              />
+            ))}
+            {!isReadOnly && (
+              <InlineAddIban
+                iban={newIban}
+                onIbanChange={(value) => {
+                  setNewIban(value)
+                  setIbanPreview(null)
+                }}
+                onPreview={() => previewIbanMutation.mutate()}
+                previewLoading={previewIbanMutation.isPending}
+                previewLines={ibanPreview}
+                onSubmit={() => addIbanMutation.mutate(!!ibanPreview && ibanPreview.some((line) => !line.already_assigned))}
+                loading={addIbanMutation.isPending}
+                error={addIbanMutation.isError ? 'IBAN bereits vergeben oder ungültig.' : undefined}
+              />
+            )}
+          </div>
 
-      {/* Kontonummern */}
-      <Section title="Kontonummern">
-        {partner.accounts.length === 0 ? (
-          <p className="text-sm text-gray-400">Keine Kontonummern hinterlegt.</p>
-        ) : (
-          partner.accounts.map((a: PartnerAccount) => (
-            <ItemRow
-              key={a.id}
-              label={
-                <span className="font-mono text-sm">
-                  {a.account_number}
-                  {a.blz && <span className="ml-2 text-xs text-gray-400">BLZ {a.blz}</span>}
-                  {a.bic && <span className="ml-2 text-xs text-gray-400">{a.bic}</span>}
-                </span>
-              }
-              onDelete={isReadOnly ? undefined : () => deleteAccountMutation.mutate(a.id)}
-            />
-          ))
-        )}
-        {!isReadOnly && (
-          <InlineAddAccount
-            accountNumber={newAccountNumber}
-            blz={newBlz}
-            bic={newBic}
-            onAccountNumberChange={(v) => { setNewAccountNumber(v); setAccountPreview(null) }}
-            onBlzChange={(v) => { setNewBlz(v); setAccountPreview(null) }}
-            onBicChange={setNewBic}
-            onPreview={() => previewAccountMutation.mutate()}
-            previewLoading={previewAccountMutation.isPending}
-            previewLines={accountPreview}
-            onSubmit={() => addAccountMutation.mutate(!!accountPreview && accountPreview.some((l) => !l.already_assigned))}
-            loading={addAccountMutation.isPending}
-            error={addAccountMutation.isError ? 'Kontonummer bereits vergeben oder ungültig.' : undefined}
-          />
-        )}
-      </Section>
+          <div className="px-5 py-4">
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Kontonummern</h3>
+            {partner.accounts.length === 0 ? (
+              <p className="text-sm text-gray-400">Keine Kontonummern hinterlegt.</p>
+            ) : (
+              partner.accounts.map((a: PartnerAccount) => (
+                <ItemRow
+                  key={a.id}
+                  label={
+                    <span className="font-mono text-sm">
+                      {a.account_number}
+                      {a.blz && <span className="ml-2 text-xs text-gray-400">BLZ {a.blz}</span>}
+                      {a.bic && <span className="ml-2 text-xs text-gray-400">{a.bic}</span>}
+                    </span>
+                  }
+                  onDelete={isReadOnly ? undefined : () => deleteAccountMutation.mutate(a.id)}
+                />
+              ))
+            )}
+            {!isReadOnly && (
+              <InlineAddAccount
+                accountNumber={newAccountNumber}
+                blz={newBlz}
+                bic={newBic}
+                onAccountNumberChange={(v) => { setNewAccountNumber(v); setAccountPreview(null) }}
+                onBlzChange={(v) => { setNewBlz(v); setAccountPreview(null) }}
+                onBicChange={setNewBic}
+                onPreview={() => previewAccountMutation.mutate()}
+                previewLoading={previewAccountMutation.isPending}
+                previewLines={accountPreview}
+                onSubmit={() => addAccountMutation.mutate(!!accountPreview && accountPreview.some((l) => !l.already_assigned))}
+                loading={addAccountMutation.isPending}
+                error={addAccountMutation.isError ? 'Kontonummer bereits vergeben oder ungültig.' : undefined}
+              />
+            )}
+          </div>
 
-      {/* Namen */}
-      <Section title="Namensvarianten">
-        {partner.names.length === 0 && (
-          <p className="text-sm text-gray-400">Keine Namensvarianten hinterlegt.</p>
-        )}
-        {partner.names.map((n) => (
-          <ItemRow
-            key={n.id}
-            label={n.name}
-            onDelete={isReadOnly ? undefined : () => deleteNameMutation.mutate(n.id)}
-          />
-        ))}
-        {!isReadOnly && (
-          <InlineAdd
-            value={newName}
-            onChange={setNewName}
-            placeholder="Namensvariante eingeben"
-            onSubmit={() => addNameMutation.mutate()}
-            loading={addNameMutation.isPending}
-            error={addNameMutation.isError ? 'Name bereits vorhanden.' : undefined}
-          />
-        )}
-      </Section>
+          <div className="px-5 py-4">
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Namensvarianten</h3>
+            {partner.names.length === 0 && (
+              <p className="text-sm text-gray-400">Keine Namensvarianten hinterlegt.</p>
+            )}
+            {partner.names.map((n) => (
+              <ItemRow
+                key={n.id}
+                label={n.name}
+                onDelete={isReadOnly ? undefined : () => deleteNameMutation.mutate(n.id)}
+              />
+            ))}
+            {!isReadOnly && (
+              <InlineAdd
+                value={newName}
+                onChange={setNewName}
+                placeholder="Namensvariante eingeben"
+                onSubmit={() => addNameMutation.mutate()}
+                loading={addNameMutation.isPending}
+                error={addNameMutation.isError ? 'Name bereits vorhanden.' : undefined}
+              />
+            )}
+          </div>
+        </div>
+      </div>
 
       <Section title="Leistungen">
         <div className="mb-3 flex items-center justify-between gap-3">

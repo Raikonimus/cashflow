@@ -87,6 +87,7 @@ class MatrixCells(BaseModel):
 
 class IncomeExpenseServiceRow(BaseModel):
     service_id: UUID
+    partner_id: UUID
     service_name: str
     partner_name: str | None = None
     service_type: str
