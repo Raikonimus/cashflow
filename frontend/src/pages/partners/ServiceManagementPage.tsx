@@ -175,6 +175,7 @@ export function ServiceManagementPage() {
   const refreshServices = async () => {
     await queryClient.invalidateQueries({ queryKey: ['partner-services', mandantId, partnerId] })
     await queryClient.invalidateQueries({ queryKey: ['partners', mandantId] })
+    await queryClient.invalidateQueries({ queryKey: ['service-journal', mandantId] })
   }
 
   const createMutation = useMutation({
