@@ -246,8 +246,16 @@ async def preview_csv_columns(
     except UnicodeDecodeError:
         decoded = content.decode('utf-8', errors='replace')
 
-    detected = _detect_delimiter(decoded, fallback=delimiter)
-    reader = csv.DictReader(io.StringIO(decoded), delimiter=detected)
+    # Kopfzeilen vor der Spaltenueberschrift verwerfen - genauso wie beim Import,
+    # sonst konfiguriert man gegen eine andere Zeile als spaeter gelesen wird.
+    stream = io.StringIO(decoded)
+    for _ in range(skip_rows):
+        if not stream.readline():
+            break
+    remainder = stream.read()
+
+    detected = _detect_delimiter(remainder, fallback=delimiter)
+    reader = csv.DictReader(io.StringIO(remainder), delimiter=detected)
     columns = list(reader.fieldnames or [])
     sample_rows: list[dict[str, str]] = []
     for row in reader:

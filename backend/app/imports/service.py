@@ -288,8 +288,20 @@ class ImportService:
         decoded: str,
         mapping: ColumnMappingConfig,
     ) -> csv.DictReader:
-        effective_delimiter = _detect_delimiter(decoded, fallback=mapping.delimiter or ";")
-        return csv.DictReader(io.StringIO(decoded), delimiter=effective_delimiter)
+        """Baut den Reader und ueberspringt dabei die konfigurierten Kopfzeilen.
+
+        "Kopfzeilen ueberspringen" meint Zeilen VOR der Spaltenueberschrift - etwa
+        einen Titel oder Zeitraum, den manche Banken voranstellen. Die Erkennung des
+        Trennzeichens laeuft deshalb erst auf dem Rest, sonst verwirrt die Praeambel
+        den Sniffer.
+        """
+        stream = io.StringIO(decoded)
+        for _ in range(mapping.skip_rows or 0):
+            if not stream.readline():
+                break
+        remainder = stream.read()
+        effective_delimiter = _detect_delimiter(remainder, fallback=mapping.delimiter or ";")
+        return csv.DictReader(io.StringIO(remainder), delimiter=effective_delimiter)
 
     def _collect_lines_to_insert(
         self,
@@ -301,10 +313,9 @@ class ImportService:
         lines_to_insert: list[dict] = []
         errors: list[dict] = []
 
-        for row_num, row in enumerate(reader, start=1 + (mapping.skip_rows or 0)):
-            if row_num <= (mapping.skip_rows or 0):
-                continue
-
+        # row_num zaehlt Datenzeilen ab 1; die uebersprungenen Kopfzeilen und die
+        # Spaltenueberschrift sind zu diesem Zeitpunkt bereits verbraucht.
+        for row_num, row in enumerate(reader, start=1):
             try:
                 line_data = self._map_row(row, mapping, run_id, account_id, row_num)
                 if line_data is None:
