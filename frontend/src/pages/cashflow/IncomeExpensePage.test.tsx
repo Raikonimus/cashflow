@@ -5,6 +5,10 @@ import { http, HttpResponse } from 'msw'
 import { server } from '@/test/msw-server'
 import { useAuthStore } from '@/store/auth-store'
 import { IncomeExpensePage } from './IncomeExpensePage'
+import type { IncomeExpenseWorkbookInput } from './income-expense-excel'
+
+const downloadWorkbookMock = vi.hoisted(() => vi.fn())
+vi.mock('./income-expense-excel', () => ({ downloadIncomeExpenseWorkbook: downloadWorkbookMock }))
 
 const MANDANT_ID = 'mandant-1'
 
@@ -104,6 +108,7 @@ afterEach(() => {
 })
 
 beforeEach(() => {
+  downloadWorkbookMock.mockReset()
   server.use(
     http.get(`/api/v1/mandants/${MANDANT_ID}/journal/years`, () => HttpResponse.json({ years: [2026] })),
   )
@@ -249,7 +254,7 @@ describe('IncomeExpensePage', () => {
 
     const incomeSection = screen.getByRole('heading', { name: 'Einnahmen' }).closest('section')
     expect(incomeSection).not.toBeNull()
-    const incomeRows = within(incomeSection).getAllByRole('row')
+    const incomeRows = within(incomeSection!).getAllByRole('row')
     const incomeText = incomeRows.map((row) => row.textContent ?? '')
     const premiumIndex = incomeText.findIndex((text) => text.includes('Beispiel GmbH / Premium'))
     const beratungIndex = incomeText.findIndex((text) => text.includes('Beispiel GmbH / Beratung'))
@@ -1324,5 +1329,215 @@ describe('IncomeExpensePage', () => {
 
     expect(within(updatedIncomeSection).queryByText('Beispiel GmbH / Leistung 2025')).not.toBeInTheDocument()
     expect(within(updatedIncomeSection).getByRole('button', { name: '▶' })).toBeInTheDocument()
+  })
+
+
+  it('exportiert die Jahresansicht mit einem Tabellenblatt je Sektion', async () => {
+    setup('viewer')
+
+    server.use(
+      http.get(`/api/v1/mandants/${MANDANT_ID}/reports/income-expense`, () =>
+        HttpResponse.json(
+          buildIncomeMatrixResponse([
+            {
+              group_id: 'group-income',
+              group_name: 'Kunden',
+              sort_order: 1,
+              collapsed: false,
+              assigned_service_count: 2,
+              active_years: [2026],
+              subtotal_cells: makeCells('300.00'),
+              services: [
+                {
+                  service_id: 'service-small',
+                  service_name: 'Beratung',
+                  partner_name: 'Beispiel GmbH',
+                  service_type: 'customer',
+                  erfolgsneutral: false,
+                  cells: makeCells('100.00'),
+                },
+                {
+                  service_id: 'service-big',
+                  service_name: 'Premium',
+                  partner_name: 'Beispiel GmbH',
+                  service_type: 'customer',
+                  erfolgsneutral: false,
+                  cells: makeCells('200.00'),
+                },
+                {
+                  service_id: 'service-zero',
+                  service_name: 'Nullzeile',
+                  partner_name: 'Beispiel GmbH',
+                  service_type: 'customer',
+                  erfolgsneutral: false,
+                  cells: makeCells('0.00'),
+                },
+              ],
+            },
+          ], '300.00'),
+        ),
+      ),
+    )
+
+    await act(async () => {
+      renderPage()
+    })
+    await waitFor(() => expect(screen.getByText('Beispiel GmbH / Premium')).toBeInTheDocument())
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Export Excel/ }))
+    })
+
+    expect(downloadWorkbookMock).toHaveBeenCalledTimes(1)
+    const [input, fileName] = downloadWorkbookMock.mock.calls[0] as [IncomeExpenseWorkbookInput, string]
+
+    expect(fileName).toBe('Einnahmen-Ausgaben_2026.xlsx')
+    expect(input.subtitle).toBe('Jahresansicht 2026')
+    expect(input.sheets.map((sheet) => sheet.name)).toEqual([
+      'Einnahmen',
+      'Ausgaben',
+      'Erfolgsneutrale Zahlungen',
+    ])
+
+    const incomeSheet = input.sheets[0]
+    expect(incomeSheet.columns[0].label).toBe('Jahr')
+    expect(incomeSheet.columns).toHaveLength(13)
+    expect(incomeSheet.groups.map((group) => group.name)).toEqual(['Kunden'])
+    // Nullzeilen fliegen raus, der Rest ist wie in der Tabelle nach Jahressumme sortiert.
+    expect(incomeSheet.groups[0].services.map((service) => service.label)).toEqual([
+      'Beispiel GmbH / Premium',
+      'Beispiel GmbH / Beratung',
+    ])
+    expect(incomeSheet.groups[0].services[0].values[0]).toBe('200.00')
+  })
+
+  it('uebernimmt zugeklappte Gruppen in den Export', async () => {
+    setup('viewer')
+
+    server.use(
+      http.get(`/api/v1/mandants/${MANDANT_ID}/reports/income-expense`, () =>
+        HttpResponse.json(
+          buildIncomeMatrixResponse([
+            {
+              group_id: 'group-income',
+              group_name: 'Kunden',
+              sort_order: 1,
+              collapsed: false,
+              assigned_service_count: 1,
+              active_years: [2026],
+              subtotal_cells: makeCells('100.00'),
+              services: [
+                {
+                  service_id: 'service-income',
+                  service_name: 'Beratung',
+                  partner_name: 'Beispiel GmbH',
+                  service_type: 'customer',
+                  erfolgsneutral: false,
+                  cells: makeCells('100.00'),
+                },
+              ],
+            },
+          ]),
+        ),
+      ),
+    )
+
+    await act(async () => {
+      renderPage()
+    })
+    await waitFor(() => expect(screen.getByText('Beispiel GmbH / Beratung')).toBeInTheDocument())
+
+    const incomeSection = screen.getByRole('heading', { name: 'Einnahmen' }).closest('section')
+    if (!incomeSection) {
+      throw new Error('Income section not found')
+    }
+    fireEvent.click(within(incomeSection).getByRole('button', { name: '▼' }))
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Export Excel/ }))
+    })
+
+    const [input] = downloadWorkbookMock.mock.calls[0] as [IncomeExpenseWorkbookInput, string]
+    const group = input.sheets[0].groups[0]
+    expect(group.collapsed).toBe(true)
+    // Zugeklappt heisst in Excel "eingeklappte Gliederung", nicht "fehlt".
+    expect(group.services.map((service) => service.label)).toEqual(['Beispiel GmbH / Beratung'])
+  })
+
+  it('exportiert die Mehrjahresansicht mit einer Spalte je Jahr', async () => {
+    setup('viewer')
+
+    server.use(
+      http.get(`/api/v1/mandants/${MANDANT_ID}/journal/years`, () => HttpResponse.json({ years: [2025, 2026] })),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/reports/income-expense`, ({ request }) => {
+        const requestedYear = new URL(request.url).searchParams.get('year') ?? '2026'
+        return HttpResponse.json(
+          buildIncomeMatrixResponse([
+            {
+              group_id: 'group-income',
+              group_name: 'Kunden',
+              sort_order: 1,
+              collapsed: false,
+              assigned_service_count: 1,
+              active_years: [Number(requestedYear)],
+              subtotal_cells: makeCells('100.00'),
+              services: [
+                {
+                  service_id: 'service-income',
+                  service_name: 'Beratung',
+                  partner_name: 'Beispiel GmbH',
+                  service_type: 'customer',
+                  erfolgsneutral: false,
+                  cells: makeCells('100.00'),
+                },
+              ],
+            },
+          ]),
+        )
+      }),
+    )
+
+    await act(async () => {
+      renderPage()
+    })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Mehrjahresansicht' })).toBeEnabled())
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Mehrjahresansicht' }))
+    })
+    await waitFor(() => expect(screen.getByText('2025 bis 2026')).toBeInTheDocument())
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Export Excel/ }))
+    })
+
+    const [input, fileName] = downloadWorkbookMock.mock.calls[0] as [IncomeExpenseWorkbookInput, string]
+    expect(fileName).toBe('Einnahmen-Ausgaben_2025-2026.xlsx')
+    expect(input.subtitle).toBe('Mehrjahresansicht 2025-2026')
+    expect(input.sheets[0].columns.map((column) => column.label)).toEqual(['Gesamt', '2025', '2026'])
+    // Jahressumme pro Jahr, die Gesamtspalte rechnet Excel selbst.
+    expect(input.sheets[0].groups[0].services[0].values).toEqual(['200.00', '100.00', '100.00'])
+  })
+
+  it('meldet einen fehlgeschlagenen Export', async () => {
+    setup('viewer')
+    downloadWorkbookMock.mockRejectedValueOnce(new Error('boom'))
+
+    server.use(
+      http.get(`/api/v1/mandants/${MANDANT_ID}/reports/income-expense`, () =>
+        HttpResponse.json(buildIncomeMatrixResponse([])),
+      ),
+    )
+
+    await act(async () => {
+      renderPage()
+    })
+    await waitFor(() => expect(screen.getByRole('button', { name: /Export Excel/ })).toBeEnabled())
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Export Excel/ }))
+    })
+
+    expect(await screen.findByText('Excel-Export fehlgeschlagen. Bitte erneut versuchen.')).toBeInTheDocument()
   })
 })

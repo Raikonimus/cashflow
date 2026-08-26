@@ -2,13 +2,20 @@ import { Fragment, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { faPenToSquare, faTrashCan, faArrowUpRightFromSquare } from '@fortawesome/free-solid-svg-icons'
+import { faPenToSquare, faTrashCan, faArrowUpRightFromSquare, faFileExcel } from '@fortawesome/free-solid-svg-icons'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { getIncomeExpenseMatrix, listJournalYears } from '@/api/journal'
-import type { IncomeExpenseGroupRow, IncomeExpenseSection, MatrixCells } from '@/api/journal'
+import type {
+  IncomeExpenseGroupRow,
+  IncomeExpenseMatrixResponse,
+  IncomeExpenseSection,
+  IncomeExpenseServiceRow,
+  MatrixCells,
+} from '@/api/journal'
 import { assignServiceGroup, createServiceGroup, deleteServiceGroup, updateServiceGroup } from '@/api/services'
 import type { ServiceGroupSection } from '@/api/services'
 import { useAuthStore } from '@/store/auth-store'
+import type { ExcelSheet } from './income-expense-excel'
 
 const BASE_SERVICE_NAME = 'Basisleistung'
 const MONTH_KEYS: Array<keyof MatrixCells> = ['year_total', 'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
@@ -20,6 +27,7 @@ const SECTION_LABELS: Record<ServiceGroupSection, string> = {
   expense: 'Ausgaben',
   neutral: 'Erfolgsneutrale Zahlungen',
 }
+const SECTION_ORDER: ServiceGroupSection[] = ['income', 'expense', 'neutral']
 const EDIT_ROLES = new Set(['accountant', 'mandant_admin', 'admin'])
 const YEAR_COLUMN_INDEX = 0
 
@@ -113,11 +121,6 @@ function hasNonZeroPeriodValues(values: string[]): boolean {
   return values.some((value) => hasNonZeroAmount(value))
 }
 
-function hasNonZeroYearTotal(cells: MatrixCells): boolean {
-  const numeric = Number.parseFloat(cells.year_total.net)
-  return !Number.isNaN(numeric) && Math.abs(numeric) > 0.0000001
-}
-
 function getPeriodTotal(periodValues: string[]): number {
   return parseAmount(periodValues[0] ?? '0.00')
 }
@@ -137,7 +140,7 @@ function compareServicesByPeriodTotal(
   return rightTotal - leftTotal
 }
 
-function getServiceDisplayName(service: IncomeExpenseGroupRow['services'][number]): string {
+function getServiceDisplayName(service: Pick<IncomeExpenseServiceRow, 'service_name' | 'partner_name'>): string {
   if (service.partner_name) {
     if (service.service_name === BASE_SERVICE_NAME) {
       return service.partner_name
@@ -148,6 +151,53 @@ function getServiceDisplayName(service: IncomeExpenseGroupRow['services'][number
     return `${service.partner_name} / ${service.service_name}`
   }
   return service.service_name
+}
+
+/**
+ * Sichtbare Gruppen/Leistungen einer Sektion: Nullzeilen raus, Leistungen nach
+ * Periodensumme sortiert. Tabelle und Excel-Export teilen sich diese Auswahl,
+ * damit der Export exakt der angezeigten Seite entspricht.
+ */
+function selectVisibleGroups(
+  section: DisplaySection,
+  sectionKey: ServiceGroupSection,
+  canEdit: boolean,
+): DisplayGroupRow[] {
+  return section.groups
+    .map((group) => ({
+      ...group,
+      services: group.services
+        .filter((service) => hasNonZeroPeriodValues(service.periodValues))
+        .sort((left, right) => compareServicesByPeriodTotal(sectionKey, left, right)),
+    }))
+    .filter((group) => group.services.length > 0 || canEdit)
+}
+
+function buildExportSheets(
+  sections: DisplaySections,
+  columns: PeriodColumn[],
+  canEdit: boolean,
+  collapsedGroupsBySection: CollapsedGroupsBySection,
+): ExcelSheet[] {
+  return SECTION_ORDER.map((sectionKey) => {
+    const section = sections[sectionKey]
+    const collapsedGroups = collapsedGroupsBySection[sectionKey]
+    return {
+      name: SECTION_LABELS[sectionKey],
+      currency: section.currency,
+      columns,
+      excludedCurrencyCount: section.excluded_currency_count,
+      excludedCurrencyAmountGross: section.excluded_currency_amount_gross,
+      groups: selectVisibleGroups(section, sectionKey, canEdit).map((group) => ({
+        name: group.group_name,
+        collapsed: collapsedGroups.has(group.group_id),
+        services: group.services.map((service) => ({
+          label: getServiceDisplayName(service),
+          values: service.periodValues,
+        })),
+      })),
+    }
+  })
 }
 
 function toDisplaySection(section: IncomeExpenseSection): DisplaySection {
@@ -432,15 +482,8 @@ function SectionTable({
 }>) {
   const [dragOverGroupId, setDragOverGroupId] = useState<string | null>(null)
   const visibleGroups = useMemo(
-    () => section.groups
-      .map((group) => ({
-        ...group,
-        services: group.services
-          .filter((service) => hasNonZeroPeriodValues(service.periodValues))
-          .sort((left, right) => compareServicesByPeriodTotal(sectionKey, left, right)),
-      }))
-      .filter((group) => group.services.length > 0 || canEdit),
-    [canEdit, section.groups, sectionKey],
+    () => selectVisibleGroups(section, sectionKey, canEdit),
+    [canEdit, section, sectionKey],
   )
   const showTotals = hasNonZeroPeriodValues(section.totals)
   const excludedCurrencyAmount = Number.parseFloat(section.excluded_currency_amount_gross)
@@ -546,7 +589,7 @@ function SectionTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {visibleGroups.map((group: IncomeExpenseGroupRow) => {
+            {visibleGroups.map((group) => {
               const isCollapsed = collapsedGroups.has(group.group_id)
               const isPendingGroup = pendingGroupIds.includes(group.group_id)
               const isDropTarget = dragOverGroupId === group.group_id
@@ -715,6 +758,25 @@ function SectionTable({
   )
 }
 
+function ExcelExportButton({
+  disabled,
+  busy,
+  onExport,
+}: Readonly<{ disabled: boolean; busy: boolean; onExport: () => void }>) {
+  return (
+    <button
+      type="button"
+      onClick={onExport}
+      disabled={disabled || busy}
+      title="Die aktuell angezeigte Ansicht als Excel-Datei herunterladen"
+      className="flex items-center gap-2 rounded border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 disabled:hover:bg-white"
+    >
+      <FontAwesomeIcon icon={faFileExcel} aria-hidden="true" className="h-3.5 w-3.5" />
+      {busy ? 'Export läuft...' : 'Export Excel'}
+    </button>
+  )
+}
+
 export function IncomeExpensePage() {
   const mandantId = useAuthStore((s) => s.user?.mandant_id ?? '')
   const role = useAuthStore((s) => s.user?.role ?? '')
@@ -727,6 +789,8 @@ export function IncomeExpensePage() {
   const [newGroupName, setNewGroupName] = useState('')
   const [renameGroupName, setRenameGroupName] = useState('')
   const [pendingGroupIds, setPendingGroupIds] = useState<string[]>([])
+  const [isExporting, setIsExporting] = useState(false)
+  const [exportFailed, setExportFailed] = useState(false)
   const [collapsedGroupsBySection, setCollapsedGroupsBySection] = useState<CollapsedGroupsBySection>({
     income: new Set(),
     expense: new Set(),
@@ -787,6 +851,14 @@ export function IncomeExpensePage() {
       ...MONTH_KEYS.slice(1).map((key, index) => ({ key, label: HEADERS[index + 1] })),
     ]
   }, [availableYears, viewMode])
+
+  const exportPeriod = useMemo(() => {
+    if (viewMode === 'multi-year') {
+      const range = availableYears.length > 0 ? `${availableYears[0]}-${availableYears.at(-1)}` : 'alle-Jahre'
+      return { label: `Mehrjahresansicht ${range}`, fileSuffix: range }
+    }
+    return { label: `Jahresansicht ${year}`, fileSuffix: String(year) }
+  }, [availableYears, viewMode, year])
 
   const isLoading = viewMode === 'multi-year' ? multiYearMatrixQuery.isLoading : yearMatrixQuery.isLoading
   const isError = viewMode === 'multi-year' ? multiYearMatrixQuery.isError : yearMatrixQuery.isError
@@ -963,6 +1035,30 @@ export function IncomeExpensePage() {
     })
   }
 
+  async function handleExportExcel() {
+    if (!sections) {
+      return
+    }
+    setIsExporting(true)
+    setExportFailed(false)
+    try {
+      // Dynamischer Import: ExcelJS landet in einem eigenen Chunk und wird erst
+      // beim ersten Export geladen.
+      const { downloadIncomeExpenseWorkbook } = await import('./income-expense-excel')
+      await downloadIncomeExpenseWorkbook(
+        {
+          subtitle: exportPeriod.label,
+          sheets: buildExportSheets(sections, periodColumns, canEdit, collapsedGroupsBySection),
+        },
+        `Einnahmen-Ausgaben_${exportPeriod.fileSuffix}.xlsx`,
+      )
+    } catch {
+      setExportFailed(true)
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   function setCollapsedGroupsForSection(section: ServiceGroupSection, updater: (prev: Set<string>) => Set<string>) {
     setCollapsedGroupsBySection((prev) => ({
       ...prev,
@@ -1011,14 +1107,17 @@ export function IncomeExpensePage() {
                 Folgejahr ▶
               </button>
             </div>
-            <button
-              type="button"
-              onClick={() => setViewMode('multi-year')}
-              disabled={availableYears.length === 0}
-              className="ml-auto rounded border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 disabled:hover:bg-white"
-            >
-              Mehrjahresansicht
-            </button>
+            <div className="ml-auto flex items-center gap-2">
+              <ExcelExportButton disabled={!sections || isLoading || isError} busy={isExporting} onExport={handleExportExcel} />
+              <button
+                type="button"
+                onClick={() => setViewMode('multi-year')}
+                disabled={availableYears.length === 0}
+                className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 disabled:hover:bg-white"
+              >
+                Mehrjahresansicht
+              </button>
+            </div>
           </>
         ) : (
           <>
@@ -1028,13 +1127,16 @@ export function IncomeExpensePage() {
                 <div className="text-sm text-gray-500">{availableYears[0]} bis {availableYears.at(-1)}</div>
               )}
             </div>
-            <button
-              type="button"
-              onClick={() => setViewMode('year')}
-              className="ml-auto rounded border px-3 py-1.5 text-sm hover:bg-gray-50"
-            >
-              Zur Jahresansicht
-            </button>
+            <div className="ml-auto flex items-center gap-2">
+              <ExcelExportButton disabled={!sections || isLoading || isError} busy={isExporting} onExport={handleExportExcel} />
+              <button
+                type="button"
+                onClick={() => setViewMode('year')}
+                className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50"
+              >
+                Zur Jahresansicht
+              </button>
+            </div>
           </>
         )}
       </div>
@@ -1046,6 +1148,12 @@ export function IncomeExpensePage() {
       {isError && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-6 py-4 text-sm text-red-700">
           Fehler beim Laden der Matrix: {error instanceof Error ? error.message : 'Unbekannter Fehler'}
+        </div>
+      )}
+
+      {exportFailed && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-6 py-4 text-sm text-red-700">
+          Excel-Export fehlgeschlagen. Bitte erneut versuchen.
         </div>
       )}
 

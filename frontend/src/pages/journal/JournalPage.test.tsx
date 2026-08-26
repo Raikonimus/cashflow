@@ -142,7 +142,7 @@ describe('JournalPage', () => {
     const infoButton = container.querySelector('button svg')?.parentElement as HTMLButtonElement
     expect(infoButton).not.toBeNull()
 
-    fireEvent.mouseEnter(infoButton.parentElement)
+    fireEvent.mouseEnter(infoButton.parentElement!)
 
     await waitFor(() => expect(screen.getByText('Buchungsreferenz')).toBeInTheDocument())
     expect(screen.queryByText(/_cashflow_source_values/)).not.toBeInTheDocument()
