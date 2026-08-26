@@ -640,6 +640,12 @@ class ServiceManagementService:
             preferred_group = next((group for group in section_groups if group.name == preferred_name), None)
             if preferred_group is not None:
                 return preferred_group
+        # Bevorzugte Standardgruppe existiert nicht (z. B. umbenannt): auf eine Standardgruppe
+        # der Sektion ausweichen statt auf die erste beliebige. Sonst wird die Gruppe mit dem
+        # niedrigsten sort_order zum Auffangbecken fuer alle neuen Leistungen.
+        fallback_group = next((group for group in section_groups if group.is_default), None)
+        if fallback_group is not None:
+            return fallback_group
         return section_groups[0]
 
     async def ensure_service_group_assignment(

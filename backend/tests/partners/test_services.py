@@ -900,3 +900,70 @@ class TestServices:
         assert group_after.name == "Zinserträge", (
             f"Service-Zuweisung wurde fälschlicherweise von 'Zinserträge' nach '{group_after.name}' verschoben"
         )
+
+    async def test_new_service_falls_back_to_default_group_not_first_group(self, client: AsyncClient, db_session: AsyncSession):
+        """Regression test: existiert die bevorzugte Standardgruppe nicht mehr (umbenannt),
+        darf eine neue Leistung nicht in der Gruppe mit dem niedrigsten sort_order landen,
+        sondern in der Standardgruppe der Sektion."""
+        user = await create_user(db_session, "acc-fallback@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        headers = {"Authorization": f"Bearer {token}"}
+        partner = await create_partner(client, token, mandant.id, name="Wiener Tourismusverband")
+
+        # Erste Kundenleistung -> ensure_default_groups erzeugt "Kunden" (is_default=True)
+        first_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            json={"name": "Concierge", "service_type": "customer", "tax_rate": "20.00"},
+            headers=headers,
+        )
+        assert first_resp.status_code == 201
+
+        # Eigene Fachgruppe mit sort_order 0 -> steht in der sortierten Liste vor "Kunden"
+        custom_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/service-groups",
+            json={"section": "income", "name": "AI Concierge", "sort_order": 0},
+            headers=headers,
+        )
+        assert custom_resp.status_code == 201
+
+        # "Kunden" umbenennen -> bevorzugter Standardname existiert nicht mehr
+        income_groups = (await client.get(
+            f"/api/v1/mandants/{mandant.id}/service-groups",
+            params={"section": "income"},
+            headers=headers,
+        )).json()
+        kunden_group = next(group for group in income_groups if group["name"] == "Kunden")
+        rename_resp = await client.patch(
+            f"/api/v1/mandants/{mandant.id}/service-groups/{kunden_group['id']}",
+            json={"name": "Sonstige Einnahmen"},
+            headers=headers,
+        )
+        assert rename_resp.status_code == 200
+
+        # Neue Kundenleistung anlegen
+        second_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            json={"name": "Consulting", "service_type": "customer", "tax_rate": "20.00"},
+            headers=headers,
+        )
+        assert second_resp.status_code == 201
+        second_service_id = second_resp.json()["id"]
+
+        rows = (
+            await db_session.exec(
+                select(ServiceGroup.name, ServiceGroup.is_default)
+                .join(ServiceGroupAssignment, ServiceGroup.id == ServiceGroupAssignment.service_group_id)
+                .where(
+                    ServiceGroupAssignment.mandant_id == mandant.id,
+                    ServiceGroupAssignment.service_id == UUID(second_service_id),
+                )
+            )
+        ).all()
+        assert len(rows) == 1
+        group_name, group_is_default = rows[0]
+        assert group_name == "Sonstige Einnahmen", (
+            f"Neue Leistung landete in '{group_name}' statt in der Standardgruppe der Sektion"
+        )
+        assert group_is_default is True
