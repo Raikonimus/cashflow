@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { useAuthStore } from '@/store/auth-store'
+import { UnidentifiedGroupsPanel } from './UnidentifiedGroupsPanel'
 import { adjustReviewItem, confirmReviewItem, listReviewItems, newPartnerReviewItem, rejectReviewItem, reassignReviewItem } from '@/api/review'
 import type { NoPartnerDiagnosis, ReviewItem } from '@/api/review'
 import { listPartners } from '@/api/partners'
@@ -76,6 +77,10 @@ export function ReviewPage() {
       </div>
 
       {notice ? <InlineNotice tone={notice.tone} message={notice.message} /> : null}
+
+      {(activeTab === 'all' || activeTab === 'no_partner') && (
+        <UnidentifiedGroupsPanel onNotice={(tone, message) => setNotice({ tone, message })} />
+      )}
 
       <div className="mb-6 flex flex-wrap gap-2">
         {TAB_CONFIG.map((tab) => {

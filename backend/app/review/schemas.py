@@ -102,3 +102,46 @@ class AdjustReviewRequest(BaseModel):
         if not has_service_id and not has_service_type and not has_splits:
             raise ValueError("either service_id, service_type, or splits must be provided")
         return self
+
+
+class UnidentifiedGroupResponse(BaseModel):
+    """Eine Gruppe offener no_partner_identified-Items mit gleichem Händler-Kern."""
+
+    key: str
+    suggested_pattern: str
+    suggested_partner_name: str
+    line_count: int
+    total_amount: Decimal
+    first_date: str
+    last_date: str
+    sample_texts: list[str]
+    item_ids: list[UUID]
+
+
+class UnidentifiedGroupsResponse(BaseModel):
+    groups: list[UnidentifiedGroupResponse]
+    total_open: int
+    grouped: int
+
+
+class ResolveUnidentifiedGroupRequest(BaseModel):
+    item_ids: list[UUID] = Field(min_length=1)
+    pattern: str = Field(min_length=2, max_length=500)
+    service_name: str = Field(min_length=1, max_length=255)
+    partner_id: UUID | None = None
+    partner_name: str | None = Field(default=None, max_length=255)
+
+    @model_validator(mode="after")
+    def validate_partner(self) -> "ResolveUnidentifiedGroupRequest":
+        if self.partner_id is None and not (self.partner_name or "").strip():
+            raise ValueError("Entweder partner_id oder partner_name angeben")
+        return self
+
+
+class ResolveUnidentifiedGroupResponse(BaseModel):
+    partner_id: UUID
+    partner_name: str
+    service_id: UUID
+    matcher_id: UUID
+    resolved_items: int
+    assigned_lines: int

@@ -14,7 +14,10 @@ from app.review.schemas import (
     NewPartnerRequest,
     PaginatedReviewItemsResponse,
     ReassignRequest,
+    ResolveUnidentifiedGroupRequest,
+    ResolveUnidentifiedGroupResponse,
     ReviewItemResponse,
+    UnidentifiedGroupsResponse,
 )
 from app.review.service import ReviewService
 
@@ -53,6 +56,36 @@ async def list_review_items(
         size=size,
         pages=pages,
     )
+
+
+@review_router.get(
+    "/unidentified-groups",
+    response_model=UnidentifiedGroupsResponse,
+)
+async def list_unidentified_groups(
+    mandant_id: UUID,
+    actor: User = Depends(require_role("accountant")),
+    _access: None = Depends(require_mandant_access),
+    svc: ReviewService = Depends(_review_svc),
+) -> UnidentifiedGroupsResponse:
+    """Offene "kein Partner erkannt"-Items nach Händler-Kern gruppiert."""
+    return await svc.list_unidentified_groups(mandant_id)
+
+
+@review_router.post(
+    "/unidentified-groups/resolve",
+    response_model=ResolveUnidentifiedGroupResponse,
+    status_code=http_status.HTTP_201_CREATED,
+)
+async def resolve_unidentified_group(
+    mandant_id: UUID,
+    body: ResolveUnidentifiedGroupRequest,
+    actor: User = Depends(require_role("accountant")),
+    _access: None = Depends(require_mandant_access),
+    svc: ReviewService = Depends(_review_svc),
+) -> ResolveUnidentifiedGroupResponse:
+    """Legt Partner, Leistung und Matcher an und ordnet alle Zeilen der Gruppe zu."""
+    return await svc.resolve_unidentified_group(mandant_id, actor.id, body)  # type: ignore[arg-type]
 
 
 @review_router.get(

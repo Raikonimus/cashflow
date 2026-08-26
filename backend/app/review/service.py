@@ -1,6 +1,8 @@
 """ReviewService — confirm, reassign, new-partner actions for ReviewItems."""
 from __future__ import annotations
 
+import re
+from collections import defaultdict
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -15,11 +17,15 @@ from app.imports.models import JournalLine, JournalLineSplit, ReviewItem, utcnow
 from app.partners.models import AuditLog, Partner, PartnerIban
 from app.review.schemas import (
     AdjustReviewRequest,
+    ResolveUnidentifiedGroupRequest,
+    ResolveUnidentifiedGroupResponse,
     ReviewItemResponse,
     ReviewJournalLineSummary,
     ReviewServiceSummary,
+    UnidentifiedGroupResponse,
+    UnidentifiedGroupsResponse,
 )
-from app.services.models import Service, ServiceType
+from app.services.models import Service, ServiceMatcher, ServiceMatcherType, ServiceType
 from app.services.service import ServiceManagementService, _default_tax_rate
 
 log = structlog.get_logger()
@@ -29,6 +35,60 @@ _IBAN_NORM = str.maketrans("", "", " ")
 
 def _normalize_iban(raw: str) -> str:
     return raw.translate(_IBAN_NORM).upper()
+
+
+# Zahlungsdienstleister-Praefixe, die vor dem eigentlichen Haendler stehen.
+_PSP_PREFIXES = ("dnh", "cba", "sumup", "mol", "nyx", "eb", "amzn", "amazon")
+
+# Alles ab diesen Markern ist Entgelt-/Kursinformation der Bank, kein Haendlername.
+_FEE_MARKERS = (" inkl. ", " incl. ")
+
+_TRAILING_NOISE = re.compile(r"[^A-Za-zÄÖÜäöüß]*$")
+_MULTISPACE = re.compile(r"\s+")
+
+
+def merchant_key(text: str | None) -> str:
+    """Reduziert einen Buchungstext auf den Haendler-Kern.
+
+    Kartenumsaetze tragen pro Zeile wechselnde Referenzen und Entgelte
+    ("ANTHROPIC inkl. Fremdwaehrungsentgelt 1,32 Kurs 1,1405109",
+    "MSFT * E0301094XL"). Der Kern bleibt gleich und taugt als Gruppierung
+    und als Vorschlag fuer ein Matcher-Muster.
+    """
+    if not text:
+        return ""
+    value = _MULTISPACE.sub(" ", text).strip()
+
+    lowered = value.lower()
+    for marker in _FEE_MARKERS:
+        idx = lowered.find(marker)
+        if idx > 0:
+            value = value[:idx]
+            break
+
+    # Trennzeichen der Zahlungsdienstleister: "GOOGLE*ADS123", "DNH*GODADDY#42"
+    parts = [part.strip() for part in re.split(r"[*#]", value) if part.strip()]
+    if parts:
+        head = parts[0]
+        # Steht vorne nur ein Dienstleister-Kuerzel, ist der Haendler dahinter.
+        if len(parts) > 1 and head.lower().rstrip(".") in _PSP_PREFIXES:
+            head = parts[1]
+        value = head
+
+    # Referenznummern am Ende abschneiden, aber nur ganze Tokens.
+    tokens = value.split(" ")
+    while len(tokens) > 1 and any(ch.isdigit() for ch in tokens[-1]):
+        tokens.pop()
+    value = " ".join(tokens)
+
+    value = _TRAILING_NOISE.sub("", value).strip()
+    return value.upper()
+
+
+def _suggest_partner_name(key: str) -> str:
+    """Aus dem Haendler-Kern einen lesbaren Partnernamen machen: ANTHROPIC -> Anthropic."""
+    words = [word for word in key.split(" ") if word]
+    return " ".join(word if len(word) <= 3 and word.isupper() else word.capitalize() for word in words)
 
 
 class ReviewService:
@@ -403,6 +463,224 @@ class ReviewService:
         await self._session.refresh(item)
         log.info("review_new_partner", item_id=str(item_id), partner_name=desired_name)
         return item
+
+    # ------------------------------------------------------------------
+    # Nicht erkannte Partner: gruppieren und in einem Zug aufloesen
+    # ------------------------------------------------------------------
+
+    async def list_unidentified_groups(self, mandant_id: UUID) -> UnidentifiedGroupsResponse:
+        """Offene no_partner_identified-Items nach Haendler-Kern gruppieren.
+
+        Kartenimporte erzeugen hunderte Items, die sich auf wenige wiederkehrende
+        Haendler verteilen. Die Gruppierung macht daraus einige Dutzend
+        Entscheidungen statt hunderter Einzelfaelle.
+        """
+        items = (
+            await self._session.exec(
+                select(ReviewItem).where(
+                    ReviewItem.mandant_id == mandant_id,
+                    ReviewItem.item_type == "no_partner_identified",
+                    ReviewItem.status == "open",
+                )
+            )
+        ).all()
+        if not items:
+            return UnidentifiedGroupsResponse(groups=[], total_open=0, grouped=0)
+
+        line_ids = [item.journal_line_id for item in items if item.journal_line_id is not None]
+        lines = (
+            await self._session.exec(
+                select(JournalLine).where(col(JournalLine.id).in_(line_ids))
+            )
+        ).all()
+        line_by_id = {line.id: line for line in lines}
+
+        buckets: dict[str, list[tuple[ReviewItem, JournalLine]]] = defaultdict(list)
+        for item in items:
+            line = line_by_id.get(item.journal_line_id) if item.journal_line_id else None
+            if line is None:
+                continue
+            key = merchant_key(line.text)
+            if key:
+                buckets[key].append((item, line))
+
+        groups: list[UnidentifiedGroupResponse] = []
+        for key, entries in buckets.items():
+            entries.sort(key=lambda pair: pair[1].valuta_date)
+            texts: list[str] = []
+            for _, line in entries:
+                if line.text and line.text not in texts:
+                    texts.append(line.text)
+                if len(texts) == 3:
+                    break
+            groups.append(
+                UnidentifiedGroupResponse(
+                    key=key,
+                    suggested_pattern=key,
+                    suggested_partner_name=_suggest_partner_name(key),
+                    line_count=len(entries),
+                    total_amount=sum((Decimal(str(line.amount)) for _, line in entries), Decimal("0")),
+                    first_date=entries[0][1].valuta_date,
+                    last_date=entries[-1][1].valuta_date,
+                    sample_texts=texts,
+                    item_ids=[item.id for item, _ in entries if item.id is not None],
+                )
+            )
+
+        # Groesste Gruppen zuerst - dort steckt die meiste Arbeit.
+        groups.sort(key=lambda g: (-g.line_count, g.key))
+        return UnidentifiedGroupsResponse(
+            groups=groups,
+            total_open=len(items),
+            grouped=sum(g.line_count for g in groups),
+        )
+
+    async def resolve_unidentified_group(
+        self,
+        mandant_id: UUID,
+        actor_id: UUID,
+        body: ResolveUnidentifiedGroupRequest,
+    ) -> ResolveUnidentifiedGroupResponse:
+        """Legt Partner, Leistung und Matcher an und weist die Zeilen der Gruppe zu."""
+        items = (
+            await self._session.exec(
+                select(ReviewItem).where(
+                    ReviewItem.mandant_id == mandant_id,
+                    col(ReviewItem.id).in_(body.item_ids),
+                    ReviewItem.item_type == "no_partner_identified",
+                    ReviewItem.status == "open",
+                )
+            )
+        ).all()
+        if not items:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Keine offenen Items dieser Gruppe gefunden",
+            )
+
+        partner = await self._resolve_or_create_partner(mandant_id, body)
+
+        service = Service(
+            id=uuid4(),
+            partner_id=partner.id,
+            name=body.service_name.strip(),
+            service_type=ServiceType.unknown.value,
+            tax_rate=_default_tax_rate(ServiceType.unknown),
+            # Art und Steuersatz bleiben automatisch, damit die Erkennung sie
+            # anhand der zugeordneten Buchungen bestimmt.
+            service_type_manual=False,
+            tax_rate_manual=False,
+            created_at=utcnow(),
+            updated_at=utcnow(),
+        )
+        self._session.add(service)
+        await self._session.flush()
+
+        matcher = ServiceMatcher(
+            id=uuid4(),
+            service_id=service.id,
+            pattern=body.pattern.strip(),
+            pattern_type=ServiceMatcherType.string.value,
+            internal_only=False,
+            created_at=utcnow(),
+        )
+        self._session.add(matcher)
+        await self._session.flush()
+
+        line_ids = [item.journal_line_id for item in items if item.journal_line_id is not None]
+        lines = list(
+            (
+                await self._session.exec(
+                    select(JournalLine).where(col(JournalLine.id).in_(line_ids))
+                )
+            ).all()
+        )
+
+        # Erst erledigen, dann umhaengen: prepare_lines_for_partner_change loescht
+        # alle noch offenen Reviews der betroffenen Zeilen. Als "adjusted" bleiben
+        # sie stattdessen im Archiv nachvollziehbar.
+        now = utcnow()
+        for item in items:
+            item.status = "adjusted"
+            item.resolved_by = actor_id
+            item.resolved_at = now
+            item.updated_at = now
+            self._session.add(item)
+        await self._session.flush()
+
+        service_svc = ServiceManagementService(self._session)
+        await service_svc.prepare_lines_for_partner_change(mandant_id, lines, partner.id)
+
+        self._session.add(
+            AuditLog(
+                mandant_id=mandant_id,
+                event_type="review.unidentified_group_resolved",
+                actor_id=actor_id,
+                payload={
+                    "partner_id": str(partner.id),
+                    "partner_name": partner.name,
+                    "service_id": str(service.id),
+                    "pattern": matcher.pattern,
+                    "resolved_items": len(items),
+                    "assigned_lines": len(lines),
+                },
+            )
+        )
+
+        await service_svc.revalidate_partner_lines(partner.id)
+        log.info(
+            "review_unidentified_group_resolved",
+            partner_name=partner.name,
+            pattern=matcher.pattern,
+            lines=len(lines),
+        )
+        return ResolveUnidentifiedGroupResponse(
+            partner_id=partner.id,
+            partner_name=partner.name,
+            service_id=service.id,
+            matcher_id=matcher.id,
+            resolved_items=len(items),
+            assigned_lines=len(lines),
+        )
+
+    async def _resolve_or_create_partner(
+        self,
+        mandant_id: UUID,
+        body: ResolveUnidentifiedGroupRequest,
+    ) -> Partner:
+        if body.partner_id is not None:
+            partner = await self._session.get(Partner, body.partner_id)
+            if partner is None or partner.mandant_id != mandant_id:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Partner not found")
+            return partner
+
+        desired_name = (body.partner_name or "").strip()
+        existing = (
+            await self._session.exec(
+                select(Partner).where(
+                    Partner.mandant_id == mandant_id,
+                    Partner.name == desired_name,
+                )
+            )
+        ).first()
+        if existing is not None:
+            return existing
+
+        partner = Partner(
+            id=uuid4(),
+            mandant_id=mandant_id,
+            name=desired_name,
+            is_active=True,
+            created_at=utcnow(),
+            updated_at=utcnow(),
+        )
+        self._session.add(partner)
+        await self._session.flush()
+
+        from app.services.service import ensure_base_service
+
+        await ensure_base_service(self._session, partner.id)
+        return partner
 
     # ------------------------------------------------------------------
     # Internal helpers

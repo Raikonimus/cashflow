@@ -233,3 +233,58 @@ export async function newPartnerReviewItem(
   )
   return resp.data
 }
+
+// ─── Nicht erkannte Partner: Gruppen ─────────────────────────────────────────
+
+export interface UnidentifiedGroup {
+  key: string
+  suggested_pattern: string
+  suggested_partner_name: string
+  line_count: number
+  total_amount: string
+  first_date: string
+  last_date: string
+  sample_texts: string[]
+  item_ids: string[]
+}
+
+export interface UnidentifiedGroups {
+  groups: UnidentifiedGroup[]
+  total_open: number
+  grouped: number
+}
+
+export interface ResolveGroupRequest {
+  item_ids: string[]
+  pattern: string
+  service_name: string
+  partner_id?: string
+  partner_name?: string
+}
+
+export interface ResolveGroupResult {
+  partner_id: string
+  partner_name: string
+  service_id: string
+  matcher_id: string
+  resolved_items: number
+  assigned_lines: number
+}
+
+export async function listUnidentifiedGroups(mandantId: string): Promise<UnidentifiedGroups> {
+  const resp = await apiClient.get<UnidentifiedGroups>(
+    `/mandants/${mandantId}/review/unidentified-groups`,
+  )
+  return resp.data
+}
+
+export async function resolveUnidentifiedGroup(
+  mandantId: string,
+  data: ResolveGroupRequest,
+): Promise<ResolveGroupResult> {
+  const resp = await apiClient.post<ResolveGroupResult>(
+    `/mandants/${mandantId}/review/unidentified-groups/resolve`,
+    data,
+  )
+  return resp.data
+}
