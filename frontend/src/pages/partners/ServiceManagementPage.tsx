@@ -1,7 +1,7 @@
-import axios from 'axios'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { extractErrorMessage } from '@/api/errors'
 import { listJournalLines } from '@/api/journal'
 import { useAuthStore } from '@/store/auth-store'
 import {
@@ -188,7 +188,7 @@ export function ServiceManagementPage() {
       setNotice('Leistung gespeichert. Bitte prüfe die neu erzeugten Vorschläge in der Review-Queue.')
       await refreshServices()
     },
-    onError: (error) => setFormError(extractErrorMessage(error)),
+    onError: (error) => setFormError(extractErrorMessage(error, 'Die Änderung konnte nicht gespeichert werden.')),
   })
 
   const updateMutation = useMutation({
@@ -200,7 +200,7 @@ export function ServiceManagementPage() {
       setNotice('Leistung aktualisiert. Bitte prüfe die neu erzeugten Vorschläge in der Review-Queue.')
       await refreshServices()
     },
-    onError: (error) => setFormError(extractErrorMessage(error)),
+    onError: (error) => setFormError(extractErrorMessage(error, 'Die Änderung konnte nicht gespeichert werden.')),
   })
 
   const deleteMutation = useMutation({
@@ -211,7 +211,7 @@ export function ServiceManagementPage() {
       setNotice('Leistung gelöscht. Bitte prüfe die neu erzeugten Vorschläge in der Review-Queue.')
       await refreshServices()
     },
-    onError: (error) => setFormError(extractErrorMessage(error)),
+    onError: (error) => setFormError(extractErrorMessage(error, 'Die Änderung konnte nicht gespeichert werden.')),
   })
 
   const createMatcherMutation = useMutation({
@@ -229,7 +229,7 @@ export function ServiceManagementPage() {
       setNotice('Matcher gespeichert. Buchungszeilen wurden automatisch neu zugewiesen.')
       await refreshServices()
     },
-    onError: (error) => setMatcherError(extractErrorMessage(error)),
+    onError: (error) => setMatcherError(extractErrorMessage(error, 'Die Änderung konnte nicht gespeichert werden.')),
   })
 
   const updateMatcherMutation = useMutation({
@@ -243,7 +243,7 @@ export function ServiceManagementPage() {
       setNotice('Matcher aktualisiert. Buchungszeilen wurden automatisch neu zugewiesen.')
       await refreshServices()
     },
-    onError: (error) => setMatcherError(extractErrorMessage(error)),
+    onError: (error) => setMatcherError(extractErrorMessage(error, 'Die Änderung konnte nicht gespeichert werden.')),
   })
 
   const deleteMatcherMutation = useMutation({
@@ -255,7 +255,7 @@ export function ServiceManagementPage() {
       setNotice('Matcher gelöscht. Bitte prüfe die neu erzeugten Vorschläge in der Review-Queue.')
       await refreshServices()
     },
-    onError: (error) => setMatcherError(extractErrorMessage(error)),
+    onError: (error) => setMatcherError(extractErrorMessage(error, 'Die Änderung konnte nicht gespeichert werden.')),
   })
 
   const previewMatcherMutation = useMutation({
@@ -267,7 +267,7 @@ export function ServiceManagementPage() {
       setMatcherError(null)
     },
     onError: (error) => {
-      setMatcherError(extractErrorMessage(error))
+      setMatcherError(extractErrorMessage(error, 'Die Änderung konnte nicht gespeichert werden.'))
       setPreviewResult(null)
       setPreviewForServiceId(null)
     },
@@ -1231,21 +1231,4 @@ function ServiceForm({
       </div>
     </div>
   )
-}
-
-function extractErrorMessage(error: unknown): string {
-  if (!axios.isAxiosError(error)) {
-    return 'Die Änderung konnte nicht gespeichert werden.'
-  }
-
-  const detail = error.response?.data?.detail
-  if (typeof detail === 'string') {
-    return detail
-  }
-
-  if (Array.isArray(detail)) {
-    return detail.map((entry) => entry.msg).filter(Boolean).join(', ')
-  }
-
-  return 'Die Änderung konnte nicht gespeichert werden.'
 }

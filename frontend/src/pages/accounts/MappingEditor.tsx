@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '@/store/auth-store'
 import { getMapping, saveMapping, previewCsvColumns } from '@/api/accounts'
+import { extractErrorMessage } from '@/api/errors'
 import type { ColumnAssignment } from '@/api/accounts'
 
 // ─── Zielfeld-Optionen ────────────────────────────────────────────────────────
@@ -19,6 +20,14 @@ const TARGET_OPTIONS: { value: string; label: string }[] = [
   { value: 'description',   label: 'Verwendungszweck' },
   { value: 'unused',        label: '— Nicht verwendet —' },
 ]
+
+// Muss zu REQUIRED_TARGETS in backend/app/tenants/schemas.py passen.
+const REQUIRED_TARGETS = ['valuta_date', 'booking_date', 'amount'] as const
+const REQUIRED_TARGET_LABELS: Record<string, string> = {
+  valuta_date: 'Valutadatum',
+  booking_date: 'Buchungsdatum',
+  amount: 'Betrag',
+}
 
 // Suchbegriffe pro Zielfeld (Deutsch + Englisch, lowercase)
 const TARGET_KEYWORDS: Record<string, string[]> = {
@@ -87,7 +96,9 @@ export function MappingEditor({ accountId, onSaved }: Readonly<MappingEditorProp
 
   // Assignment-Modus: erkannte CSV-Spalten + ihre Zuordnung
   const [csvColumns, setCsvColumns] = useState<string[] | null>(null)
-  const [assignments, setAssignments] = useState<Record<string, string>>({})
+  // Eine CSV-Spalte kann mehrere Zielfelder bedienen (z. B. dasselbe Datum als
+  // Buchungs- und Valutadatum, wenn der Export nur ein Datum liefert).
+  const [assignments, setAssignments] = useState<Record<string, string[]>>({})
   const [duplicateChecks, setDuplicateChecks] = useState<Record<string, boolean>>({})
   const [sampleRows, setSampleRows] = useState<Record<string, string>[]>([])
   const [previewRowIdx, setPreviewRowIdx] = useState(0)
@@ -127,10 +138,14 @@ export function MappingEditor({ accountId, onSaved }: Readonly<MappingEditorProp
     if (mapping.column_assignments && mapping.column_assignments.length > 0) {
       const sorted = [...mapping.column_assignments].sort((a, b) => a.sort_order - b.sort_order)
       const cols = [...new Set(sorted.map((a) => a.source))]
-      const assn: Record<string, string> = {}
+      const assn: Record<string, string[]> = {}
       const duplicateFlags: Record<string, boolean> = {}
-      for (const a of sorted) assn[a.source] = a.target
-      for (const a of sorted) duplicateFlags[a.source] = a.duplicate_check ?? false
+      for (const a of sorted) {
+        const targets = assn[a.source] ?? []
+        if (!targets.includes(a.target)) targets.push(a.target)
+        assn[a.source] = targets
+      }
+      for (const a of sorted) duplicateFlags[a.source] = duplicateFlags[a.source] || (a.duplicate_check ?? false)
       setCsvColumns(cols)
       setAssignments(assn)
       setDuplicateChecks(duplicateFlags)
@@ -169,9 +184,17 @@ export function MappingEditor({ accountId, onSaved }: Readonly<MappingEditorProp
       }))
       const cols = result.columns
       // Bestehende Zuordnungen erhalten; neue Spalten auto-vorschlagen oder leer
-      const newAssn: Record<string, string> = {}
+      const newAssn: Record<string, string[]> = {}
       const newDuplicateChecks: Record<string, boolean> = {}
-      for (const col of cols) newAssn[col] = assignments[col] || autoSuggestTarget(col)
+      for (const col of cols) {
+        const existing = assignments[col]
+        if (existing && existing.length > 0) {
+          newAssn[col] = existing
+        } else {
+          const suggested = autoSuggestTarget(col)
+          newAssn[col] = suggested ? [suggested] : []
+        }
+      }
       for (const col of cols) newDuplicateChecks[col] = duplicateChecks[col] ?? false
       setCsvColumns(cols)
       setAssignments(newAssn)
@@ -190,12 +213,21 @@ export function MappingEditor({ accountId, onSaved }: Readonly<MappingEditorProp
   const mutation = useMutation({
     mutationFn: () => {
       if (csvColumns !== null) {
-        const column_assignments: ColumnAssignment[] = csvColumns.map((col, i) => ({
-          source: col,
-          target: assignments[col] || 'unused',
-          sort_order: i,
-          duplicate_check: duplicateChecks[col] ?? false,
-        }))
+        // Jedes Zielfeld einer Spalte wird ein eigenes Assignment. sort_order laeuft
+        // fortlaufend ueber die flache Liste, damit die Reihenfolge mehrerer Quellen
+        // je Zielfeld erhalten bleibt.
+        const column_assignments: ColumnAssignment[] = []
+        for (const col of csvColumns) {
+          const targets = assignments[col]?.length ? assignments[col] : ['unused']
+          for (const target of targets) {
+            column_assignments.push({
+              source: col,
+              target,
+              sort_order: column_assignments.length,
+              duplicate_check: duplicateChecks[col] ?? false,
+            })
+          }
+        }
         return saveMapping(mandantId, accountId, { column_assignments, ...parser })
       }
       // Legacy-Modus
@@ -213,18 +245,61 @@ export function MappingEditor({ accountId, onSaved }: Readonly<MappingEditorProp
     },
   })
 
+  function setTargetAt(col: string, index: number, target: string) {
+    setAssignments((current) => {
+      const targets = [...(current[col] ?? [])]
+      if (targets.length === 0) targets.push('')
+      if (target === '') {
+        targets.splice(index, 1)
+      } else {
+        targets[index] = target
+      }
+      // 'unused' schliesst jedes andere Ziel aus, und Duplikate ergeben keinen Sinn.
+      const next = target === 'unused' ? ['unused'] : targets.filter((t) => t && t !== 'unused')
+      return { ...current, [col]: [...new Set(next)] }
+    })
+  }
+
+  function addTarget(col: string) {
+    setAssignments((current) => ({ ...current, [col]: [...(current[col] ?? []), ''] }))
+  }
+
+  function removeTargetAt(col: string, index: number) {
+    setAssignments((current) => {
+      const targets = [...(current[col] ?? [])]
+      targets.splice(index, 1)
+      return { ...current, [col]: targets }
+    })
+  }
+
+  // Weitere Ziele nur anbieten, wenn die Spalte benutzt wird und noch welche frei sind.
+  function canAddTarget(col: string) {
+    const targets = assignments[col] ?? []
+    if (targets.length === 0 || targets.includes('unused') || targets.includes('')) return false
+    return targets.length < TARGET_OPTIONS.length - 1
+  }
+
   // Validierung
-  const isAssignmentMode = csvColumns === null
-  const canSave = isAssignmentMode
+  // csvColumns === null heisst: keine Spalten erkannt, also der manuelle Legacy-Modus.
+  const isLegacyMode = csvColumns === null
+  const assignedTargets = isLegacyMode
+    ? new Set<string>()
+    : new Set(csvColumns.flatMap((col) => assignments[col] ?? []))
+  const missingRequiredTargets = isLegacyMode
+    ? []
+    : REQUIRED_TARGETS.filter((target) => !assignedTargets.has(target))
+
+  const canSave = isLegacyMode
     ? !!legacy.valuta_date_col && !!legacy.booking_date_col && !!legacy.amount_col
     : csvColumns.length > 0
-      && csvColumns.every((col) => !!assignments[col])
+      && csvColumns.every((col) => (assignments[col]?.length ?? 0) > 0)
       && csvColumns.some((col) => duplicateChecks[col])
+      && missingRequiredTargets.length === 0
 
-  const unassignedCount = isAssignmentMode
+  const unassignedCount = isLegacyMode
     ? 0
-    : csvColumns.filter((col) => !assignments[col]).length
-  const duplicateCheckCount = isAssignmentMode
+    : csvColumns.filter((col) => (assignments[col]?.length ?? 0) === 0).length
+  const duplicateCheckCount = isLegacyMode
     ? 0
     : csvColumns.filter((col) => duplicateChecks[col]).length
 
@@ -288,6 +363,8 @@ export function MappingEditor({ accountId, onSaved }: Readonly<MappingEditorProp
           Wähle eine CSV-Datei, um die Spaltennamen automatisch zu erkennen.
           Die Parser-Einstellungen oben werden dabei berücksichtigt.
           Mehrere Spalten können demselben Zielfeld zugewiesen werden – der Inhalt wird dann mit Zeilenumbruch zusammengeführt.
+          Umgekehrt kann eine Spalte mehrere Zielfelder bedienen: Liefert der Export nur ein Datum, weise es sowohl dem
+          Buchungs- als auch dem Valutadatum zu.
         </p>
         <label className={`flex cursor-pointer items-center gap-2 rounded-lg border-2 border-dashed px-4 py-3 text-sm transition-colors ${
           previewLoading
@@ -356,8 +433,8 @@ export function MappingEditor({ accountId, onSaved }: Readonly<MappingEditorProp
               </thead>
               <tbody className="divide-y divide-gray-100 bg-white">
                 {csvColumns.map((col) => {
-                  const val = assignments[col] ?? ''
-                  const missing = !val
+                  const val = assignments[col] ?? []
+                  const missing = val.length === 0
                   const sampleVal = sampleRows[previewRowIdx]?.[col] ?? ''
                   const isTruncated = sampleVal.length > 40
                   return (
@@ -392,18 +469,50 @@ export function MappingEditor({ accountId, onSaved }: Readonly<MappingEditorProp
                         </label>
                       </td>
                       <td className="px-3 py-2">
-                        <select
-                          value={val}
-                          onChange={(e) => setAssignments((a) => ({ ...a, [col]: e.target.value }))}
-                          className={`w-full rounded border px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                            missing ? 'border-amber-400' : 'border-gray-200'
-                          }`}
-                        >
-                          <option value="">— Bitte auswählen —</option>
-                          {TARGET_OPTIONS.map((o) => (
-                            <option key={o.value} value={o.value}>{o.label}</option>
+                        <div className="space-y-1">
+                          {(val.length > 0 ? val : ['']).map((target, targetIndex) => (
+                            <div key={`${col}-target-${targetIndex}`} className="flex items-center gap-1">
+                              <select
+                                value={target}
+                                onChange={(e) => setTargetAt(col, targetIndex, e.target.value)}
+                                aria-label={`Zielfeld ${targetIndex + 1} für ${col}`}
+                                className={`w-full rounded border px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                                  missing ? 'border-amber-400' : 'border-gray-200'
+                                }`}
+                              >
+                                <option value="">— Bitte auswählen —</option>
+                                {TARGET_OPTIONS.map((o) => (
+                                  <option
+                                    key={o.value}
+                                    value={o.value}
+                                    disabled={o.value !== 'unused' && o.value !== target && val.includes(o.value)}
+                                  >
+                                    {o.label}
+                                  </option>
+                                ))}
+                              </select>
+                              {val.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeTargetAt(col, targetIndex)}
+                                  aria-label={`Zielfeld ${targetIndex + 1} für ${col} entfernen`}
+                                  className="shrink-0 rounded px-1.5 py-1 text-xs text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                                >
+                                  ✕
+                                </button>
+                              )}
+                            </div>
                           ))}
-                        </select>
+                          {canAddTarget(col) && (
+                            <button
+                              type="button"
+                              onClick={() => addTarget(col)}
+                              className="text-xs text-blue-600 hover:underline"
+                            >
+                              + weiteres Zielfeld
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )
@@ -413,7 +522,7 @@ export function MappingEditor({ accountId, onSaved }: Readonly<MappingEditorProp
           </div>
           {!canSave && (
             <p className="mt-2 text-xs text-amber-600">
-              Bitte jeder Spalte ein Zielfeld zuweisen oder „Nicht verwendet" wählen und mindestens eine Dubletten-Spalte markieren.
+              Bitte jeder Spalte mindestens ein Zielfeld zuweisen oder „Nicht verwendet" wählen und mindestens eine Dubletten-Spalte markieren.
             </p>
           )}
         </section>
@@ -451,8 +560,16 @@ export function MappingEditor({ accountId, onSaved }: Readonly<MappingEditorProp
       )}
 
       {/* ── Fehler / Erfolg / Speichern ──────────────────────────────────── */}
+      {missingRequiredTargets.length > 0 && (
+        <p className="text-sm text-amber-600">
+          Pflichtfeld ohne Spalte: {missingRequiredTargets.map((target) => REQUIRED_TARGET_LABELS[target]).join(', ')}.
+          Ordne jedem Pflichtfeld (*) mindestens eine CSV-Spalte zu.
+        </p>
+      )}
       {mutation.isError && (
-        <p className="text-sm text-red-500">Fehler beim Speichern der Konfiguration.</p>
+        <p className="text-sm text-red-500">
+          Fehler beim Speichern der Konfiguration: {extractErrorMessage(mutation.error, 'Unbekannter Fehler.')}
+        </p>
       )}
       {mutation.isSuccess && (
         <p className="text-sm text-green-600">✓ Konfiguration gespeichert.</p>
