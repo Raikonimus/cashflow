@@ -367,6 +367,8 @@ class PartnerMatchingService:
     ) -> tuple[list[tuple[UUID, str]], dict]:
         """Gibt (partner_id, partner_name)-Paare zurück, deren Leistungs-Matcher passen.
 
+        Nur Matcher ohne internal_only - siehe Kommentar an der Abfrage unten.
+
         Sucht in Buchungstext (text_raw) und Partnerrohrname (name_raw).
         Gibt für jeden Partner maximal einen Eintrag zurück.
         Basis-Leistungen (is_base_service=True) werden ignoriert.
@@ -405,7 +407,11 @@ class PartnerMatchingService:
             return [], {"skipped": False, "total_matchers": 0, "matched": 0, "reason": "no_services_configured"}
         svc_to_partner: dict[UUID, UUID] = {s.id: s.partner_id for s in services}  # type: ignore[misc]
 
-        # Leistungs-Matcher über dieselben JOINs laden (kein IN-Operator nötig)
+        # Leistungs-Matcher über dieselben JOINs laden (kein IN-Operator nötig).
+        # internal_only-Matcher bleiben aussen vor: sie sind dafür gedacht, innerhalb
+        # eines bereits bekannten Partners die Leistung zu waehlen, und sind deshalb
+        # oft sehr kurz ("Rate", "110", "CAL 100"). Zur Partnererkennung taugen sie
+        # nicht - "Rate" steckt zum Beispiel in "PARKGARAGE PRATERSTERN".
         all_matchers = (
             await self._session.exec(
                 select(ServiceMatcher)
@@ -415,6 +421,7 @@ class PartnerMatchingService:
                     Partner.mandant_id == mandant_id,
                     Partner.is_active == True,    # noqa: E712
                     Service.is_base_service == False,  # noqa: E712
+                    ServiceMatcher.internal_only == False,  # noqa: E712
                 )
             )
         ).all()
