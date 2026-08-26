@@ -967,3 +967,134 @@ class TestServices:
             f"Neue Leistung landete in '{group_name}' statt in der Standardgruppe der Sektion"
         )
         assert group_is_default is True
+
+    async def test_service_created_without_type_keeps_automatic_detection(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Regression: 'Unbekannt' ist keine Festlegung.
+
+        Wurde beim Anlegen keine echte Leistungsart gewaehlt, muessen Art und Steuersatz
+        automatisch bleiben. Sonst greift detect_service_type_for_service nie, die Leistung
+        bleibt ohne Sektion und damit ohne Gruppe.
+        """
+        user = await create_user(db_session, "acc-auto-type@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        headers = {"Authorization": f"Bearer {token}"}
+        partner = await create_partner(client, token, mandant.id, name="Loomis Österreich GmbH")
+
+        unknown_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            json={"name": "Projekte", "service_type": "unknown", "tax_rate": "20.00"},
+            headers=headers,
+        )
+        assert unknown_resp.status_code == 201
+        assert unknown_resp.json()["service_type_manual"] is False
+        assert unknown_resp.json()["tax_rate_manual"] is False
+
+        # Ohne service_type im Payload gilt dasselbe.
+        omitted_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            json={"name": "Wartung"},
+            headers=headers,
+        )
+        assert omitted_resp.status_code == 201
+        assert omitted_resp.json()["service_type_manual"] is False
+
+        # Eine echte Art bleibt weiterhin eine manuelle Festlegung.
+        explicit_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            json={"name": "Lizenzen", "service_type": "customer", "tax_rate": "20.00"},
+            headers=headers,
+        )
+        assert explicit_resp.status_code == 201
+        assert explicit_resp.json()["service_type_manual"] is True
+        assert explicit_resp.json()["tax_rate_manual"] is True
+
+    async def test_unknown_service_gets_typed_and_grouped_once_it_has_bookings(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Regression: eine ohne Art angelegte Leistung darf nicht dauerhaft aus
+        Einnahmen & Ausgaben herausfallen. Sobald sie Buchungen hat, bestimmt die
+        Erkennung die Art, und die Matrix zieht die Gruppenzuordnung nach."""
+        user = await create_user(db_session, "acc-auto-group@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        headers = {"Authorization": f"Bearer {token}"}
+        partner = await create_partner(client, token, mandant.id, name="Loomis Österreich GmbH")
+
+        create_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            json={"name": "Projekte", "service_type": "unknown", "tax_rate": "20.00"},
+            headers=headers,
+        )
+        assert create_resp.status_code == 201
+        service_id = create_resp.json()["id"]
+
+        now = utcnow()
+        account = Account(mandant_id=mandant.id, name="Girokonto", created_at=now, updated_at=now)
+        db_session.add(account)
+        await db_session.flush()
+        run = ImportRun(
+            account_id=account.id,
+            mandant_id=mandant.id,
+            user_id=user.id,
+            filename="test.csv",
+            status=ImportStatus.completed.value,
+            created_at=now,
+        )
+        db_session.add(run)
+        await db_session.flush()
+        line = JournalLine(
+            account_id=account.id,
+            import_run_id=run.id,
+            partner_id=UUID(partner["id"]),
+            valuta_date="2026-03-10",
+            booking_date="2026-03-10",
+            amount=Decimal("1000.00"),
+            currency="EUR",
+            text="Projektabrechnung",
+            partner_name_raw="Loomis Österreich GmbH",
+            created_at=now,
+        )
+        db_session.add(line)
+        await db_session.flush()
+        db_session.add(JournalLineSplit(
+            journal_line_id=line.id, service_id=UUID(service_id),
+            amount=Decimal("1000.00"), assignment_mode="auto",
+            amount_consistency_ok=True, created_at=now, updated_at=now,
+        ))
+        await db_session.commit()
+
+        # Harmlose Aenderung stoesst die Erkennung an.
+        patch_resp = await client.patch(
+            f"/api/v1/mandants/{mandant.id}/services/{service_id}",
+            json={"description": "Projektgeschäft"},
+            headers=headers,
+        )
+        assert patch_resp.status_code == 200
+        # Positiver Betrag ohne Keyword-Treffer -> customer.
+        assert patch_resp.json()["service_type"] == "customer"
+
+        matrix_resp = await client.get(
+            f"/api/v1/mandants/{mandant.id}/reports/income-expense",
+            params={"year": 2026},
+            headers=headers,
+        )
+        assert matrix_resp.status_code == 200
+        income = matrix_resp.json()["sections"]["income"]
+        placements = [
+            (group["group_name"], service["service_name"])
+            for group in income["groups"]
+            for service in group["services"]
+        ]
+        assert ("Kunden", "Projekte") in placements, f"Leistung fehlt in der Matrix: {placements}"
+
+        assignment = (
+            await db_session.exec(
+                select(ServiceGroupAssignment).where(ServiceGroupAssignment.service_id == UUID(service_id))
+            )
+        ).first()
+        assert assignment is not None

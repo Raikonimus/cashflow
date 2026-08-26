@@ -173,6 +173,13 @@ class ServiceManagementService:
         await self._ensure_unique_service_name(partner_id, body.name)
         await self.ensure_default_groups(mandant_id)
         now = _utcnow()
+        # "Unbekannt" ist keine Festlegung, sondern deren Fehlen. Wird die Leistung ohne
+        # echte Art angelegt, bleiben Art und Steuersatz automatisch, damit
+        # detect_service_type_for_service sie spaeter bestimmen kann - genauso wie bei der
+        # automatisch angelegten Basisleistung. Sonst bliebe die Leistung dauerhaft
+        # "unknown", damit ohne Sektion und ohne Gruppe, und faellt aus Einnahmen &
+        # Ausgaben heraus.
+        has_explicit_service_type = body.service_type != ServiceType.unknown
         service = Service(
             partner_id=partner_id,
             name=body.name,
@@ -182,8 +189,8 @@ class ServiceManagementService:
             erfolgsneutral=body.erfolgsneutral,
             valid_from=body.valid_from,
             valid_to=body.valid_to,
-            service_type_manual=True,
-            tax_rate_manual=True,
+            service_type_manual=has_explicit_service_type,
+            tax_rate_manual=has_explicit_service_type,
             created_at=now,
             updated_at=now,
         )
