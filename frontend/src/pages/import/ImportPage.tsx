@@ -76,6 +76,22 @@ export function ImportPage() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  function updateSelectedFiles(files: File[]) {
+    setSelectedFiles(files.filter((file) => file.name.toLowerCase().endsWith('.csv')))
+  }
+
+  function handleFileDrop(event: React.DragEvent<HTMLLabelElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+
+    const files = Array.from(event.dataTransfer.files ?? [])
+    if (files.length === 0) {
+      return
+    }
+
+    updateSelectedFiles(files)
+  }
+
   const { data: accounts = [] } = useQuery({
     queryKey: ['accounts', mandantId],
     queryFn: () => listAccounts(mandantId),
@@ -140,7 +156,14 @@ export function ImportPage() {
             <strong>{account?.name ?? accountId}</strong>.
           </p>
 
-          <label className="mb-4 flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 p-8 hover:border-blue-400">
+          <label
+            className="mb-4 flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 p-8 hover:border-blue-400"
+            onDragOver={(event) => {
+              event.preventDefault()
+              event.dataTransfer.dropEffect = 'copy'
+            }}
+            onDrop={handleFileDrop}
+          >
             <svg className="mb-2 h-10 w-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
@@ -157,7 +180,7 @@ export function ImportPage() {
               className="hidden"
               onChange={(e) => {
                 const files = Array.from(e.target.files ?? [])
-                setSelectedFiles(files)
+                updateSelectedFiles(files)
               }}
             />
           </label>

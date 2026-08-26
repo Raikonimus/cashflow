@@ -184,4 +184,27 @@ describe('ImportPage', () => {
       ).toBeInTheDocument()
     })
   })
+
+  it('accepts csv files via drag and drop without navigating away', async () => {
+    renderImportPage()
+
+    await waitFor(() => {
+      expect(screen.getByText(/csv-import/i)).toBeInTheDocument()
+    })
+
+    const dropzone = screen.getByText(/csv-dateien hierher ziehen oder klicken zum auswählen/i).closest('label')
+    expect(dropzone).not.toBeNull()
+
+    const file = new File(['a,b\n1,2'], 'dropped.csv', { type: 'text/csv' })
+    const dataTransfer = {
+      files: [file],
+      dropEffect: 'none',
+    }
+
+    fireEvent.dragOver(dropzone as HTMLElement, { dataTransfer })
+    fireEvent.drop(dropzone as HTMLElement, { dataTransfer })
+
+    expect(screen.getByText(/dropped\.csv \(0\.0 kb\)/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /importieren/i })).toBeEnabled()
+  })
 })
