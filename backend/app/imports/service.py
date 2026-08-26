@@ -1,5 +1,6 @@
 import csv
 import io
+from collections import Counter
 from datetime import datetime
 from sqlalchemy.exc import IntegrityError
 
@@ -36,7 +37,12 @@ from fastapi import HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.imports.matching import PartnerMatchingService, ReviewItemFactory
+from app.imports.matching import (
+    PartnerMatchingService,
+    ReviewItemFactory,
+    _normalize_account,
+    _normalize_iban,
+)
 from app.imports.models import ImportRun, ImportStatus, JournalLine, ReviewItem, utcnow
 from app.partners.models import AuditLog
 from app.tenants.models import Account, ColumnMappingConfig
@@ -120,6 +126,33 @@ def _build_duplicate_signature(
     if any(source not in source_values for source in duplicate_sources):
         return None
     return tuple(sorted((source, source_values[source]) for source in duplicate_sources))
+
+
+# Ab welchem Anteil der Zeilen eine Kennung als "steht ueberall" gilt. Gemessen an
+# echten Kontoauszuegen liegt die haeufigste Partner-Kontonummer bei hoechstens gut
+# 40 %; Kreditkartenabrechnungen tragen dagegen auf fast jeder Zeile dieselbe.
+_UBIQUITOUS_SHARE = 0.8
+# Unter dieser Zeilenzahl ist der Anteil nicht aussagekraeftig.
+_UBIQUITOUS_MIN_ROWS = 10
+
+
+def _ubiquitous_values(rows: list[dict], field: str, normalize) -> frozenset[str]:
+    """Kennungen, die in diesem Import auf nahezu jeder Zeile stehen.
+
+    Solche Werte identifizieren nicht den Partner, sondern die Gegenseite des
+    eigenen Kontos - typisch die Kartenkontonummer einer Kreditkartenabrechnung.
+    Haengt der Import sie an den erstbesten erkannten Partner, zieht die
+    anschliessende Kontonummer-Suche jede weitere Zeile zu diesem Partner.
+    """
+    if len(rows) < _UBIQUITOUS_MIN_ROWS:
+        return frozenset()
+    counts: Counter[str] = Counter()
+    for row in rows:
+        raw = row.get(field)
+        if raw:
+            counts[normalize(str(raw))] += 1
+    threshold = len(rows) * _UBIQUITOUS_SHARE
+    return frozenset(value for value, count in counts.items() if count >= threshold)
 
 
 def _assignment_duplicate_sources(assignments: list[dict]) -> list[str]:
@@ -504,6 +537,19 @@ class ImportService:
             account_svc = AccountService(self._session)
             excluded_ibans, excluded_accounts = await account_svc.get_excluded_sets(account_id)
 
+        # Kennungen, die in diesem Lauf auf nahezu jeder Zeile stehen, duerfen nicht
+        # automatisch an einen Partner angehaengt werden.
+        no_enrich_ibans = _ubiquitous_values(rows, "partner_iban_raw", _normalize_iban)
+        no_enrich_accounts = _ubiquitous_values(rows, "partner_account_raw", _normalize_account)
+        if no_enrich_ibans or no_enrich_accounts:
+            log.info(
+                "import_ubiquitous_identifiers",
+                account_id=str(account_id) if account_id else None,
+                ibans=sorted(no_enrich_ibans),
+                accounts=sorted(no_enrich_accounts),
+                rows=len(rows),
+            )
+
         matcher = PartnerMatchingService(self._session)
         inserted = 0
         skipped = 0
@@ -563,6 +609,8 @@ class ImportService:
                 text_raw=row.get("text"),
                 excluded_ibans=excluded_ibans,
                 excluded_accounts=excluded_accounts,
+                no_enrich_ibans=no_enrich_ibans,
+                no_enrich_accounts=no_enrich_accounts,
             )
 
             line = JournalLine(
