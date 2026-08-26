@@ -22,6 +22,18 @@ const ACCOUNT_ID = 'account-1'
 // Kreditkarten-Export mit nur einem Datum - kein Valutadatum.
 const CARD_COLUMNS = ['Eigener Kontoname', 'Buchungsdatum', 'Partnername', 'Betrag', 'Buchungs-Details']
 
+// Der komplette Spaltensatz des Kreditkarten-Exports.
+const FULL_CARD_COLUMNS = [
+  'Eigener Kontoname', 'Eigene IBAN', 'Buchungsdatum', 'Partnername', 'Partner IBAN',
+  'BIC/SWIFT', 'Partner Kontonummer', 'Bankleitzahl', 'Betrag', 'Währung',
+  'Buchungs-Details', 'Empfänger-Überprüfung', 'Diese IBAN ist registriert auf',
+]
+
+function suggestionFor(column: string): string {
+  const select = within(rowFor(column)).getByLabelText(`Zielfeld 1 für ${column}`)
+  return (select as HTMLSelectElement).value
+}
+
 function renderEditor() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
@@ -42,7 +54,10 @@ async function uploadCsv(container: HTMLElement) {
 }
 
 function rowFor(column: string): HTMLElement {
-  const row = screen.getByText(column).closest('tr')
+  // Auf die Zelle einschraenken: manche Spaltennamen kommen auch als
+  // Dropdown-Option vor ("Partnername", "Buchungsdatum").
+  const cell = screen.getAllByText(column).find((el) => el.tagName === 'TD')
+  const row = cell?.closest('tr')
   if (!row) throw new Error(`Zeile für ${column} nicht gefunden`)
   return row
 }
@@ -212,5 +227,71 @@ describe('MappingEditor', () => {
     expect(within(updated).getByLabelText('Zielfeld 1 für Buchungsdatum')).toHaveValue('unused')
     expect(within(updated).queryByLabelText('Zielfeld 2 für Buchungsdatum')).not.toBeInTheDocument()
     expect(await screen.findByText(/Pflichtfeld ohne Spalte/)).toBeInTheDocument()
+  })
+
+  describe('Auto-Vorschlag', () => {
+    beforeEach(() => {
+      previewCsvColumnsMock.mockResolvedValue({
+        columns: FULL_CARD_COLUMNS,
+        detected_delimiter: ',',
+        detected_encoding: 'utf-16',
+        sample_rows: [Object.fromEntries(FULL_CARD_COLUMNS.map((c) => [c, 'x']))],
+      })
+    })
+
+    it('schlaegt fuer "Buchungs-Details" den Verwendungszweck vor, nicht das Buchungsdatum', async () => {
+      const { container } = renderEditor()
+      await uploadCsv(container)
+
+      // 'buchungsdetail' ist laenger als 'buchung' und gewinnt deshalb.
+      expect(suggestionFor('Buchungs-Details')).toBe('description')
+      expect(suggestionFor('Buchungsdatum')).toBe('booking_date')
+    })
+
+    it('schliesst Spalten des eigenen Kontos aus', async () => {
+      const { container } = renderEditor()
+      await uploadCsv(container)
+
+      expect(suggestionFor('Eigener Kontoname')).toBe('unused')
+      expect(suggestionFor('Eigene IBAN')).toBe('unused')
+    })
+
+    it('schlaegt fuer "Buchungsreferenz" kein Datum vor, fuer "Buchung" schon', async () => {
+      previewCsvColumnsMock.mockResolvedValue({
+        columns: ['Buchung', 'Buchungsreferenz', 'Betrag'],
+        detected_delimiter: ',',
+        detected_encoding: 'utf-16',
+        sample_rows: [],
+      })
+      const { container } = renderEditor()
+      await uploadCsv(container)
+
+      expect(suggestionFor('Buchung')).toBe('booking_date')
+      expect(suggestionFor('Buchungsreferenz')).toBe('')
+      expect(suggestionFor('Betrag')).toBe('amount')
+    })
+
+    it('laesst die uebrigen Partnerspalten unveraendert', async () => {
+      const { container } = renderEditor()
+      await uploadCsv(container)
+
+      expect(suggestionFor('Partnername')).toBe('partner_name')
+      expect(suggestionFor('Partner IBAN')).toBe('partner_iban')
+      expect(suggestionFor('BIC/SWIFT')).toBe('partner_bic')
+      expect(suggestionFor('Partner Kontonummer')).toBe('partner_account')
+      expect(suggestionFor('Bankleitzahl')).toBe('partner_blz')
+      expect(suggestionFor('Betrag')).toBe('amount')
+      expect(suggestionFor('Währung')).toBe('currency')
+    })
+
+    it('meldet nur noch das fehlende Valutadatum, nicht mehr den fehlenden Verwendungszweck', async () => {
+      const { container } = renderEditor()
+      await uploadCsv(container)
+
+      // Alle Spalten haben einen Vorschlag, es bleibt nur das echte Problem uebrig:
+      // die Datei hat keine Valutadatum-Spalte.
+      expect(screen.queryByText(/noch nicht zugeordnet/)).not.toBeInTheDocument()
+      expect(await screen.findByText(/Pflichtfeld ohne Spalte: Valutadatum/)).toBeInTheDocument()
+    })
   })
 })

@@ -29,10 +29,20 @@ const REQUIRED_TARGET_LABELS: Record<string, string> = {
   amount: 'Betrag',
 }
 
-// Suchbegriffe pro Zielfeld (Deutsch + Englisch, lowercase)
+// Suchbegriffe pro Zielfeld (Deutsch + Englisch, lowercase).
+// Die Reihenfolge entscheidet: der erste Treffer gewinnt, spezifische Zielfelder
+// stehen deshalb vor generischen. Zwei Stellen sind bewusst so sortiert:
+//   - description vor booking_date, sonst wuerde "Buchungs-Details" ueber
+//     'buchung' als Datum gelesen und der Verwendungszweck ginge verloren.
+//   - partner_name zuletzt, weil 'partner' und 'name' sonst spezifischere
+//     Partnerfelder schlucken ("Partner IBAN" -> partner_iban, nicht partner_name).
 const TARGET_KEYWORDS: Record<string, string[]> = {
   valuta_date:     ['valuta'],
-  booking_date:    ['buchung', 'booking'],
+  description:     ['verwendung', 'zweck', 'detail', 'text', 'beschreibung', 'memo', 'info'],
+  // Nicht blosses 'buchung': das trifft auch "Buchungsreferenz" und schlaegt sie
+  // als Datum vor. Eine Spalte, die nur "Buchung" heisst, greift weiterhin ueber
+  // die umgekehrte Enthaltung.
+  booking_date:    ['buchungsdatum', 'buchungstag', 'bookingdate'],
   amount:          ['betrag', 'amount', 'summe', 'saldo', 'umsatz'],
   currency:        ['währung', 'currency', 'devisen', 'waehrung'],
   partner_iban:    ['iban'],
@@ -40,16 +50,35 @@ const TARGET_KEYWORDS: Record<string, string[]> = {
   partner_blz:     ['blz', 'bankleitzahl', 'bankcode'],
   partner_bic:     ['bic', 'swift'],
   partner_name:    ['partner', 'name', 'auftraggeber', 'empfänger', 'beguenstigter'],
-  description:     ['verwendung', 'zweck', 'detail', 'text', 'beschreibung', 'memo', 'info', 'buchungsdetail'],
 }
 
-/** Gibt das passende Zielfeld zurück, wenn der Spaltenname einem Keyword entspricht oder es enthält. */
+// Spalten, die das eigene Konto beschreiben. Sie sehen wie Partnerfelder aus
+// ("Eigene IBAN", "Eigener Kontoname"), sind aber nie ein Partner - eine Zuordnung
+// wuerde die eigene Kennung an einen fremden Partner haengen.
+const OWN_ACCOUNT_PREFIXES = ['eigene', 'eigener', 'eigenes']
+
+function normalizeForMatch(value: string): string {
+  return value.toLowerCase().replaceAll(/[^a-z0-9äöüß]/g, '')
+}
+
+/**
+ * Schlaegt ein Zielfeld zum Spaltennamen vor. Es gewinnt der erste Treffer in der
+ * Reihenfolge von TARGET_KEYWORDS. Ohne Treffer bleibt die Auswahl leer.
+ */
 function autoSuggestTarget(colName: string): string {
-  const col = colName.toLowerCase().replaceAll(/[^a-z0-9äöüß]/g, '')
+  const col = normalizeForMatch(colName)
+  if (!col) {
+    return ''
+  }
+  if (OWN_ACCOUNT_PREFIXES.some((prefix) => col.startsWith(prefix))) {
+    return 'unused'
+  }
   for (const [target, keywords] of Object.entries(TARGET_KEYWORDS)) {
     for (const kw of keywords) {
-      const kwNorm = kw.replaceAll(/[^a-z0-9äöüß]/g, '')
-      if (col.includes(kwNorm) || kwNorm.includes(col)) return target
+      const kwNorm = normalizeForMatch(kw)
+      if (col.includes(kwNorm) || kwNorm.includes(col)) {
+        return target
+      }
     }
   }
   return ''
