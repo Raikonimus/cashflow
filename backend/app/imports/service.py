@@ -128,6 +128,44 @@ def _build_duplicate_signature(
     return tuple(sorted((source, source_values[source]) for source in duplicate_sources))
 
 
+async def _count_stored_signatures(
+    session: AsyncSession,
+    account_id: UUID,
+    current_run_id: UUID,
+    duplicate_sources: list[str],
+) -> Counter[tuple[tuple[str, str], ...]]:
+    """Zaehlt je Signatur, wie viele Zeilen dazu bereits gespeichert sind.
+
+    Verglichen wird nur gegen frueher importierte Zeilen. Eine Einschraenkung auf
+    den Zeitraum der aktuellen Datei waere falsch: welche Spalten die Signatur
+    bilden, konfiguriert der Nutzer - ist etwa nur eine Referenznummer markiert,
+    kann die Dublette an einem beliebigen Datum liegen.
+
+    Die Signatur jeder gespeicherten Zeile wird genau einmal berechnet; der
+    Vergleich laeuft danach ueber Abzaehlen statt ueber eine Suche pro Zeile.
+    """
+    counts: Counter[tuple[tuple[str, str], ...]] = Counter()
+    if not duplicate_sources:
+        return counts
+
+    candidates = (
+        await session.exec(
+            select(JournalLine).where(
+                JournalLine.account_id == account_id,
+                JournalLine.import_run_id != current_run_id,  # type: ignore[arg-type]
+            )
+        )
+    ).all()
+    for candidate in candidates:
+        signature = _build_duplicate_signature(
+            _extract_stored_source_values(candidate.unmapped_data),
+            duplicate_sources,
+        )
+        if signature is not None:
+            counts[signature] += 1
+    return counts
+
+
 # Ab welchem Anteil der Zeilen eine Kennung als "steht ueberall" gilt. Gemessen an
 # echten Kontoauszuegen liegt die haeufigste Partner-Kontonummer bei hoechstens gut
 # 40 %; Kreditkartenabrechnungen tragen dagegen auf fast jeder Zeile dieselbe.
@@ -567,16 +605,21 @@ class ImportService:
         zero_skipped = 0
         review_items: list[ReviewItem] = []
         duplicates: list[dict] = []
-        existing_rows: list[JournalLine] = []
-        if account_id is not None:
-            existing_rows = (
-                await self._session.exec(
-                    select(JournalLine).where(
-                        JournalLine.account_id == account_id,
-                        JournalLine.import_run_id != current_run_id,  # type: ignore[arg-type]
-                    )
-                )
-            ).all()
+        # Dublettenerkennung ueber Vorkommen, nicht ueber Existenz: entscheidend ist,
+        # wie viele Zeilen einer Signatur bereits gespeichert sind und wie viele die
+        # Datei mitbringt. Importiert wird die Differenz. Damit werden zwei echte,
+        # aeusserlich identische Buchungen desselben Tages beim ersten Import beide
+        # uebernommen, ein versehentlich wiederholter Import aber vollstaendig
+        # verworfen.
+        duplicate_sources = next(
+            (row.get("_duplicate_sources") or [] for row in rows if row.get("_duplicate_sources")),
+            [],
+        )
+        remaining_stored: Counter[tuple[tuple[str, str], ...]] = Counter()
+        if account_id is not None and duplicate_sources:
+            remaining_stored = await _count_stored_signatures(
+                self._session, account_id, current_run_id, duplicate_sources
+            )
 
         for row in rows:
             # Buchungszeilen mit Betrag 0.00 werden ignoriert
@@ -585,18 +628,13 @@ class ImportService:
                 zero_skipped += 1
                 continue
 
-            duplicate_sources = row.get("_duplicate_sources", [])
             current_signature = row.get("_duplicate_signature")
             is_duplicate = False
-            if current_signature is not None and duplicate_sources:
-                is_duplicate = any(
-                    _build_duplicate_signature(
-                        _extract_stored_source_values(candidate.unmapped_data),
-                        duplicate_sources,
-                    )
-                    == current_signature
-                    for candidate in existing_rows
-                )
+            if current_signature is not None and remaining_stored[current_signature] > 0:
+                # Fuer diese Signatur liegt noch eine gespeicherte Zeile vor, die
+                # nicht zugeordnet ist - die aktuelle gilt als deren Wiederholung.
+                remaining_stored[current_signature] -= 1
+                is_duplicate = True
 
             if is_duplicate:
                 skipped += 1
@@ -657,8 +695,6 @@ class ImportService:
                     "_reason": "integrity_error",
                 })
                 continue
-
-            existing_rows.append(line)
 
             from app.services.service import ServiceManagementService
 
