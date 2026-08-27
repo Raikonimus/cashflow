@@ -104,17 +104,28 @@ class AdjustReviewRequest(BaseModel):
         return self
 
 
+class UnidentifiedGroupLine(BaseModel):
+    """Eine Buchungszeile einer Händlergruppe, nach Valutadatum sortiert."""
+
+    id: UUID
+    valuta_date: str
+    amount: Decimal
+    text: str | None
+
+
 class UnidentifiedGroupResponse(BaseModel):
     """Eine Gruppe offener no_partner_identified-Items mit gleichem Händler-Kern."""
 
     key: str
     suggested_pattern: str
+    #: Gesetzt, wenn es den Händler schon als aktiven Partner gibt.
+    suggested_partner_id: UUID | None = None
     suggested_partner_name: str
     line_count: int
     total_amount: Decimal
     first_date: str
     last_date: str
-    sample_texts: list[str]
+    lines: list[UnidentifiedGroupLine]
     item_ids: list[UUID]
 
 
@@ -125,16 +136,21 @@ class UnidentifiedGroupsResponse(BaseModel):
 
 
 class ResolveUnidentifiedGroupRequest(BaseModel):
+    """Partner und Leistung werden entweder ausgewählt (…_id) oder angelegt (…_name)."""
+
     item_ids: list[UUID] = Field(min_length=1)
     pattern: str = Field(min_length=2, max_length=500)
-    service_name: str = Field(min_length=1, max_length=255)
+    service_id: UUID | None = None
+    service_name: str | None = Field(default=None, max_length=255)
     partner_id: UUID | None = None
     partner_name: str | None = Field(default=None, max_length=255)
 
     @model_validator(mode="after")
-    def validate_partner(self) -> "ResolveUnidentifiedGroupRequest":
+    def validate_targets(self) -> "ResolveUnidentifiedGroupRequest":
         if self.partner_id is None and not (self.partner_name or "").strip():
             raise ValueError("Entweder partner_id oder partner_name angeben")
+        if self.service_id is None and not (self.service_name or "").strip():
+            raise ValueError("Entweder service_id oder service_name angeben")
         return self
 
 

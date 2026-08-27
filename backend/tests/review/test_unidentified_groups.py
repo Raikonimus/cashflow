@@ -9,9 +9,11 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth.models import UserRole
 from app.imports.models import JournalLine, JournalLineSplit, ReviewItem, utcnow
-from app.partners.models import Partner
+from app.partners.models import Partner, PartnerName
 from app.review.service import merchant_key
+from app.imports.matching import PartnerMatchingService
 from app.services.models import Service, ServiceMatcher
+from app.services.service import ensure_base_service
 
 from tests.review import (  # noqa: F401
     assign_user_to_mandant,
@@ -102,8 +104,121 @@ class TestUnidentifiedGroups:
         assert anthropic["suggested_pattern"] == "ANTHROPIC"
         assert anthropic["suggested_partner_name"] == "Anthropic"
         assert len(anthropic["item_ids"]) == 3
-        # Beispieltexte zeigen die Varianten, hoechstens drei.
-        assert len(anthropic["sample_texts"]) == 3
+
+        # Jede Buchungszeile einzeln, nach Valutadatum sortiert - auch wenn
+        # sich Texte wiederholen.
+        assert [line["valuta_date"] for line in anthropic["lines"]] == [
+            "2026-01-02", "2026-02-03", "2026-03-04",
+        ]
+        assert [Decimal(line["amount"]) for line in anthropic["lines"]] == [
+            Decimal("-89.00"), Decimal("-80.12"), Decimal("-149.21"),
+        ]
+        assert anthropic["lines"][2]["text"] == "ANTHROPIC* CLAUDE SUB"
+
+    async def test_schlaegt_bestehenden_partner_statt_eines_duplikats_vor(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Echter Fall: Kern "WEAVIATE B.V" neben Partner "WEAVIATE B.V." ."""
+        user = await create_user(db_session, "grp12@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner_db(db_session, mandant.id, "WEAVIATE B.V.")
+
+        await _unidentified(
+            db_session, mandant.id,
+            "WEAVIATE B.V. inkl. Fremdwährungsentgelt 0,33 Kurs 1,1271415", "-22.51",
+        )
+        await db_session.commit()
+
+        group = (await client.get(
+            f"/api/v1/mandants/{mandant.id}/review/unidentified-groups", headers=_auth(token))).json()["groups"][0]
+        assert group["key"] == "WEAVIATE B.V"
+        assert group["suggested_partner_id"] == str(partner.id)
+        # Nicht die verschoenerte Form "Weaviate B.V" - die wuerde ein Duplikat anlegen.
+        assert group["suggested_partner_name"] == "WEAVIATE B.V."
+
+    async def test_schlaegt_bei_mehreren_passenden_partnern_keinen_vor(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        user = await create_user(db_session, "grp13@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        await create_partner_db(db_session, mandant.id, "EXOSCALE")
+        await create_partner_db(db_session, mandant.id, "Exoscale")
+
+        await _unidentified(db_session, mandant.id, "EXOSCALE", "-15.00")
+        await db_session.commit()
+
+        group = (await client.get(
+            f"/api/v1/mandants/{mandant.id}/review/unidentified-groups", headers=_auth(token))).json()["groups"][0]
+        assert group["suggested_partner_id"] is None
+        assert group["suggested_partner_name"] == "Exoscale"
+
+    async def test_schlaegt_inaktive_partner_nicht_vor(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Matcher inaktiver Partner greifen nicht - ein Vorschlag waere eine Sackgasse."""
+        user = await create_user(db_session, "grp14@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner_db(db_session, mandant.id, "OLLAMA")
+        partner.is_active = False
+        db_session.add(partner)
+
+        await _unidentified(db_session, mandant.id, "OLLAMA", "-4.56")
+        await db_session.commit()
+
+        group = (await client.get(
+            f"/api/v1/mandants/{mandant.id}/review/unidentified-groups", headers=_auth(token))).json()["groups"][0]
+        assert group["suggested_partner_id"] is None
+
+    async def test_findet_den_partner_ueber_eine_namensvariante(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        user = await create_user(db_session, "grp15@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner_db(db_session, mandant.id, "Google Ireland Ltd")
+        db_session.add(PartnerName(
+            id=uuid4(), partner_id=partner.id, name="google payment ie ltd", created_at=utcnow(),
+        ))
+
+        await _unidentified(db_session, mandant.id, "GOOGLE PAYMENT IE LTD", "-42.00")
+        await db_session.commit()
+
+        group = (await client.get(
+            f"/api/v1/mandants/{mandant.id}/review/unidentified-groups", headers=_auth(token))).json()["groups"][0]
+        assert group["suggested_partner_id"] == str(partner.id)
+        assert group["suggested_partner_name"] == "Google Ireland Ltd"
+
+    async def test_partnername_wird_ohne_ruecksicht_auf_schreibweise_wiederverwendet(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Sicherheitsnetz: uq_partners_mandant_name unterscheidet Gross-/Kleinschreibung."""
+        user = await create_user(db_session, "grp16@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner_db(db_session, mandant.id, "ANTHROPIC")
+
+        _, item = await _unidentified(db_session, mandant.id, "ANTHROPIC* CLAUDE SUB", "-99.58")
+        await db_session.commit()
+
+        resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/review/unidentified-groups/resolve",
+            json={"item_ids": [str(item.id)], "pattern": "ANTHROPIC",
+                  "service_name": "Claude", "partner_name": "Anthropic"},
+            headers=_auth(token),
+        )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["partner_id"] == str(partner.id)
+
+        partners = (await db_session.exec(select(Partner).where(Partner.mandant_id == mandant.id))).all()
+        assert [p.name for p in partners] == ["ANTHROPIC"]
 
     async def test_legt_partner_leistung_matcher_an_und_ordnet_alle_zeilen_zu(
         self, client: AsyncClient, db_session: AsyncSession
@@ -196,6 +311,187 @@ class TestUnidentifiedGroups:
 
         partners = (await db_session.exec(select(Partner).where(Partner.mandant_id == mandant.id))).all()
         assert [p.name for p in partners] == ["Microsoft"]
+
+    async def test_haengt_matcher_an_bestehende_leistung_des_partners(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        user = await create_user(db_session, "grp6@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner_db(db_session, mandant.id, "Microsoft")
+        service = Service(
+            id=uuid4(), partner_id=partner.id, name="Lizenzen",
+            service_type="supplier", tax_rate=Decimal("20.00"),
+            created_at=utcnow(), updated_at=utcnow(),
+        )
+        db_session.add(service)
+        await db_session.flush()
+
+        line, _ = await _unidentified(db_session, mandant.id, "MSFT * E0301094XL", "-22.50")
+        await db_session.commit()
+
+        group = (await client.get(
+            f"/api/v1/mandants/{mandant.id}/review/unidentified-groups", headers=_auth(token))).json()["groups"][0]
+
+        resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/review/unidentified-groups/resolve",
+            json={
+                "item_ids": group["item_ids"], "pattern": "MSFT",
+                "partner_id": str(partner.id), "service_id": str(service.id),
+            },
+            headers=_auth(token),
+        )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["service_id"] == str(service.id)
+
+        # Keine zusaetzliche Leistung neben Basisleistung und der gewaehlten.
+        services = (await db_session.exec(
+            select(Service).where(Service.partner_id == partner.id))).all()
+        assert sorted(s.name for s in services) == ["Basisleistung", "Lizenzen"]
+        matchers = (await db_session.exec(
+            select(ServiceMatcher).where(ServiceMatcher.service_id == service.id))).all()
+        assert [m.pattern for m in matchers] == ["MSFT"]
+
+        await db_session.refresh(line)
+        assert line.partner_id == partner.id
+
+    async def test_folgeimport_findet_den_abweichend_benannten_partner(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Der Matcher haengt an der Leistung - der Partnername spielt keine Rolle."""
+        user = await create_user(db_session, "grp10@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner_db(db_session, mandant.id, "Google Ireland Ltd")
+
+        await _unidentified(db_session, mandant.id, "GOOGLE*ADS6139956915", "-120.00")
+        await db_session.commit()
+
+        group = (await client.get(
+            f"/api/v1/mandants/{mandant.id}/review/unidentified-groups", headers=_auth(token))).json()["groups"][0]
+        assert group["key"] == "GOOGLE"
+        # Der Vorschlag lautet "Google" - zugeordnet wird trotzdem "Google Ireland Ltd".
+        assert group["suggested_partner_name"] == "Google"
+
+        resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/review/unidentified-groups/resolve",
+            json={
+                "item_ids": group["item_ids"], "pattern": "GOOGLE",
+                "partner_id": str(partner.id), "service_name": "Google Ads",
+            },
+            headers=_auth(token),
+        )
+        assert resp.status_code == 201, resp.text
+        await db_session.commit()
+
+        # Folgeimport derselben Buchung: Kartenzeilen tragen weder IBAN noch
+        # Partnername, es bleibt allein der Leistungs-Matcher.
+        result = await PartnerMatchingService(db_session).match(
+            mandant_id=mandant.id, iban_raw=None, name_raw=None,
+            text_raw="GOOGLE*ADS7000000001",
+        )
+        assert result.outcome.value == "service_matcher_match"
+        assert result.partner_id == partner.id
+
+    async def test_lehnt_matcher_an_der_basisleistung_ab(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Partnererkennung und Leistungszuordnung ueberspringen Basisleistungen."""
+        user = await create_user(db_session, "grp11@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner_db(db_session, mandant.id, "Google Ireland Ltd")
+        base = await ensure_base_service(db_session, partner.id)
+
+        _, item = await _unidentified(db_session, mandant.id, "GOOGLE*ADS6139956915", "-120.00")
+        await db_session.commit()
+
+        resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/review/unidentified-groups/resolve",
+            json={
+                "item_ids": [str(item.id)], "pattern": "GOOGLE",
+                "partner_id": str(partner.id), "service_id": str(base.id),
+            },
+            headers=_auth(token),
+        )
+        assert resp.status_code == 422
+        assert "Basisleistung" in resp.json()["detail"]
+
+    async def test_lehnt_leistung_eines_fremden_partners_ab(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        user = await create_user(db_session, "grp7@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner_db(db_session, mandant.id, "Microsoft")
+        other = await create_partner_db(db_session, mandant.id, "Anthropic")
+        foreign = Service(
+            id=uuid4(), partner_id=other.id, name="Claude",
+            service_type="supplier", tax_rate=Decimal("20.00"),
+            created_at=utcnow(), updated_at=utcnow(),
+        )
+        db_session.add(foreign)
+        _, item = await _unidentified(db_session, mandant.id, "MSFT * E0301094XL", "-22.50")
+        await db_session.commit()
+
+        resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/review/unidentified-groups/resolve",
+            json={
+                "item_ids": [str(item.id)], "pattern": "MSFT",
+                "partner_id": str(partner.id), "service_id": str(foreign.id),
+            },
+            headers=_auth(token),
+        )
+        assert resp.status_code == 404
+
+    async def test_verlangt_service_id_oder_service_name(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        user = await create_user(db_session, "grp8@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        _, item = await _unidentified(db_session, mandant.id, "OLLAMA", "-4.56")
+        await db_session.commit()
+
+        resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/review/unidentified-groups/resolve",
+            json={"item_ids": [str(item.id)], "pattern": "OLLAMA", "partner_name": "Ollama"},
+            headers=_auth(token),
+        )
+        assert resp.status_code == 422
+
+    async def test_gleicher_leistungsname_legt_keine_zweite_leistung_an(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        user = await create_user(db_session, "grp9@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner_db(db_session, mandant.id, "Microsoft")
+
+        _, first = await _unidentified(db_session, mandant.id, "MSFT * E0301094XL", "-22.50")
+        _, second = await _unidentified(db_session, mandant.id, "MSFT * E0300ZSOSD", "-11.00", "2026-02-15")
+        await db_session.commit()
+
+        for item, pattern in ((first, "MSFT *"), (second, "MSFT")):
+            resp = await client.post(
+                f"/api/v1/mandants/{mandant.id}/review/unidentified-groups/resolve",
+                json={
+                    "item_ids": [str(item.id)], "pattern": pattern,
+                    "partner_id": str(partner.id), "service_name": "Lizenzen",
+                },
+                headers=_auth(token),
+            )
+            assert resp.status_code == 201, resp.text
+
+        services = (await db_session.exec(
+            select(Service).where(Service.partner_id == partner.id, Service.name == "Lizenzen"))).all()
+        assert len(services) == 1
 
     async def test_lehnt_leere_oder_bereits_erledigte_gruppe_ab(
         self, client: AsyncClient, db_session: AsyncSession

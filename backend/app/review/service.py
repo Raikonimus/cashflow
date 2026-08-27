@@ -9,12 +9,12 @@ from uuid import UUID, uuid4
 
 import structlog
 from fastapi import HTTPException, status
-from sqlalchemy import desc, or_
+from sqlalchemy import desc, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
 from app.imports.models import JournalLine, JournalLineSplit, ReviewItem, utcnow
-from app.partners.models import AuditLog, Partner, PartnerIban
+from app.partners.models import AuditLog, Partner, PartnerIban, PartnerName
 from app.review.schemas import (
     AdjustReviewRequest,
     ResolveUnidentifiedGroupRequest,
@@ -22,6 +22,7 @@ from app.review.schemas import (
     ReviewItemResponse,
     ReviewJournalLineSummary,
     ReviewServiceSummary,
+    UnidentifiedGroupLine,
     UnidentifiedGroupResponse,
     UnidentifiedGroupsResponse,
 )
@@ -89,6 +90,20 @@ def _suggest_partner_name(key: str) -> str:
     """Aus dem Haendler-Kern einen lesbaren Partnernamen machen: ANTHROPIC -> Anthropic."""
     words = [word for word in key.split(" ") if word]
     return " ".join(word if len(word) <= 3 and word.isupper() else word.capitalize() for word in words)
+
+
+_NAME_NOISE = re.compile(r"[\W_]+", re.UNICODE)
+
+
+def normalized_partner_name(value: str) -> str:
+    """Vergleichsform eines Partnernamens: ohne Schreibweise und Satzzeichen.
+
+    Die Haendler-Kerne stammen aus Buchungstexten ("WEAVIATE B.V"), die
+    Partnernamen aus frueheren Importen ("WEAVIATE B.V."). Ein exakter
+    Vergleich scheitert an Punkt und Grossschreibung und legt einen zweiten
+    Partner an - deshalb wird beides vor dem Vergleich entfernt.
+    """
+    return _NAME_NOISE.sub(" ", value.casefold()).strip()
 
 
 class ReviewService:
@@ -468,6 +483,48 @@ class ReviewService:
     # Nicht erkannte Partner: gruppieren und in einem Zug aufloesen
     # ------------------------------------------------------------------
 
+    async def _active_partners_by_normalized_name(self, mandant_id: UUID) -> dict[str, tuple[UUID, str]]:
+        """Vergleichsform -> (partner_id, echter Name), Namensvarianten inklusive.
+
+        Nur aktive Partner: Matcher inaktiver Partner greifen bei der
+        Erkennung nicht, ein Vorschlag darauf waere eine Sackgasse.
+        Mehrdeutige Formen fliegen raus - lieber neu anlegen als falsch raten.
+        """
+        partners = (
+            await self._session.exec(
+                select(Partner).where(
+                    Partner.mandant_id == mandant_id,
+                    Partner.is_active == True,  # noqa: E712
+                )
+            )
+        ).all()
+        if not partners:
+            return {}
+        real_name = {p.id: p.name for p in partners}
+
+        candidates: dict[str, set[UUID]] = defaultdict(set)
+        for partner in partners:
+            candidates[normalized_partner_name(partner.name)].add(partner.id)  # type: ignore[arg-type]
+
+        aliases = (
+            await self._session.exec(
+                select(PartnerName)
+                .join(Partner, Partner.id == PartnerName.partner_id)  # type: ignore[arg-type]
+                .where(
+                    Partner.mandant_id == mandant_id,
+                    Partner.is_active == True,  # noqa: E712
+                )
+            )
+        ).all()
+        for alias in aliases:
+            candidates[normalized_partner_name(alias.name)].add(alias.partner_id)
+
+        return {
+            normalized: (next(iter(ids)), real_name[next(iter(ids))])
+            for normalized, ids in candidates.items()
+            if normalized and len(ids) == 1
+        }
+
     async def list_unidentified_groups(self, mandant_id: UUID) -> UnidentifiedGroupsResponse:
         """Offene no_partner_identified-Items nach Haendler-Kern gruppieren.
 
@@ -504,25 +561,34 @@ class ReviewService:
             if key:
                 buckets[key].append((item, line))
 
+        known_partners = await self._active_partners_by_normalized_name(mandant_id)
+
         groups: list[UnidentifiedGroupResponse] = []
         for key, entries in buckets.items():
+            existing = known_partners.get(normalized_partner_name(key))
             entries.sort(key=lambda pair: pair[1].valuta_date)
-            texts: list[str] = []
-            for _, line in entries:
-                if line.text and line.text not in texts:
-                    texts.append(line.text)
-                if len(texts) == 3:
-                    break
             groups.append(
                 UnidentifiedGroupResponse(
                     key=key,
                     suggested_pattern=key,
-                    suggested_partner_name=_suggest_partner_name(key),
+                    suggested_partner_id=existing[0] if existing else None,
+                    # Gibt es den Partner schon, ist sein echter Name der
+                    # Vorschlag - die Verschoenerung wuerde ein Duplikat anlegen.
+                    suggested_partner_name=existing[1] if existing else _suggest_partner_name(key),
                     line_count=len(entries),
                     total_amount=sum((Decimal(str(line.amount)) for _, line in entries), Decimal("0")),
                     first_date=entries[0][1].valuta_date,
                     last_date=entries[-1][1].valuta_date,
-                    sample_texts=texts,
+                    lines=[
+                        UnidentifiedGroupLine(
+                            id=line.id,
+                            valuta_date=line.valuta_date,
+                            amount=Decimal(str(line.amount)),
+                            text=line.text,
+                        )
+                        for _, line in entries
+                        if line.id is not None
+                    ],
                     item_ids=[item.id for item, _ in entries if item.id is not None],
                 )
             )
@@ -559,22 +625,7 @@ class ReviewService:
             )
 
         partner = await self._resolve_or_create_partner(mandant_id, body)
-
-        service = Service(
-            id=uuid4(),
-            partner_id=partner.id,
-            name=body.service_name.strip(),
-            service_type=ServiceType.unknown.value,
-            tax_rate=_default_tax_rate(ServiceType.unknown),
-            # Art und Steuersatz bleiben automatisch, damit die Erkennung sie
-            # anhand der zugeordneten Buchungen bestimmt.
-            service_type_manual=False,
-            tax_rate_manual=False,
-            created_at=utcnow(),
-            updated_at=utcnow(),
-        )
-        self._session.add(service)
-        await self._session.flush()
+        service = await self._resolve_or_create_service(partner, body)
 
         matcher = ServiceMatcher(
             id=uuid4(),
@@ -643,6 +694,58 @@ class ReviewService:
             assigned_lines=len(lines),
         )
 
+    async def _resolve_or_create_service(
+        self,
+        partner: Partner,
+        body: ResolveUnidentifiedGroupRequest,
+    ) -> Service:
+        if body.service_id is not None:
+            service = await self._session.get(Service, body.service_id)
+            if service is None or service.partner_id != partner.id:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Leistung gehört nicht zu diesem Partner",
+                )
+            # Sowohl die Partnererkennung als auch die Leistungszuordnung
+            # ueberspringen Basisleistungen. Ein Matcher dort waere wirkungslos.
+            if service.is_base_service:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="Ein Matcher an der Basisleistung greift nie - bitte eine echte Leistung wählen",
+                )
+            return service
+
+        desired_name = (body.service_name or "").strip()
+        # Gleicher Name unter demselben Partner ist immer dieselbe Leistung -
+        # sonst sammeln sich beim wiederholten Auflösen Duplikate an.
+        existing = (
+            await self._session.exec(
+                select(Service).where(
+                    Service.partner_id == partner.id,
+                    Service.name == desired_name,
+                )
+            )
+        ).first()
+        if existing is not None:
+            return existing
+
+        service = Service(
+            id=uuid4(),
+            partner_id=partner.id,
+            name=desired_name,
+            service_type=ServiceType.unknown.value,
+            tax_rate=_default_tax_rate(ServiceType.unknown),
+            # Art und Steuersatz bleiben automatisch, damit die Erkennung sie
+            # anhand der zugeordneten Buchungen bestimmt.
+            service_type_manual=False,
+            tax_rate_manual=False,
+            created_at=utcnow(),
+            updated_at=utcnow(),
+        )
+        self._session.add(service)
+        await self._session.flush()
+        return service
+
     async def _resolve_or_create_partner(
         self,
         mandant_id: UUID,
@@ -655,12 +758,17 @@ class ReviewService:
             return partner
 
         desired_name = (body.partner_name or "").strip()
+        # Sicherheitsnetz fuer von Hand getippte Namen: der Unique-Constraint
+        # uq_partners_mandant_name unterscheidet Gross- und Kleinschreibung,
+        # "Anthropic" neben "ANTHROPIC" ist aber nie Absicht.
         existing = (
             await self._session.exec(
-                select(Partner).where(
+                select(Partner)
+                .where(
                     Partner.mandant_id == mandant_id,
-                    Partner.name == desired_name,
+                    func.lower(Partner.name) == desired_name.lower(),
                 )
+                .order_by(Partner.created_at)
             )
         ).first()
         if existing is not None:

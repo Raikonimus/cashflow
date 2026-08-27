@@ -236,15 +236,24 @@ export async function newPartnerReviewItem(
 
 // ─── Nicht erkannte Partner: Gruppen ─────────────────────────────────────────
 
+export interface UnidentifiedGroupLine {
+  id: string
+  valuta_date: string
+  amount: string
+  text: string | null
+}
+
 export interface UnidentifiedGroup {
   key: string
   suggested_pattern: string
+  /** Gesetzt, wenn es den Haendler schon als aktiven Partner gibt. */
+  suggested_partner_id: string | null
   suggested_partner_name: string
   line_count: number
   total_amount: string
   first_date: string
   last_date: string
-  sample_texts: string[]
+  lines: UnidentifiedGroupLine[]
   item_ids: string[]
 }
 
@@ -257,7 +266,10 @@ export interface UnidentifiedGroups {
 export interface ResolveGroupRequest {
   item_ids: string[]
   pattern: string
-  service_name: string
+  /** Bestehende Leistung des Partners; sonst service_name fuer eine neue. */
+  service_id?: string
+  service_name?: string
+  /** Bestehender Partner; sonst partner_name fuer einen neuen. */
   partner_id?: string
   partner_name?: string
 }
