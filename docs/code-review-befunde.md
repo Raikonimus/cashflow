@@ -509,7 +509,7 @@ Test zu A3-1.
 
 ---
 
-## A3-3 — Abgebrochene Importe hinterlassen keinen Audit-Eintrag · **niedrig** · offen
+## A3-3 — Abgebrochene Importe hinterlassen keinen Audit-Eintrag · **niedrig** · behoben
 
 **Ort:** [imports/service.py:270](../backend/app/imports/service.py#L270) (`_process_file`)
 
@@ -524,9 +524,14 @@ Parse-Fehler hatte. Der eigentliche Fehlschlag ist der, der nicht protokolliert 
 
 **Kein Datenschaden**, aber die Aussage der ADR stimmt nur für den halben Fehlerraum.
 
+**Behoben:** `_log_failed_import` schreibt den Eintrag auch auf dem Ausnahmepfad. Die
+laufende Transaktion ist danach unbrauchbar, deshalb erst zurücknehmen, dann als
+eigene Transaktion schreiben — und scheitert auch das, darf es die ursprüngliche
+Ausnahme nicht verdecken.
+
 ---
 
-## A3-4 — Ohne Vergleichsspalten keine Dublettenerkennung · **niedrig** · latent
+## A3-4 — Ohne Vergleichsspalten keine Dublettenerkennung · **niedrig** · behoben
 
 **Ort:** [imports/service.py:781](../backend/app/imports/service.py#L781)
 (`_validate_duplicate_check_columns`)
@@ -539,8 +544,14 @@ Ein versehentlich wiederholter Import verdoppelt dann jede Buchung, ohne Hinweis
 8). Die Falle steht für das nächste Konto bereit.
 
 Beiläufig aufgefallen: Bei einem Konto steht `Buchungsdatum` zweimal in der Liste der
-Vergleichsspalten. Folgenlos für den Vergleich, aber ein Hinweis darauf, dass die
-Konfiguration keine Dubletten in sich ausschließt.
+Vergleichsspalten. Folgenlos, weil `_assignment_duplicate_sources` die Liste selbst
+entdoppelt.
+
+**Behoben:** Der Import lehnt eine Konfiguration ohne Vergleichsspalte jetzt mit 422
+ab und sagt in der Meldung, was zu tun ist. Ein Block statt einer Warnung, weil ein
+stiller doppelter Buchungsbestand die schlimmere Überraschung ist als eine
+Fehlermeldung. Legacy-Mappings ohne `column_assignments` sind nicht betroffen — sie
+leiten die Vergleichsspalten aus den zugeordneten Spalten ab.
 
 ---
 
@@ -550,8 +561,8 @@ Konfiguration keine Dubletten in sich ausschließt.
 |---|---|
 | A3-1 | behoben |
 | A3-2 | behoben |
-| A3-3 | offen — Audit-Eintrag auch auf dem Ausnahmepfad schreiben? |
-| A3-4 | offen — mindestens eine Vergleichsspalte erzwingen, oder beim Import warnen? |
+| A3-3 | behoben |
+| A3-4 | behoben |
 
 ---
 
@@ -638,7 +649,7 @@ Regeleintrag sind mitgezogen.
 
 ---
 
-## A4-4 — Eine Methode mit 357 Zeilen und Verschachtelungstiefe 7 · **offen, Vorschlag**
+## A4-4 — Eine Methode mit 357 Zeilen und Verschachtelungstiefe 7 · **behoben**
 
 **Ort:** [journal/service.py:615](../backend/app/journal/service.py#L615)
 (`get_income_expense_matrix`)
@@ -663,14 +674,33 @@ Zeile 811 wird geladen und aufbereitet, ab Zeile 812 folgt eine einzelne
 entlang dieser Naht — Laden, dann Zusammensetzen — halbieren die Länge und nehmen
 zwei Ebenen Verschachtelung heraus.
 
-**Empfehlung: nicht jetzt.** Ein Umbau ohne funktionalen Nutzen an der am tiefsten
-verschachtelten Stelle des Systems ist genau die Sorte Änderung, bei der Fehler
-entstehen. Der richtige Zeitpunkt ist der nächste, an dem jemand diese Methode
-ohnehin anfassen muss — dann trägt der Umbau sich selbst.
+**Meine Empfehlung war Aufschub**, weil ein Umbau ohne funktionalen Nutzen an der am
+tiefsten verschachtelten Stelle des Systems genau die Sorte Änderung ist, bei der
+Fehler entstehen. Auf Weisung umgesetzt — mit einer Absicherung, die das Risiko trägt:
+
+**Ein Abzug von zwölf Matrizen aus den echten Daten** (vier Jahre × drei Szenarien,
+6,2 MB JSON) wurde vor dem Umbau genommen und nach jedem Schritt verglichen. Beide
+Male **zeichengleich**.
+
+Zwei Schnitte statt einem:
+
+1. `_matrix_sections` — der Zusammenbau ab der `for section`-Schleife. Die zwölf
+   Namen, die aus der Ladephase herüberwandern, stehen einzeln in der Signatur statt
+   in einem Behälter: so ist sichtbar, wie viel Zustand der Zusammenbau braucht.
+2. `_service_cells` — die Monatsschleife samt ihrer Prognose-Fallunterscheidungen.
+   Sie stellte die beiden tiefsten Ebenen.
+
+| Methode | vorher | nachher |
+|---|---|---|
+| `get_income_expense_matrix` | 357 Zeilen, Tiefe 7 | **216 Zeilen, Tiefe 3** |
+| `_matrix_sections` | — | 141 Zeilen, Tiefe 4 |
+| `_service_cells` | — | 62 Zeilen, Tiefe 4 |
+
+Die tiefste Stelle des Backends liegt damit bei 4 statt bei 7.
 
 ---
 
-## A4-5 — Die Frontend-Struktur folgt dem eigenen Standard nicht · **offen, Entscheidung**
+## A4-5 — Die Frontend-Struktur folgt dem eigenen Standard nicht · **behoben**
 
 `memory-bank/standards/coding-standards.md` fordert `src/features/*` und
 `src/shared/*`; tatsächlich sind es `src/pages/*` und `src/components/*` — layer-based
@@ -681,8 +711,10 @@ nicht „falsch gebaut", sondern **das Dokument beschreibt etwas anderes als der
 Ein Standard, dem der Code nicht folgt, ist schlimmer als keiner: Beim nächsten neuen
 Bereich hängt die Antwort davon ab, wer gerade schreibt.
 
-**Empfehlung: den Standard anpassen**, nicht 54 Dateien umziehen. Ein Umbau hätte kein
-Ziel außer Regelkonformität.
+**Behoben, indem der Standard dem Code folgt** — nicht umgekehrt. `coding-standards.md`
+beschreibt jetzt die tatsächliche Schichtenstruktur samt der Regel, wann etwas nach
+`components/` bzw. `hooks/` wandert, und hält in einer Randnotiz fest, dass hier bis
+zum Review eine feature-basierte Struktur stand, die es im Code nie gab.
 
 ---
 
@@ -693,6 +725,62 @@ Ziel außer Regelkonformität.
 | A4-1 | behoben |
 | A4-2 | behoben |
 | A4-3 | behoben |
-| A4-4 | offen — Vorschlag liegt vor, Empfehlung ist Aufschub bis zur nächsten Änderung an der Methode |
-| A4-5 | offen — Entscheidung: Standard anpassen (Empfehlung) oder Code umziehen |
-| ESLint-Rest | 13 Warnungen: 5× react-refresh, 3× no-explicit-any, 3× exhaustive-deps, 2× set-state-in-effect. Die letzten fünf ändern Verhalten. |
+| A4-4 | behoben |
+| A4-5 | behoben |
+| ESLint-Rest | behoben — 0 Befunde, Deckel und Ausnahmeregeln entfernt |
+
+---
+
+# Nacharbeiten — die offenen Punkte 2 bis 6
+
+Auf Weisung umgesetzt, nachdem das Review durch war. Dabei kam ein Befund dazu, den
+keine der vier Etappen gefunden hatte.
+
+## N-1 — `npm run typecheck` prüfte nichts · **hoch** · behoben
+
+**Ort:** `frontend/package.json`, `frontend/tsconfig.json`
+
+**Behauptung:** Das Skript lautete `tsc --noEmit`. `tsconfig.json` ist aber eine reine
+Solution-Datei — `"files": []` plus zwei Projektverweise. `tsc --noEmit` darauf prüft
+**nichts** und endet mit 0. Nur `tsc -b` baut die verwiesenen Projekte tatsächlich.
+
+Aufgefallen ist es zufällig: Nach dem Aufteilen von `reviewShared.tsx` zeigten zwei
+Dateien auf nicht mehr vorhandene Exporte — und `tsc --noEmit` meldete nichts.
+
+**Fehlerszenario:** `npx tsc -b --force` fand **21 Typfehler**, davon 12 vorbestehend.
+Damit war `npm run build` (`tsc -b && vite build`) auf einem sauberen Rechner kaputt,
+und der CI-Schritt „TypeScript" aus Etappe 0 hat es nicht gemerkt, weil er dasselbe
+leere Kommando ausführte.
+
+Unter den zwölf ein echter: `ForecastRuleEditor` deklarierte die Planposten lokal als
+`{ id; period; amount; note }`, obwohl `PlannedItem` in `api/forecast.ts` längst
+`status` und `remaining_in_month` führt. Die Oberfläche las beide Felder — zur
+Laufzeit richtig, für den Compiler nicht existent.
+
+**Behoben:** Skript auf `tsc -b --force`, alle 21 Fehler beseitigt. Der lokale Typ ist
+durch `PlannedItem` ersetzt.
+
+## Was sonst umgesetzt wurde
+
+| Punkt | Ergebnis |
+|---|---|
+| A3-3 | Audit-Eintrag auf dem Ausnahmepfad, mit Test |
+| A3-4 | Import ohne Vergleichsspalte wird mit 422 abgelehnt, mit Test |
+| A4-4 | zwei Schnitte, Tiefe 7 → 4, Ausgabe zeichengleich über 6,2 MB |
+| A4-5 | Standard folgt dem Code |
+| ESLint | 13 → **0**, Deckel und Ausnahmeregeln entfernt |
+
+Bei den fünf verhaltensändernden ESLint-Befunden war die Behebung mehr als Kosmetik:
+
+* `AppLayout` und `ServiceManagementPage` setzten Zustand im Effekt und lösten damit
+  einen zweiten Renderdurchlauf aus. Ersetzt durch Reacts dokumentiertes Muster, den
+  Zustand während des Renderns nachzuziehen.
+* In `ServiceManagementPage` entstand `lines` bei jedem Durchlauf neu — das `useMemo`
+  darunter merkte sich deshalb **nie** etwas.
+* Die drei `any` in der Fehlerbehandlung sind durch das vorhandene
+  `extractErrorMessage` ersetzt, das zusätzlich den 422-Fall mit Feldliste auflöst,
+  den der `any`-Code verschluckte.
+
+## Weiterhin offen
+
+Nur noch der vertagte Sammelpunkt **Mandantenfähigkeit** (mit A1-3, A1-4 und A2-3).
