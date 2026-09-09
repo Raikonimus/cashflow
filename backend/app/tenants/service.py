@@ -575,6 +575,10 @@ class AccountService:
         from app.imports.models import JournalLine
         from app.partners.models import PartnerAccount, PartnerIban
 
+        # Der Endpunkt bekommt account_id und mandant_id aus dem Pfad; require_mandant_access
+        # prueft nur die mandant_id. Ohne diese Zeile schreibt der Aufruf fremde Buchungen um.
+        await self.get_account(account_id, mandant_id)
+
         excluded_ibans, excluded_accounts = await self.get_excluded_sets(account_id)
         if not excluded_ibans and not excluded_accounts:
             return 0
