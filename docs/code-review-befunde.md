@@ -243,3 +243,154 @@ welche Daten schon vermischt wurden, weil die Fehler leise sind.
 
 Die Befunde A1-3 und A1-4 sowie die Konto-IBAN-Frage sind Teilaspekte davon und werden
 zusammen mit diesem Punkt entschieden, nicht einzeln vorab.
+
+---
+
+# Etappe 2 — Geldrichtigkeit (A2)
+
+## Vorgehen
+
+Geprüft wurde, wo Geld den exakten Rechenweg verlässt: Datentypen, Rundungsstellen,
+Aggregationsreihenfolge, Vorzeichen, Währung. Maschinell, wo möglich; gelesen, wo
+nicht. Alle Zahlen unten sind gegen die Entwicklungsdatenbank gerechnet, nicht
+konstruiert.
+
+## Was in Ordnung ist
+
+Das Fundament trägt, und zwar besser als erwartet:
+
+| Prüfung | Ergebnis |
+|---|---|
+| `float` im Backend | **0 Vorkommen** — ausnahmslos `Decimal` |
+| Geldspalten | durchgängig `Numeric(15, 2)` |
+| Rundungsstellen | nur 5 im gesamten Backend, alle an der Ausgabe |
+| Aggregation | Summen laufen über ungerundete Werte, gerundet wird zuletzt |
+| Vorzeichen | konsistent — `value > 0 → inflow`, `< 0 → outflow`, `net = inflow + outflow` |
+| Aufteilung auf mehrere Leistungen | letzter Split bekommt den Rest, Summe bleibt exakt |
+| Steuersatz 0 % (102 Leistungen) | Divisor 1, keine Division durch Null; der Nullfall ist zusätzlich abgefangen |
+| Fremdwährung | bewusst ausgeschlossen **und** auf der Seite ausgewiesen — kein stiller Verlust |
+| Unsicherheitsband | Formel korrekt (siehe unten) |
+
+**Der JS-Float im Frontend ist geprüft und unbedenklich.** `sumAmounts` parst
+Geldstrings zu `number` und summiert. Für die auftretenden Größenordnungen ist das
+sicher: 400 Zufallsbeträge in float64 summiert ergeben denselben Wert wie exakte
+Cent-Arithmetik, und die klassische `(1.005).toFixed(2)`-Falle ist nicht erreichbar,
+weil die Eingaben schon auf zwei Stellen gerundet ankommen. Die Grenze sei genannt:
+Das gilt, solange die Strings zweistellig sind und das Ergebnis nicht weiterdividiert
+wird.
+
+**Die Unsicherheitsaggregation ist mathematisch richtig.** Für gleichkorrelierte
+Terme gilt `Var(ΣXᵢ) = Σσᵢ² + 2ρ·Σ_{i<j}σᵢσⱼ = (1−ρ)·Σσᵢ² + ρ·(Σσᵢ)²` — genau die
+implementierte Formel, mit den korrekten Grenzfällen ρ=0 (Quadratur) und ρ=1
+(einfache Summe). Alle Abweichungen gehen als Betrag ein, die Varianz kann nicht
+negativ werden, und die Wurzel ist zusätzlich abgesichert. Ob ρ=0,5 der richtige Wert
+ist, bleibt eine empirische Frage — belegt ist er gegen sechs Monate Realität.
+
+---
+
+## A2-1 — Seite und Excel-Export weisen verschiedene Jahressummen aus · **mittel** · offen
+
+**Ort:** [journal/service.py:873](../backend/app/journal/service.py#L873) (Netto-Berechnung),
+[IncomeExpensePage.tsx:155](../frontend/src/pages/cashflow/IncomeExpensePage.tsx#L155)
+(`sumAmounts`), [income-expense-excel.ts:135](../frontend/src/pages/cashflow/income-expense-excel.ts#L135)
+(Total-Formel)
+
+**Behauptung:** Für dieselbe Zahl gibt es drei Rechenwege und zwei Ergebnisse.
+
+| Ansicht | Jahressumme netto |
+|---|---|
+| Seite, ein Jahr | `round(jahresbrutto / divisor)` — vom Backend |
+| Seite, mehrere Jahre | Summe der angezeigten Jahreswerte |
+| Excel-Export | `=SUMME(Monatsspalten)` — Excel-Formel, die Backend-Summe wird verworfen |
+
+Ursache ist die Netto-Berechnung: `netto = brutto / (1 + Steuersatz/100)` liefert bei
+20 % fast immer periodische Dezimalzahlen. Gerundet wird korrekt erst bei der Ausgabe —
+dadurch ist `round(Σ brutto / d)` aber nicht dasselbe wie `Σ round(brutto / d)`.
+
+**Fehlerszenario:** Zwölf Monatsbuchungen à 100,00 € brutto, 20 % USt.
+
+```
+Monatszelle angezeigt :    83,33
+12 × davon            :   999,96
+Jahressumme angezeigt : 1.000,00
+```
+
+Der Nutzer sieht zwölfmal 83,33 und darunter 1.000,00. Exportiert er dieselbe
+Ansicht, rechnet Excel 999,96.
+
+**Auf den echten Daten** (Entwicklungsdatenbank, Stand 2026-09-09):
+
+| Jahr | Bereich | Seite | Excel | Differenz |
+|---|---|---|---|---|
+| 2025 | Einnahmen | 728.214,75 | 728.214,76 | +0,01 |
+| 2025 | Ausgaben | −958.930,03 | −958.930,06 | −0,03 |
+| 2025 | neutral | 15.494,61 | 15.494,62 | +0,01 |
+| 2026 | Einnahmen | 731.762,65 | 731.762,65 | — |
+| 2026 | **Ausgaben** | **−923.957,69** | **−923.957,85** | **−0,16** |
+| 2026 | neutral | 5.242,99 | 5.242,98 | −0,01 |
+
+Fünf von sechs Summen weichen ab. 29 von 408 Zeilen addieren sich in der
+Einjahresansicht nicht auf ihre eigene Jahreszelle.
+
+**Einordnung:** Es geht um Cent, nicht um Euro, und keine gespeicherte Zahl ist
+falsch. Der Schaden ist Vertrauen: Wer eine Spalte nachrechnet oder den Export gegen
+den Bildschirm hält, findet eine Differenz und weiß nicht, welcher Zahl er glauben
+soll. Genau die Klasse „still das Falsche" aus Abschnitt 2 des Konzepts.
+
+**Vorschlag:** Den Restcent auf die Monatszellen verteilen, statt ihn verschwinden zu
+lassen — dasselbe Verfahren, das
+[`_replace_splits`](../backend/app/services/service.py#L1890) für die Aufteilung auf
+mehrere Leistungen bereits verwendet und das dort nachweislich funktioniert. Dann
+stimmen Spalte, Jahreszelle und Export überein, ohne dass die Jahressumme ungenauer
+wird. Alternativ Seite und Export auf dieselbe Regel bringen — aber dann stimmt die
+Jahressumme netto nicht mehr zur Jahressumme brutto.
+
+**Test:** [tests/journal/test_netto_summen.py](../backend/tests/journal/test_netto_summen.py) —
+als `xfail(strict=True)`. Die Gegenprobe, dass sich brutto sauber addiert, läuft grün.
+
+---
+
+## A2-2 — Zwei Rundungsverfahren nebeneinander · **niedrig** · offen
+
+**Ort:** [services/service.py:1890](../backend/app/services/service.py#L1890)
+
+**Behauptung:** `_replace_splits` ruft `quantize(Decimal("0.01"))` **ohne**
+`rounding=` auf und erbt damit den Kontext-Standard `ROUND_HALF_EVEN`. Überall sonst
+steht ausdrücklich `ROUND_HALF_UP`.
+
+**Fehlerszenario:** Kein Betrag wird falsch — der letzte Split fängt die Differenz
+auf, die Summe bleibt exakt. Aber bei 0,05 € auf zwei Leistungen entsteht 0,02 / 0,03,
+während dieselbe Zahl in der Anzeige auf 0,03 gerundet würde. Das Risiko ist die
+nächste Änderung: Wer die Restausgleich-Zeile entfernt oder das Verfahren kopiert,
+erbt eine Rundung, die im Rest des Systems nicht gilt.
+
+**Vorschlag:** `rounding=ROUND_HALF_UP` ergänzen. Einzeilig, verhaltensneutral für die
+Summe.
+
+---
+
+## A2-3 — `base_currency` ist fest verdrahtet · **niedrig** · latent
+
+**Ort:** [journal/service.py:495](../backend/app/journal/service.py#L495),
+[:617](../backend/app/journal/service.py#L617)
+
+`base_currency = "EUR"` steht zweimal als Literal im Code, während Konten ein eigenes
+`currency`-Feld führen. Ein Mandant mit einem Konto in CHF bekäme eine vollständig
+leere Matrix — alle Buchungen fielen unter „ausgeschlossene Fremdwährung".
+
+**Heute unerreichbar:** Beide Konten und alle 3.689 Buchungen sind EUR. Der Hinweis
+auf ausgeschlossene Währungen würde erscheinen, es wäre also nicht lautlos — aber
+auch nicht als Fehler erkennbar.
+
+Gehört sachlich zum vorgemerkten Punkt Mandantenfähigkeit: Beides sind Annahmen, die
+tragen, solange es einen Mandanten mit einer Währung gibt.
+
+---
+
+## Offen aus Etappe 2
+
+| Punkt | Entscheidung nötig |
+|---|---|
+| A2-1 | Restcent verteilen (Empfehlung), oder Seite und Export angleichen? |
+| A2-2 | `ROUND_HALF_UP` ergänzen — ja/nein? |
+| A2-3 | Kontowährung statt Literal — jetzt oder mit der Mandantenfähigkeit? |
