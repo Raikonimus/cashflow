@@ -1,4 +1,4 @@
-import type { ForecastMode, ForecastRuleType } from '@/api/forecast'
+import type { ForecastMode, ForecastRuleType, PlannedItemStatus } from '@/api/forecast'
 
 export const MONTHS = [
   'Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez',
@@ -90,4 +90,32 @@ export function formatAdjustment(adjustmentPct: string): string | null {
   if (Number.isNaN(value) || value === 0) return null
   const rounded = Number.isInteger(value) ? value : Math.round(value * 100) / 100
   return `${value > 0 ? '+' : '\u2212'}${Math.abs(rounded).toLocaleString('de-DE')} %`
+}
+
+/** Wie ein Planposten in der Liste erscheint. `muted` heisst: wirkt nicht mehr.
+ *  Ueber `plannedStatus()` abfragen, damit ein unbekannter Wert die Liste nicht sprengt. */
+export const PLANNED_STATUS: Record<
+  PlannedItemStatus,
+  { badge: string | null; title: string; muted: boolean }
+> = {
+  active: { badge: null, title: 'Wird für diesen Monat angesetzt', muted: false },
+  partly_used: {
+    badge: 'teilweise gebucht',
+    title: 'Ein Teil ist bereits gebucht — nur der Rest wird noch erwartet',
+    muted: false,
+  },
+  used: {
+    badge: 'verbraucht',
+    title: 'Die Buchungen erreichen den Planbetrag — es kommt nichts mehr dazu',
+    muted: true,
+  },
+  expired: {
+    badge: 'abgelaufen',
+    title: 'Der Monat ist vorbei. Der Posten wirkt nicht mehr, die Zelle zeigt nur das Ist',
+    muted: true,
+  },
+}
+
+export function plannedStatus(status: string): (typeof PLANNED_STATUS)[PlannedItemStatus] {
+  return PLANNED_STATUS[status as PlannedItemStatus] ?? PLANNED_STATUS.active
 }

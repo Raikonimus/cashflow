@@ -572,6 +572,8 @@ describe('ForecastPage – Planposten', () => {
             note: 'Abfertigung',
             created_at: '2026-09-09T00:00:00Z',
             updated_at: '2026-09-09T00:00:00Z',
+            status: 'active',
+            remaining_in_month: '-9999.00',
           },
         ]),
       ),
@@ -603,6 +605,88 @@ describe('ForecastPage – Rechte', () => {
 
     expect(screen.queryByRole('button', { name: 'Regel speichern' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Hinzufügen' })).not.toBeInTheDocument()
+  })
+})
+
+describe('ForecastPage – Planposten im Editor', () => {
+  function plannedItem(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'item-1',
+      service_id: SERVICE_ID,
+      service_name: 'Gehalt',
+      partner_name: 'Mitarbeiter',
+      period: '2027-04',
+      amount: '-5000.00',
+      note: null,
+      created_at: '2026-09-09T08:00:00Z',
+      updated_at: '2026-09-09T08:00:00Z',
+      status: 'active',
+      remaining_in_month: '-5000.00',
+      ...overrides,
+    }
+  }
+
+  async function openWith(items: unknown[]) {
+    setup()
+    mockOverview()
+    server.use(
+      http.get(RULE_URL, () => HttpResponse.json(ruleResponse())),
+      http.get(PLANNED_URL, () => HttpResponse.json(items)),
+    )
+    renderPage()
+    await openEditor()
+  }
+
+  it('zeigt einen kuenftigen Posten ohne Zusatz', async () => {
+    await openWith([plannedItem()])
+
+    expect(await screen.findByText('-5.000,00 €')).toBeInTheDocument()
+    expect(screen.queryByText('verbraucht')).not.toBeInTheDocument()
+    expect(screen.queryByText('abgelaufen')).not.toBeInTheDocument()
+  })
+
+  it('nennt beim teilweise gebuchten Posten den Rest', async () => {
+    await openWith([
+      plannedItem({ period: '2026-09', status: 'partly_used', remaining_in_month: '-2000.00' }),
+    ])
+
+    expect(await screen.findByText('teilweise gebucht')).toBeInTheDocument()
+    expect(screen.getByText(/noch -2\.000,00 €/)).toBeInTheDocument()
+  })
+
+  it('streicht einen verbrauchten Posten durch', async () => {
+    await openWith([
+      plannedItem({ period: '2026-09', status: 'used', remaining_in_month: '0.00' }),
+    ])
+
+    expect(await screen.findByText('verbraucht')).toBeInTheDocument()
+    expect(screen.getByText('-5.000,00 €').className).toContain('line-through')
+  })
+
+  it('kennzeichnet einen abgelaufenen Posten', async () => {
+    await openWith([
+      plannedItem({ period: '2026-07', status: 'expired', remaining_in_month: '0.00' }),
+    ])
+
+    const badge = await screen.findByText('abgelaufen')
+    expect(badge).toBeInTheDocument()
+    expect(badge.getAttribute('title')).toMatch(/wirkt nicht mehr/)
+  })
+
+  it('bleibt bei einem unbekannten Status bedienbar', async () => {
+    // Ein neuer Statuswert aus dem Backend darf den Editor nicht sprengen.
+    await openWith([plannedItem({ status: 'irgendwas_neues' })])
+
+    expect(await screen.findByText('-5.000,00 €')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Entfernen' })).toBeInTheDocument()
+  })
+
+  it('laesst auch wirkungslose Posten entfernen', async () => {
+    await openWith([
+      plannedItem({ period: '2026-07', status: 'expired', remaining_in_month: '0.00' }),
+    ])
+
+    expect(await screen.findByRole('button', { name: 'Entfernen' })).toBeInTheDocument()
   })
 })
 

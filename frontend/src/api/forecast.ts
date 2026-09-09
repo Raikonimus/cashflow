@@ -150,6 +150,10 @@ export interface SnapshotDetail extends SnapshotSummary {
   mean_absolute_deviation: string | null
 }
 
+/** Ein Planposten wird nie geloescht, wenn echte Buchungen eintreffen — er verliert nur
+ *  seine Wirkung. Der Status sagt, was davon noch zaehlt. */
+export type PlannedItemStatus = 'active' | 'partly_used' | 'used' | 'expired'
+
 export interface PlannedItem {
   id: string
   service_id: string
@@ -160,6 +164,9 @@ export interface PlannedItem {
   note: string | null
   created_at: string
   updated_at: string
+  status: PlannedItemStatus
+  /** Was von den Planposten dieses Monats noch erwartet wird — je Monat, nicht je Posten. */
+  remaining_in_month: string
 }
 
 export async function getForecastOverview(

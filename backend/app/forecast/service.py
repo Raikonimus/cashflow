@@ -35,6 +35,7 @@ from app.forecast.schemas import (
     ForecastRuleResponse,
     ForecastServiceOverviewRow,
     PlannedItemResponse,
+    PlannedItemStatus,
     SnapshotDetail,
     SnapshotMonthComparison,
     SnapshotSummary,
@@ -554,12 +555,83 @@ class ForecastService:
         item: ForecastPlannedItem,
         services: dict[UUID, Service],
         partner_names: dict[UUID, str | None],
+        states: dict[UUID, tuple[PlannedItemStatus, Decimal]] | None = None,
     ) -> PlannedItemResponse:
         service = services.get(item.service_id)
         response = PlannedItemResponse.model_validate(item)
         response.service_name = service.name if service else None
         response.partner_name = partner_names.get(service.partner_id) if service else None
+        if states is None:
+            states = await self._planned_states([item])
+        status, remaining = states.get(
+            item.id, (PlannedItemStatus.active, Decimal(str(item.amount)))
+        )
+        response.status = status
+        response.remaining_in_month = _money(remaining)
         return response
+
+    async def _planned_states(
+        self,
+        items: list[ForecastPlannedItem],
+    ) -> dict[UUID, tuple[PlannedItemStatus, Decimal]]:
+        """Wieviel jeder Posten noch beiträgt — dieselbe Rechnung wie in der Projektion.
+
+        Nur der laufende Monat braucht die Ist-Beträge; alles davor ist ohnehin
+        wirkungslos, alles danach voll wirksam. Posten desselben Monats wirken gemeinsam
+        gegen das Ist, deshalb wird ihr Status je Monat und nicht je Posten bestimmt.
+        """
+        current = month_index(self._today.year, self._today.month)
+        totals: dict[UUID, Decimal] = {}
+        for item in items:
+            if _period_to_index(item.period) == current:
+                totals[item.service_id] = totals.get(item.service_id, _ZERO) + Decimal(
+                    str(item.amount)
+                )
+
+        actuals = await self._current_month_actuals(set(totals)) if totals else {}
+
+        states: dict[UUID, tuple[PlannedItemStatus, Decimal]] = {}
+        for item in items:
+            index = _period_to_index(item.period)
+            amount = Decimal(str(item.amount))
+            if index is None or index < current:
+                states[item.id] = (PlannedItemStatus.expired, _ZERO)
+            elif index > current:
+                states[item.id] = (PlannedItemStatus.active, amount)
+            else:
+                planned = totals.get(item.service_id, amount)
+                remaining = remaining_for_current_month(
+                    planned, actuals.get(item.service_id, _ZERO)
+                )
+                if remaining == _ZERO:
+                    states[item.id] = (PlannedItemStatus.used, _ZERO)
+                elif remaining != planned:
+                    states[item.id] = (PlannedItemStatus.partly_used, remaining)
+                else:
+                    states[item.id] = (PlannedItemStatus.active, remaining)
+        return states
+
+    async def _current_month_actuals(
+        self,
+        service_ids: set[UUID],
+    ) -> dict[UUID, Decimal]:
+        """Ist-Beträge des laufenden Monats — gezielt statt über den ganzen Kontext."""
+        if not service_ids:
+            return {}
+        period = f"{self._today.year:04d}-{self._today.month:02d}"
+        rows = (
+            await self._session.exec(
+                select(JournalLineSplit.service_id, func.sum(JournalLineSplit.amount))
+                .join(JournalLine, JournalLine.id == JournalLineSplit.journal_line_id)  # type: ignore[arg-type]
+                .where(
+                    col(JournalLineSplit.service_id).in_(service_ids),
+                    JournalLine.currency == BASE_CURRENCY,
+                    func.substr(JournalLine.valuta_date, 1, 7) == period,
+                )
+                .group_by(col(JournalLineSplit.service_id))
+            )
+        ).all()
+        return {service_id: Decimal(str(total or 0)) for service_id, total in rows}
 
     async def list_planned_items(
         self,
@@ -569,13 +641,24 @@ class ForecastService:
         query = select(ForecastPlannedItem).where(ForecastPlannedItem.mandant_id == mandant_id)
         if service_id is not None:
             query = query.where(ForecastPlannedItem.service_id == service_id)
-        rows = (await self._session.exec(query.order_by(ForecastPlannedItem.period))).all()
+        rows = list((await self._session.exec(query.order_by(ForecastPlannedItem.period))).all())
 
         services = await self._load_forecastable_services(mandant_id)
         partner_names = await self._partner_names(mandant_id)
-        return [
-            await self._to_planned_response(row, services, partner_names) for row in rows
+        states = await self._planned_states(rows)
+        items = [
+            await self._to_planned_response(row, services, partner_names, states)
+            for row in rows
         ]
+
+        # Was noch wirkt, gehört nach oben; Abgelaufenes ans Ende, das Jüngste zuerst.
+        def order(item: PlannedItemResponse) -> tuple[int, int]:
+            rank = _PLANNED_SORT_RANK[item.status]
+            index = _period_to_index(item.period) or 0
+            return (rank, -index if rank == 2 else index)
+
+        items.sort(key=order)
+        return items
 
     async def create_planned_item(
         self,
@@ -863,6 +946,15 @@ class ForecastService:
                 continue
             series.setdefault(service_id, {})[index] = Decimal(str(amount or 0))
         return series
+
+
+#: Reihenfolge in der Liste: Wirksames zuerst, Verbrauchtes danach, Abgelaufenes zuletzt.
+_PLANNED_SORT_RANK: dict[PlannedItemStatus, int] = {
+    PlannedItemStatus.active: 0,
+    PlannedItemStatus.partly_used: 0,
+    PlannedItemStatus.used: 1,
+    PlannedItemStatus.expired: 2,
+}
 
 
 def _period_to_index(period: str) -> int | None:

@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
+from enum import StrEnum
 from typing import Any, Optional
 from uuid import UUID
 
@@ -201,6 +202,24 @@ class SnapshotDetail(SnapshotSummary):
     mean_absolute_deviation: Optional[str] = None
 
 
+class PlannedItemStatus(StrEnum):
+    """Wieviel ein Planposten noch zur Prognose beiträgt.
+
+    Ein Posten wird nie gelöscht, wenn echte Buchungen eintreffen — er verliert nur seine
+    Wirkung. Ohne diese Unterscheidung sammelt sich in der Liste ein Bestand, dem man
+    nicht ansieht, was davon noch zählt.
+    """
+
+    #: Monat liegt in der Zukunft, oder im laufenden Monat ist noch nichts gebucht.
+    active = "active"
+    #: Laufender Monat, teilweise durch Buchungen gedeckt — der Rest wird noch erwartet.
+    partly_used = "partly_used"
+    #: Laufender Monat, die Buchungen erreichen den Planbetrag bereits.
+    used = "used"
+    #: Monat ist vorbei. Der Posten wirkt nicht mehr, die Zelle zeigt nur noch das Ist.
+    expired = "expired"
+
+
 class PlannedItemResponse(BaseModel):
     id: UUID
     service_id: UUID
@@ -211,6 +230,11 @@ class PlannedItemResponse(BaseModel):
     note: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    status: PlannedItemStatus = PlannedItemStatus.active
+    #: Was von den Planposten dieses Monats noch erwartet wird. Bezieht sich auf den
+    #: Monat, nicht auf den einzelnen Posten — mehrere Posten im selben Monat wirken
+    #: gemeinsam gegen das Ist.
+    remaining_in_month: str = "0.00"
 
     model_config = {"from_attributes": True}
 

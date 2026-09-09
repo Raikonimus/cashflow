@@ -116,6 +116,121 @@ class TestUebersichtMitTreffsicherheit:
 
 
 @pytest.mark.asyncio
+class TestPlanpostenStatus:
+    """Ein Planposten verliert seine Wirkung, wird aber nicht geloescht. Die Liste muss
+    zeigen, was davon noch zaehlt."""
+
+    async def _items(self, client: AsyncClient, mandant, headers):
+        resp = await client.get(
+            f"/api/v1/mandants/{mandant.id}/forecast/planned-items", headers=headers
+        )
+        return resp.json()
+
+    async def _add(self, client, mandant, service, headers, period, amount):
+        return await client.post(
+            f"/api/v1/mandants/{mandant.id}/forecast/planned-items",
+            json={"service_id": str(service.id), "period": period, "amount": amount},
+            headers=headers,
+        )
+
+    async def test_kuenftiger_posten_ist_aktiv(
+        self, client: AsyncClient, db_session: SQLModelSession
+    ):
+        user, mandant, _, _, _, service = await setup_salary(db_session)
+        headers = await auth(client, user, mandant)
+
+        created = await self._add(client, mandant, service, headers, "2027-04", "-1000.00")
+
+        assert created.json()["status"] == "active"
+        assert created.json()["remaining_in_month"] == "-1000.00"
+
+    async def test_laufender_monat_wird_teilweise_verbraucht(
+        self, client: AsyncClient, db_session: SQLModelSession
+    ):
+        # Stichtag ist der 15.09.2026; setup_salary bucht bis 08/2026.
+        user, mandant, account, run, _, service = await setup_salary(db_session)
+        headers = await auth(client, user, mandant)
+        await self._add(client, mandant, service, headers, "2026-09", "-5000.00")
+        await book(
+            db_session, account_id=account.id, import_run_id=run.id,
+            service_id=service.id, valuta_date="2026-09-20", amount="-3000.00",
+        )
+
+        item = (await self._items(client, mandant, headers))[0]
+
+        assert item["status"] == "partly_used"
+        assert item["remaining_in_month"] == "-2000.00"
+
+    async def test_erreichtes_ist_verbraucht_den_posten(
+        self, client: AsyncClient, db_session: SQLModelSession
+    ):
+        user, mandant, account, run, _, service = await setup_salary(db_session)
+        headers = await auth(client, user, mandant)
+        await self._add(client, mandant, service, headers, "2026-09", "-5000.00")
+        await book(
+            db_session, account_id=account.id, import_run_id=run.id,
+            service_id=service.id, valuta_date="2026-09-20", amount="-5500.00",
+        )
+
+        item = (await self._items(client, mandant, headers))[0]
+
+        assert item["status"] == "used"
+        assert item["remaining_in_month"] == "0.00"
+
+    async def test_vergangener_monat_ist_abgelaufen(
+        self, client: AsyncClient, db_session: SQLModelSession
+    ):
+        user, mandant, _, _, _, service = await setup_salary(db_session)
+        headers = await auth(client, user, mandant)
+
+        created = await self._add(client, mandant, service, headers, "2026-07", "-800.00")
+
+        assert created.json()["status"] == "expired"
+        assert created.json()["remaining_in_month"] == "0.00"
+
+    async def test_posten_desselben_monats_wirken_gemeinsam(
+        self, client: AsyncClient, db_session: SQLModelSession
+    ):
+        """Zwei Posten im selben Monat teilen sich das Ist — sonst waere beide 'aktiv',
+        obwohl zusammen nichts mehr aussteht."""
+        user, mandant, account, run, _, service = await setup_salary(db_session)
+        headers = await auth(client, user, mandant)
+        await self._add(client, mandant, service, headers, "2026-09", "-2000.00")
+        await self._add(client, mandant, service, headers, "2026-09", "-1000.00")
+        await book(
+            db_session, account_id=account.id, import_run_id=run.id,
+            service_id=service.id, valuta_date="2026-09-20", amount="-3000.00",
+        )
+
+        items = await self._items(client, mandant, headers)
+
+        assert [i["status"] for i in items] == ["used", "used"]
+
+    async def test_wirksames_steht_oben_abgelaufenes_unten(
+        self, client: AsyncClient, db_session: SQLModelSession
+    ):
+        user, mandant, _, _, _, service = await setup_salary(db_session)
+        headers = await auth(client, user, mandant)
+        for period, amount in (
+            ("2026-05", "-100.00"),
+            ("2027-03", "-300.00"),
+            ("2026-07", "-200.00"),
+            ("2026-11", "-400.00"),
+        ):
+            await self._add(client, mandant, service, headers, period, amount)
+
+        items = await self._items(client, mandant, headers)
+
+        assert [i["period"] for i in items] == [
+            "2026-11",  # wirksam, naechster zuerst
+            "2027-03",
+            "2026-07",  # abgelaufen, juengstes zuerst
+            "2026-05",
+        ]
+        assert [i["status"] for i in items] == ["active", "active", "expired", "expired"]
+
+
+@pytest.mark.asyncio
 class TestHandgesetztesErkennen:
     """Wo von Hand eingegriffen wurde, muss die Liste es zeigen — sonst sieht eine
     Leistung mit +100 % Anpassung aus wie eine unberührte."""

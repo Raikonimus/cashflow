@@ -16,6 +16,7 @@ import {
   CANDIDATE_HINT,
   MODE_LABELS,
   MONTHS,
+  plannedStatus,
   RULE_LABELS_LONG,
   SELECTABLE_RULES,
   accuracyClass,
@@ -635,16 +636,41 @@ function PlannedItemsSection({
       </h4>
       <p className="mb-2 text-xs text-gray-500">
         Bekannte Beträge, die noch nicht gebucht sind. Sie ersetzen die Schätzung für ihren Monat
-        und bleiben von Anpassung und Szenario unberührt.
+        und bleiben von Anpassung und Szenario unberührt. Sobald echte Buchungen eintreffen,
+        verrechnet sich der Posten mit ihnen und verliert seine Wirkung — gelöscht wird er nicht.
       </p>
 
       {items.length > 0 && (
         <ul className="mb-2 divide-y divide-gray-200 rounded border border-gray-200 bg-white">
-          {items.map((item) => (
-            <li key={item.id} className="flex items-center justify-between gap-3 px-3 py-1.5">
-              <span className="text-gray-700">
+          {items.map((item) => {
+            const state = plannedStatus(item.status)
+            return (
+            <li
+              key={item.id}
+              className={`flex items-center justify-between gap-3 px-3 py-1.5 ${
+                state.muted ? 'bg-gray-50 text-gray-400' : ''
+              }`}
+            >
+              <span className={state.muted ? '' : 'text-gray-700'}>
                 {formatPeriod(item.period)}{' '}
-                <span className="tabular-nums font-medium">{formatMoney(item.amount)}</span>
+                <span
+                  className={`tabular-nums font-medium ${state.muted ? 'line-through' : ''}`}
+                >
+                  {formatMoney(item.amount)}
+                </span>
+                {state.badge ? (
+                  <span
+                    title={state.title}
+                    className="ml-2 rounded bg-gray-200 px-1.5 py-0.5 text-[11px] font-medium text-gray-600"
+                  >
+                    {state.badge}
+                  </span>
+                ) : null}
+                {item.status === 'partly_used' ? (
+                  <span className="ml-1.5 text-[11px] tabular-nums text-gray-500">
+                    noch {formatMoney(item.remaining_in_month)}
+                  </span>
+                ) : null}
                 {item.note ? <span className="ml-2 text-gray-500">{item.note}</span> : null}
               </span>
               {canEdit && (
@@ -657,7 +683,8 @@ function PlannedItemsSection({
                 </button>
               )}
             </li>
-          ))}
+            )
+          })}
         </ul>
       )}
 
