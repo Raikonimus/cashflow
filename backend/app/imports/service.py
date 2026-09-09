@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app.imports.csv_format import detect_delimiter, detect_encoding
 from app.imports.matching import (
     PartnerMatchingService,
     ReviewItemFactory,
@@ -19,35 +20,9 @@ from app.imports.matching import (
 )
 from app.imports.models import ImportRun, ImportStatus, JournalLine, ReviewItem, utcnow
 from app.partners.models import AuditLog
+from app.services.service import ServiceManagementService
 from app.tenants.models import Account, ColumnMappingConfig
 from app.tenants.service import AccountService
-
-
-def _detect_encoding(raw: bytes) -> str:
-    """Erkennt Zeichensatz via BOM, dann Trial-decode."""
-    if raw[:2] == b"\xff\xfe" or raw[:2] == b"\xfe\xff":
-        return "utf-16"
-    if raw[:3] == b"\xef\xbb\xbf":
-        return "utf-8-sig"
-    for enc in ("utf-8", "cp1252", "latin-1"):
-        try:
-            raw.decode(enc)
-            return enc
-        except UnicodeDecodeError:
-            continue
-    return "utf-8"
-
-
-def _detect_delimiter(text: str, fallback: str) -> str:
-    """Erkennt das CSV-Trennzeichen via csv.Sniffer (quote-bewusst).
-    Fällt auf die konfigurierte Einstellung zurück wenn der Sniffer scheitert."""
-    try:
-        sample = text[:8192]
-        dialect = csv.Sniffer().sniff(sample, delimiters=";,\t|")
-        return dialect.delimiter
-    except csv.Error:
-        return fallback
-
 
 log = structlog.get_logger()
 
@@ -348,7 +323,7 @@ class ImportService:
 
     async def _decode_upload(self, file: UploadFile) -> str:
         content = await file.read()
-        encoding = _detect_encoding(content)
+        encoding = detect_encoding(content)
         try:
             return content.decode(encoding)
         except UnicodeDecodeError:
@@ -371,7 +346,7 @@ class ImportService:
             if not stream.readline():
                 break
         remainder = stream.read()
-        effective_delimiter = _detect_delimiter(
+        effective_delimiter = detect_delimiter(
             remainder, fallback=mapping.delimiter or ";"
         )
         return csv.DictReader(io.StringIO(remainder), delimiter=effective_delimiter)
@@ -766,8 +741,6 @@ class ImportService:
                     }
                 )
                 continue
-
-            from app.services.service import ServiceManagementService
 
             service_svc = ServiceManagementService(self._session)
             await service_svc.auto_assign_journal_line(mandant_id, line)

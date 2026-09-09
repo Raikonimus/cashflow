@@ -38,6 +38,7 @@ from sqlmodel import select
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.imports.csv_format import detect_delimiter, detect_encoding
 from app.tenants.models import Account
 
 MATCH_WITH_TEXT_QUERY = text("""
@@ -85,29 +86,6 @@ class MatchFailure:
     line_number: int
     booking_reference: str
     reason: str
-
-
-def _detect_encoding(raw: bytes) -> str:
-    if raw[:2] in {b"\xff\xfe", b"\xfe\xff"}:
-        return "utf-16"
-    if raw[:3] == b"\xef\xbb\xbf":
-        return "utf-8-sig"
-    for encoding in ("utf-8", "cp1252", "latin-1"):
-        try:
-            raw.decode(encoding)
-            return encoding
-        except UnicodeDecodeError:
-            continue
-    return "utf-8"
-
-
-def _detect_delimiter(text_value: str) -> str:
-    sample = text_value[:8192]
-    try:
-        dialect = csv.Sniffer().sniff(sample, delimiters=";,\t|")
-        return dialect.delimiter
-    except csv.Error:
-        return ";"
 
 
 def _normalize_text(value: str | None) -> str | None:
@@ -162,9 +140,9 @@ def _coerce_unmapped_data(value: object) -> dict[str, Any]:
 
 def _load_csv_rows(csv_path: Path) -> list[dict[str, str]]:
     raw = csv_path.read_bytes()
-    encoding = _detect_encoding(raw)
+    encoding = detect_encoding(raw)
     text_value = raw.decode(encoding)
-    delimiter = _detect_delimiter(text_value)
+    delimiter = detect_delimiter(text_value, ";")
     reader = csv.DictReader(text_value.splitlines(), delimiter=delimiter)
     return [dict(row) for row in reader]
 

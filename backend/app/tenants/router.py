@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import require_mandant_access, require_role
 from app.auth.models import User
 from app.core.database import get_session
+from app.imports.csv_format import detect_delimiter, detect_encoding
 from app.tenants.schemas import (
     AccountResponse,
     ApplyExcludedResponse,
@@ -27,33 +28,6 @@ from app.tenants.schemas import (
     UpdateMandantRequest,
 )
 from app.tenants.service import AccountService, MandantService
-
-
-def _detect_encoding(raw: bytes) -> str:
-    """Erkennt Zeichensatz via BOM, dann Trial-decode."""
-    if raw[:2] == b"\xff\xfe" or raw[:2] == b"\xfe\xff":
-        return "utf-16"
-    if raw[:3] == b"\xef\xbb\xbf":
-        return "utf-8-sig"
-    for enc in ("utf-8", "cp1252", "latin-1"):
-        try:
-            raw.decode(enc)
-            return enc
-        except UnicodeDecodeError:
-            continue
-    return "utf-8"
-
-
-def _detect_delimiter(text: str, fallback: str) -> str:
-    """Erkennt das CSV-Trennzeichen via csv.Sniffer (quote-bewusst).
-    Fällt auf die konfigurierte Einstellung zurück wenn der Sniffer scheitert."""
-    try:
-        sample = text[:8192]
-        dialect = csv.Sniffer().sniff(sample, delimiters=";,\t|")
-        return dialect.delimiter
-    except csv.Error:
-        return fallback
-
 
 tenants_router = APIRouter(prefix="/mandants", tags=["tenants"])
 accounts_router = APIRouter(prefix="/mandants", tags=["accounts"])
@@ -256,7 +230,7 @@ async def preview_csv_columns(
     """Gibt die Spaltennamen der übergebenen CSV-Datei zurück (nur Header, kein Import)."""
     await svc.get_account(account_id, mandant_id)
     content = await file.read()
-    detected_encoding = _detect_encoding(content)
+    detected_encoding = detect_encoding(content)
     try:
         decoded = content.decode(detected_encoding)
     except UnicodeDecodeError:
@@ -270,7 +244,7 @@ async def preview_csv_columns(
             break
     remainder = stream.read()
 
-    detected = _detect_delimiter(remainder, fallback=delimiter)
+    detected = detect_delimiter(remainder, fallback=delimiter)
     reader = csv.DictReader(io.StringIO(remainder), delimiter=detected)
     columns = list(reader.fieldnames or [])
     sample_rows: list[dict[str, str]] = []
