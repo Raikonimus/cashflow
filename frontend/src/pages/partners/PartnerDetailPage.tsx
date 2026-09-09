@@ -999,15 +999,8 @@ function JournalSection({ mandantId, partnerId }: { mandantId: string; partnerId
   const lines = data?.pages.flatMap((p) => p.items) ?? []
   const total = data?.pages[0]?.total ?? 0
 
-  function SortTh({
-    field,
-    label,
-    align = 'left',
-  }: {
-    field: JournalSortField
-    label: string
-    align?: 'left' | 'right'
-  }) {
+  // Render-Helfer, keine Komponente — sonst neue Identitaet bei jedem Durchlauf.
+  const sortTh = (field: JournalSortField, label: string, align: 'left' | 'right' = 'left') => {
     const active = sortBy === field
     return (
       <th
@@ -1045,7 +1038,7 @@ function JournalSection({ mandantId, partnerId }: { mandantId: string; partnerId
         <table className="w-full table-fixed text-sm">
           <thead className="bg-gray-50 text-xs font-medium uppercase text-gray-500">
             <tr>
-              <SortTh field="valuta_date" label="Valuta" />
+              {sortTh('valuta_date', 'Valuta')}
               <th
                 className="w-[48%] px-4 py-2 text-left cursor-pointer select-none hover:bg-gray-100"
                 onClick={() => toggleSort('text')}
@@ -1058,7 +1051,7 @@ function JournalSection({ mandantId, partnerId }: { mandantId: string; partnerId
               >
                 Leistung{sortBy === 'service_name' ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ' ↕'}
               </th>
-              <SortTh field="amount" label="Betrag" align="right" />
+              {sortTh('amount', 'Betrag', 'right')}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">

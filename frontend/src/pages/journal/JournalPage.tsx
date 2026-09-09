@@ -68,10 +68,14 @@ export function JournalPage() {
     setPage(1)
   }
 
-  function SortIcon({ col }: { col: string }) {
-    if (sortBy !== col) return <span className="ml-1 opacity-30">⇅</span>
-    return <span className="ml-1">{sortDir === 'asc' ? '↑' : '↓'}</span>
-  }
+  // Render-Helfer, keine Komponente: als Komponente im Render definiert bekaeme sie
+  // bei jedem Durchlauf eine neue Identitaet und wuerde neu eingehaengt.
+  const sortIcon = (col: string) =>
+    sortBy !== col ? (
+      <span className="ml-1 opacity-30">⇅</span>
+    ) : (
+      <span className="ml-1">{sortDir === 'asc' ? '↑' : '↓'}</span>
+    )
 
   // Bulk-assign
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -302,42 +306,42 @@ export function JournalPage() {
                 onClick={() => handleSort('valuta_date')}
               >
                 Valuta
-                <SortIcon col="valuta_date" />
+                {sortIcon('valuta_date')}
               </th>
               <th
                 className="w-[8.5rem] cursor-pointer select-none px-3 py-3 text-left hover:text-gray-700"
                 onClick={() => handleSort('booking_date')}
               >
                 Buchung
-                <SortIcon col="booking_date" />
+                {sortIcon('booking_date')}
               </th>
               <th
                 className="w-[30%] cursor-pointer select-none px-3 py-3 text-left hover:text-gray-700"
                 onClick={() => handleSort('text')}
               >
                 Text
-                <SortIcon col="text" />
+                {sortIcon('text')}
               </th>
               <th
                 className="w-[18%] cursor-pointer select-none px-3 py-3 text-left hover:text-gray-700"
                 onClick={() => handleSort('service_name')}
               >
                 Leistung
-                <SortIcon col="service_name" />
+                {sortIcon('service_name')}
               </th>
               <th
                 className="w-[24%] cursor-pointer select-none px-3 py-3 text-left hover:text-gray-700"
                 onClick={() => handleSort('partner_name')}
               >
                 Partner
-                <SortIcon col="partner_name" />
+                {sortIcon('partner_name')}
               </th>
               <th
                 className="w-[10rem] cursor-pointer select-none px-3 py-3 text-right hover:text-gray-700"
                 onClick={() => handleSort('amount')}
               >
                 Betrag
-                <SortIcon col="amount" />
+                {sortIcon('amount')}
               </th>
               <th className="w-8 px-3 py-3" />
             </tr>
