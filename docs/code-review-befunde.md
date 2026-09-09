@@ -208,3 +208,38 @@ von Hand durchgesehen werden müssen — und dass die 264. auffällt.
 | A1-3 | ADR-008 umkehren oder den Importweg 409/Review-Item werfen lassen? |
 | A1-4 | Join-Helfer einführen — ja/nein? Betrifft vier Funktionen. |
 | Konto-IBAN | `create_account` prüft die IBAN ebenfalls global (409 „IBAN already in use"), ohne dass eine ADR das festhält. ADR-008 hat die Frage für Accounts ausdrücklich offengelassen. Zwei Firmen desselben Eigentümers mit einem gemeinsamen Konto können es nicht beide erfassen. |
+
+---
+
+## Vorgemerkt: Mandantenfähigkeit prüfen und sicherstellen
+
+**Status: offen — Umsetzung erst nach Abschluss des Reviews.** Entschieden am 2026-09-09.
+
+Etappe 1 hat die Mandantentrennung an den Stellen geprüft, an denen sie *im Code*
+passieren muss, und zwei kritische Löcher geschlossen. Offen bleibt die Stufe darüber:
+Ist das System als Ganzes mandantenfähig — und zwar so, dass es nicht an der Sorgfalt
+einzelner Queries hängt?
+
+Auslöser ist die Beobachtung aus der Analyse zu A1-3: Die Entwicklungsdatenbank hat
+**einen** Mandanten. Alles, was zwischen Mandanten schiefgehen kann, ist damit heute
+unbeobachtbar — kein Test, kein Nutzer und keine Datenlage würde es zeigen. Beide in
+Etappe 1 gefundenen Fehler waren von dieser Art: real, ausnutzbar, und trotz 452 grüner
+Tests unentdeckt.
+
+Was zu diesem Punkt gehört:
+
+| Frage | Heutiger Stand |
+|---|---|
+| Erzwingt die Struktur die Trennung, oder nur die Disziplin? | nur die Disziplin — keine Row-Level-Security, kein Query-Interceptor, 184 Queries mit eigenem Filter |
+| Sind die zentralen Tabellen direkt oder transitiv gebunden? | `JournalLine`, `Service`, `PartnerIban`, `PartnerAccount` u. a. nur transitiv (siehe A1-4) |
+| Kennen die Eindeutigkeits-Schlüssel den Mandanten? | nein — `partner_ibans`, `partner_accounts` und `accounts` sind global eindeutig (ADR-008) |
+| Gibt es Tests mit zwei Mandanten? | erst die drei aus Etappe 1 |
+| Läuft die Anwendung je produktiv mit mehr als einem Mandanten? | zu klären — davon hängt die Dringlichkeit von allem hier ab |
+
+Die letzte Zeile ist die wichtigste. Bleibt es dauerhaft bei einem Mandanten, ist der
+gesamte Komplex eine Vorsichtsmaßnahme ohne Gegenwartsnutzen. Kommt ein zweiter dazu,
+muss die Trennung *vorher* strukturell stehen — nachträglich lässt sich nicht feststellen,
+welche Daten schon vermischt wurden, weil die Fehler leise sind.
+
+Die Befunde A1-3 und A1-4 sowie die Konto-IBAN-Frage sind Teilaspekte davon und werden
+zusammen mit diesem Punkt entschieden, nicht einzeln vorab.
