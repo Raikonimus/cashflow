@@ -97,16 +97,22 @@ describe('ServiceKeywordSettingsPage', () => {
         })
         return HttpResponse.json(keywords.at(-1), { status: 201 })
       }),
-      http.patch(`/api/v1/mandants/${MANDANT_ID}/settings/service-keywords/kw-1`, async ({ request }) => {
-        const body = (await request.json()) as Record<string, string>
-        keywords[0] = {
-          ...keywords[0],
-          pattern: body.pattern,
-          pattern_type: body.pattern_type as 'string' | 'regex',
-          target_service_type: body.target_service_type as 'employee' | 'shareholder' | 'authority',
-        }
-        return HttpResponse.json(keywords[0])
-      }),
+      http.patch(
+        `/api/v1/mandants/${MANDANT_ID}/settings/service-keywords/kw-1`,
+        async ({ request }) => {
+          const body = (await request.json()) as Record<string, string>
+          keywords[0] = {
+            ...keywords[0],
+            pattern: body.pattern,
+            pattern_type: body.pattern_type as 'string' | 'regex',
+            target_service_type: body.target_service_type as
+              | 'employee'
+              | 'shareholder'
+              | 'authority',
+          }
+          return HttpResponse.json(keywords[0])
+        },
+      ),
       http.delete(`/api/v1/mandants/${MANDANT_ID}/settings/service-keywords/kw-1`, () => {
         keywords.splice(0, 1)
         return new HttpResponse(null, { status: 204 })
@@ -119,7 +125,9 @@ describe('ServiceKeywordSettingsPage', () => {
       renderPage()
     })
 
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Mitarbeiter' })).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Mitarbeiter' })).toBeInTheDocument(),
+    )
     expect(screen.getByRole('heading', { name: 'Gesellschafter' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Behörde' })).toBeInTheDocument()
     expect(screen.getByText('Gehalt')).toBeInTheDocument()

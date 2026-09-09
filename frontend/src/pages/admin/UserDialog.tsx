@@ -49,11 +49,18 @@ export function UserDialog({ onClose, user }: UserDialogProps) {
 
   const editForm = useForm<EditValues>({
     resolver: zodResolver(editSchema),
-    defaultValues: { email: user?.email ?? '', role: (user?.role as EditValues['role']) ?? 'viewer' },
+    defaultValues: {
+      email: user?.email ?? '',
+      role: (user?.role as EditValues['role']) ?? 'viewer',
+    },
   })
 
   if (isEdit) {
-    const { register, handleSubmit, formState: { errors, isSubmitting } } = editForm
+    const {
+      register,
+      handleSubmit,
+      formState: { errors, isSubmitting },
+    } = editForm
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
         <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
@@ -80,9 +87,7 @@ export function UserDialog({ onClose, user }: UserDialogProps) {
                 <option value="admin">Admin</option>
               </select>
             </div>
-            {editMutation.isError && (
-              <p className="text-sm text-red-500">Fehler beim Speichern.</p>
-            )}
+            {editMutation.isError && <p className="text-sm text-red-500">Fehler beim Speichern.</p>}
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
@@ -105,7 +110,11 @@ export function UserDialog({ onClose, user }: UserDialogProps) {
     )
   }
 
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = createForm
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = createForm
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
@@ -159,4 +168,3 @@ export function UserDialog({ onClose, user }: UserDialogProps) {
     </div>
   )
 }
-

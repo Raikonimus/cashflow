@@ -1,7 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.auth.router import mandants_router, router as auth_router, users_router
+from app.auth.router import mandants_router, users_router
+from app.auth.router import router as auth_router
 from app.core.config import settings
 from app.forecast.router import forecast_router
 from app.imports.router import imports_router
@@ -9,8 +10,8 @@ from app.journal.router import audit_router, journal_router
 from app.partners.router import partners_router
 from app.review.router import review_router
 from app.services.router import services_router
-from app.testing.router import testing_router
 from app.tenants.router import accounts_router, tenants_router
+from app.testing.router import testing_router
 
 app = FastAPI(
     title="CashFlow Core API",

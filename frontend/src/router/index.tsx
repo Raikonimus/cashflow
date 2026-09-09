@@ -9,24 +9,64 @@ import { MandantRequiredRoute, PrivateRoute } from './PrivateRoute'
 import { RequireRole } from './RequireRole'
 
 // Lazy-loaded pages — split per route group
-const UsersPage = lazy(() => import('@/pages/admin/UsersPage').then((m) => ({ default: m.UsersPage })))
-const MandantsPage = lazy(() => import('@/pages/admin/MandantsPage').then((m) => ({ default: m.MandantsPage })))
-const AuditLogPage = lazy(() => import('@/pages/admin/AuditLogPage').then((m) => ({ default: m.AuditLogPage })))
-const AccountsPage = lazy(() => import('@/pages/accounts/AccountsPage').then((m) => ({ default: m.AccountsPage })))
-const AccountNewPage = lazy(() => import('@/pages/accounts/AccountNewPage').then((m) => ({ default: m.AccountNewPage })))
-const AccountDetailPage = lazy(() => import('@/pages/accounts/AccountDetailPage').then((m) => ({ default: m.AccountDetailPage })))
-const ImportPage = lazy(() => import('@/pages/import/ImportPage').then((m) => ({ default: m.ImportPage })))
-const PartnersPage = lazy(() => import('@/pages/partners/PartnersPage').then((m) => ({ default: m.PartnersPage })))
-const PartnerDetailPage = lazy(() => import('@/pages/partners/PartnerDetailPage').then((m) => ({ default: m.PartnerDetailPage })))
-const ServiceManagementPage = lazy(() => import('@/pages/partners/ServiceManagementPage').then((m) => ({ default: m.ServiceManagementPage })))
-const ServiceKeywordSettingsPage = lazy(() => import('@/pages/settings/ServiceKeywordSettingsPage').then((m) => ({ default: m.ServiceKeywordSettingsPage })))
-const TestingPage = lazy(() => import('@/pages/settings/TestingPage').then((m) => ({ default: m.TestingPage })))
-const ReviewPage = lazy(() => import('@/pages/review/ReviewPage').then((m) => ({ default: m.ReviewPage })))
-const ReviewArchivePage = lazy(() => import('@/pages/review/ReviewArchivePage').then((m) => ({ default: m.ReviewArchivePage })))
-const JournalPage = lazy(() => import('@/pages/journal/JournalPage').then((m) => ({ default: m.JournalPage })))
-const IncomeExpensePage = lazy(() => import('@/pages/cashflow/IncomeExpensePage').then((m) => ({ default: m.IncomeExpensePage })))
-const DashboardPage = lazy(() => import('@/pages/dashboard/DashboardPage').then((m) => ({ default: m.DashboardPage })))
-const ForecastPage = lazy(() => import('@/pages/forecast/ForecastPage').then((m) => ({ default: m.ForecastPage })))
+const UsersPage = lazy(() =>
+  import('@/pages/admin/UsersPage').then((m) => ({ default: m.UsersPage })),
+)
+const MandantsPage = lazy(() =>
+  import('@/pages/admin/MandantsPage').then((m) => ({ default: m.MandantsPage })),
+)
+const AuditLogPage = lazy(() =>
+  import('@/pages/admin/AuditLogPage').then((m) => ({ default: m.AuditLogPage })),
+)
+const AccountsPage = lazy(() =>
+  import('@/pages/accounts/AccountsPage').then((m) => ({ default: m.AccountsPage })),
+)
+const AccountNewPage = lazy(() =>
+  import('@/pages/accounts/AccountNewPage').then((m) => ({ default: m.AccountNewPage })),
+)
+const AccountDetailPage = lazy(() =>
+  import('@/pages/accounts/AccountDetailPage').then((m) => ({ default: m.AccountDetailPage })),
+)
+const ImportPage = lazy(() =>
+  import('@/pages/import/ImportPage').then((m) => ({ default: m.ImportPage })),
+)
+const PartnersPage = lazy(() =>
+  import('@/pages/partners/PartnersPage').then((m) => ({ default: m.PartnersPage })),
+)
+const PartnerDetailPage = lazy(() =>
+  import('@/pages/partners/PartnerDetailPage').then((m) => ({ default: m.PartnerDetailPage })),
+)
+const ServiceManagementPage = lazy(() =>
+  import('@/pages/partners/ServiceManagementPage').then((m) => ({
+    default: m.ServiceManagementPage,
+  })),
+)
+const ServiceKeywordSettingsPage = lazy(() =>
+  import('@/pages/settings/ServiceKeywordSettingsPage').then((m) => ({
+    default: m.ServiceKeywordSettingsPage,
+  })),
+)
+const TestingPage = lazy(() =>
+  import('@/pages/settings/TestingPage').then((m) => ({ default: m.TestingPage })),
+)
+const ReviewPage = lazy(() =>
+  import('@/pages/review/ReviewPage').then((m) => ({ default: m.ReviewPage })),
+)
+const ReviewArchivePage = lazy(() =>
+  import('@/pages/review/ReviewArchivePage').then((m) => ({ default: m.ReviewArchivePage })),
+)
+const JournalPage = lazy(() =>
+  import('@/pages/journal/JournalPage').then((m) => ({ default: m.JournalPage })),
+)
+const IncomeExpensePage = lazy(() =>
+  import('@/pages/cashflow/IncomeExpensePage').then((m) => ({ default: m.IncomeExpensePage })),
+)
+const DashboardPage = lazy(() =>
+  import('@/pages/dashboard/DashboardPage').then((m) => ({ default: m.DashboardPage })),
+)
+const ForecastPage = lazy(() =>
+  import('@/pages/forecast/ForecastPage').then((m) => ({ default: m.ForecastPage })),
+)
 
 function PageSpinner() {
   return (
@@ -50,7 +90,6 @@ export function AppRouter() {
           {/* Protected routes — require valid token */}
           <Route element={<PrivateRoute />}>
             <Route element={<AppLayout />}>
-
               {/* Admin-Verwaltung — kein Mandant erforderlich */}
               <Route element={<RequireRole min="admin" />}>
                 <Route path="/admin/users" element={<UsersPage />} />
@@ -80,7 +119,10 @@ export function AppRouter() {
                   <Route path="/partners" element={<PartnersPage />} />
                   <Route path="/partners/:partnerId" element={<PartnerDetailPage />} />
                   <Route path="/partners/:partnerId/services" element={<ServiceManagementPage />} />
-                  <Route path="/settings/service-keywords" element={<ServiceKeywordSettingsPage />} />
+                  <Route
+                    path="/settings/service-keywords"
+                    element={<ServiceKeywordSettingsPage />}
+                  />
                   <Route path="/settings/testing" element={<TestingPage />} />
                   <Route path="/journal" element={<JournalPage />} />
                   <Route path="/review" element={<ReviewPage />} />
@@ -92,7 +134,6 @@ export function AppRouter() {
                   <Route path="/admin/audit" element={<AuditLogPage />} />
                 </Route>
               </Route>
-
             </Route>
           </Route>
 

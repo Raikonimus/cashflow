@@ -140,10 +140,7 @@ function AuditRow({
           {entry.actor_id.substring(0, 8)}…
         </td>
         <td className="px-4 py-3 text-right">
-          <button
-            onClick={onToggle}
-            className="text-xs text-blue-500 hover:underline"
-          >
+          <button onClick={onToggle} className="text-xs text-blue-500 hover:underline">
             {expanded ? 'Ausblenden' : 'Details'}
           </button>
         </td>

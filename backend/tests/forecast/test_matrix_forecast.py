@@ -1,4 +1,5 @@
 """Prognosewerte in der Einnahmen-/Ausgaben-Matrix und in der Liquiditätsvorschau."""
+
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -87,10 +88,14 @@ async def setup_salary(db_session: SQLModelSession, *, through_month: int = 8):
     user = await create_user(db_session, "acc@test.com", UserRole.accountant)
     mandant = await create_mandant(db_session)
     await assign_user_to_mandant(db_session, user, mandant)
-    account = await create_account_db(db_session, mandant.id, opening_balance=Decimal("10000.00"))
+    account = await create_account_db(
+        db_session, mandant.id, opening_balance=Decimal("10000.00")
+    )
     run = await create_import_run_db(db_session, account.id, mandant.id, user.id)
     partner = await create_partner_db(db_session, mandant.id, "Mitarbeiter")
-    service = await create_service_db(db_session, partner.id, "Gehalt", ServiceType.employee)
+    service = await create_service_db(
+        db_session, partner.id, "Gehalt", ServiceType.employee
+    )
 
     for year in (2024, 2025, 2026):
         for month in range(1, 13):
@@ -119,12 +124,14 @@ def cells_of(payload: dict, service_name: str) -> dict:
 
 @pytest.mark.asyncio
 class TestMatrixForecast:
-    async def test_folgejahr_ist_vollstaendig_prognose(self, db_session: SQLModelSession):
+    async def test_folgejahr_ist_vollstaendig_prognose(
+        self, db_session: SQLModelSession
+    ):
         _, mandant, *_ = await setup_salary(db_session)
 
-        matrix = await JournalService(db_session, today=TODAY).get_income_expense_matrix(
-            mandant_id=mandant.id, year=2027
-        )
+        matrix = await JournalService(
+            db_session, today=TODAY
+        ).get_income_expense_matrix(mandant_id=mandant.id, year=2027)
 
         row = cells_of(matrix.model_dump(), "Gehalt")
         assert row["forecast_rule"] == "fixed_recurring"
@@ -135,12 +142,14 @@ class TestMatrixForecast:
         assert row["cells"]["year_total"]["gross"] == "-39000.00"
         assert matrix.first_forecast_month == 1
 
-    async def test_laufendes_jahr_trennt_ist_von_prognose(self, db_session: SQLModelSession):
+    async def test_laufendes_jahr_trennt_ist_von_prognose(
+        self, db_session: SQLModelSession
+    ):
         _, mandant, *_ = await setup_salary(db_session)
 
-        matrix = await JournalService(db_session, today=TODAY).get_income_expense_matrix(
-            mandant_id=mandant.id, year=2026
-        )
+        matrix = await JournalService(
+            db_session, today=TODAY
+        ).get_income_expense_matrix(mandant_id=mandant.id, year=2026)
 
         row = cells_of(matrix.model_dump(), "Gehalt")
         assert matrix.first_forecast_month == 9
@@ -154,7 +163,9 @@ class TestMatrixForecast:
         # Die Jahressumme mischt beides und ist als Prognose markiert.
         assert row["cells"]["year_total"]["is_forecast"] is True
 
-    async def test_laufender_monat_ergaenzt_nur_den_fehlbetrag(self, db_session: SQLModelSession):
+    async def test_laufender_monat_ergaenzt_nur_den_fehlbetrag(
+        self, db_session: SQLModelSession
+    ):
         _, mandant, account, run, _, service = await setup_salary(db_session)
         # Im September sind erst 1.000 € von erwarteten 3.000 € gebucht.
         await book(
@@ -166,9 +177,9 @@ class TestMatrixForecast:
             amount="-1000.00",
         )
 
-        matrix = await JournalService(db_session, today=TODAY).get_income_expense_matrix(
-            mandant_id=mandant.id, year=2026
-        )
+        matrix = await JournalService(
+            db_session, today=TODAY
+        ).get_income_expense_matrix(mandant_id=mandant.id, year=2026)
 
         row = cells_of(matrix.model_dump(), "Gehalt")
         assert row["cells"]["sep"]["gross"] == "-3000.00"
@@ -187,20 +198,22 @@ class TestMatrixForecast:
             amount="-5000.00",
         )
 
-        matrix = await JournalService(db_session, today=TODAY).get_income_expense_matrix(
-            mandant_id=mandant.id, year=2026
-        )
+        matrix = await JournalService(
+            db_session, today=TODAY
+        ).get_income_expense_matrix(mandant_id=mandant.id, year=2026)
 
         row = cells_of(matrix.model_dump(), "Gehalt")
         assert row["cells"]["sep"]["gross"] == "-5000.00"
         assert row["cells"]["sep"]["is_forecast"] is False
 
-    async def test_vergangenes_jahr_bleibt_unveraendert(self, db_session: SQLModelSession):
+    async def test_vergangenes_jahr_bleibt_unveraendert(
+        self, db_session: SQLModelSession
+    ):
         _, mandant, *_ = await setup_salary(db_session)
 
-        matrix = await JournalService(db_session, today=TODAY).get_income_expense_matrix(
-            mandant_id=mandant.id, year=2025
-        )
+        matrix = await JournalService(
+            db_session, today=TODAY
+        ).get_income_expense_matrix(mandant_id=mandant.id, year=2025)
 
         row = cells_of(matrix.model_dump(), "Gehalt")
         assert matrix.first_forecast_month is None
@@ -214,7 +227,9 @@ class TestMatrixForecast:
         self, db_session: SQLModelSession
     ):
         user, mandant, account, run, partner, _ = await setup_salary(db_session)
-        sporadic = await create_service_db(db_session, partner.id, "Projekt X", ServiceType.customer)
+        sporadic = await create_service_db(
+            db_session, partner.id, "Projekt X", ServiceType.customer
+        )
         await book(
             db_session,
             account_id=account.id,
@@ -224,9 +239,9 @@ class TestMatrixForecast:
             amount="20000.00",
         )
 
-        matrix = await JournalService(db_session, today=TODAY).get_income_expense_matrix(
-            mandant_id=mandant.id, year=2027
-        )
+        matrix = await JournalService(
+            db_session, today=TODAY
+        ).get_income_expense_matrix(mandant_id=mandant.id, year=2027)
 
         row = cells_of(matrix.model_dump(), "Projekt X")
         assert row["forecast_rule"] == "none"
@@ -236,12 +251,14 @@ class TestMatrixForecast:
         # Grau bleibt die Zelle trotzdem — sie liegt im Prognosezeitraum.
         assert row["cells"]["jan"]["is_forecast"] is True
 
-    async def test_gruppensumme_erbt_die_prognosemarkierung(self, db_session: SQLModelSession):
+    async def test_gruppensumme_erbt_die_prognosemarkierung(
+        self, db_session: SQLModelSession
+    ):
         _, mandant, *_ = await setup_salary(db_session)
 
-        matrix = await JournalService(db_session, today=TODAY).get_income_expense_matrix(
-            mandant_id=mandant.id, year=2027
-        )
+        matrix = await JournalService(
+            db_session, today=TODAY
+        ).get_income_expense_matrix(mandant_id=mandant.id, year=2027)
 
         expense = matrix.model_dump()["sections"]["expense"]
         assert expense["totals"]["jan"]["is_forecast"] is True
@@ -251,7 +268,9 @@ class TestMatrixForecast:
 
 @pytest.mark.asyncio
 class TestLiquidity:
-    async def test_kurve_startet_beim_aktuellen_kontostand(self, db_session: SQLModelSession):
+    async def test_kurve_startet_beim_aktuellen_kontostand(
+        self, db_session: SQLModelSession
+    ):
         _, mandant, *_ = await setup_salary(db_session)
 
         result = await JournalService(db_session, today=TODAY).get_liquidity(mandant.id)
@@ -269,7 +288,9 @@ class TestLiquidity:
         for earlier, later in zip(result.months, result.months[1:]):
             assert earlier.closing_balance == later.opening_balance
         first = result.months[0]
-        assert Decimal(first.closing_balance) == Decimal(first.opening_balance) + Decimal(first.net)
+        assert Decimal(first.closing_balance) == Decimal(
+            first.opening_balance
+        ) + Decimal(first.net)
 
     async def test_weist_tiefpunkt_aus(self, db_session: SQLModelSession):
         _, mandant, *_ = await setup_salary(db_session)
@@ -278,9 +299,13 @@ class TestLiquidity:
 
         # Reine Ausgabenleistung — der Tiefpunkt liegt im letzten Monat.
         assert result.lowest_period == result.months[-1].period
-        assert Decimal(result.lowest_balance) == Decimal(result.months[-1].closing_balance)
+        assert Decimal(result.lowest_balance) == Decimal(
+            result.months[-1].closing_balance
+        )
 
-    async def test_meldet_nicht_zugeordnete_buchungen(self, db_session: SQLModelSession):
+    async def test_meldet_nicht_zugeordnete_buchungen(
+        self, db_session: SQLModelSession
+    ):
         user, mandant, account, run, *_ = await setup_salary(db_session)
         # Buchung ohne Split — nicht prognostizierbar.
         line = JournalLine(
@@ -299,13 +324,14 @@ class TestLiquidity:
 
         assert Decimal(result.uncovered_average_per_month) == Decimal("-100.00")
 
-
     async def test_leistungen_ohne_regel_zaehlen_als_nicht_abgedeckt(
         self, db_session: SQLModelSession
     ):
         _, mandant, account, run, partner, _ = await setup_salary(db_session)
         # Einmalige Projekteinnahme: in der Matrix sichtbar, aber nicht prognostizierbar.
-        sporadic = await create_service_db(db_session, partner.id, "Projekt X", ServiceType.customer)
+        sporadic = await create_service_db(
+            db_session, partner.id, "Projekt X", ServiceType.customer
+        )
         await book(
             db_session,
             account_id=account.id,
@@ -322,7 +348,9 @@ class TestLiquidity:
 
 @pytest.mark.asyncio
 class TestEndpoints:
-    async def test_liquiditaet_ueber_http(self, client: AsyncClient, db_session: SQLModelSession):
+    async def test_liquiditaet_ueber_http(
+        self, client: AsyncClient, db_session: SQLModelSession
+    ):
         user, mandant, *_ = await setup_salary(db_session)
         token = await get_auth_token(client, user, mandant)
 

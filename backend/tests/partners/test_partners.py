@@ -1,10 +1,12 @@
 """Tests for Partner management (Bolt 004)."""
+
 from decimal import Decimal
+from uuid import UUID
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
-from uuid import UUID
 
 from app.auth.models import UserRole
 from app.imports.models import ImportRun, JournalLine, JournalLineSplit, ReviewItem
@@ -51,12 +53,16 @@ class TestPartnerCRUD:
         assert partner["name"] == "Amazon EU"
         assert partner["ibans"] == []
 
-    async def test_create_partner_with_iban(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_create_partner_with_iban(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         user = await create_user(db_session, "acc@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
-        partner = await create_partner(client, token, mandant.id, iban="DE89370400440532013000")
+        partner = await create_partner(
+            client, token, mandant.id, iban="DE89370400440532013000"
+        )
         assert len(partner["ibans"]) == 1
         assert partner["ibans"][0]["iban"] == "DE89370400440532013000"
 
@@ -129,7 +135,9 @@ class TestPartnerCRUD:
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
-        partner = await create_partner(client, token, mandant.id, "Partner mit Leistungen")
+        partner = await create_partner(
+            client, token, mandant.id, "Partner mit Leistungen"
+        )
 
         for name in ("Hosting", "Versand", "Gehalt"):
             service_type = "supplier" if name != "Gehalt" else "employee"
@@ -154,7 +162,9 @@ class TestPartnerCRUD:
         listed_partner = next(item for item in items if item["id"] == partner["id"])
         assert listed_partner["service_types"] == ["supplier", "employee", "unknown"]
 
-    async def test_list_partners_sorts_by_booking_count_desc(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_list_partners_sorts_by_booking_count_desc(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         user = await create_user(db_session, "sort@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
@@ -188,44 +198,46 @@ class TestPartnerCRUD:
         await db_session.commit()
         await db_session.refresh(import_run)
 
-        db_session.add_all([
-            JournalLine(
-                account_id=account.id,
-                import_run_id=import_run.id,
-                partner_id=UUID(frequent['id']),
-                valuta_date="2026-04-01",
-                booking_date="2026-04-01",
-                amount=Decimal("-10.00"),
-                currency="EUR",
-                text="Booking 1",
-                partner_name_raw="Frequent Partner",
-                created_at=import_utcnow(),
-            ),
-            JournalLine(
-                account_id=account.id,
-                import_run_id=import_run.id,
-                partner_id=UUID(frequent['id']),
-                valuta_date="2026-04-02",
-                booking_date="2026-04-02",
-                amount=Decimal("-12.00"),
-                currency="EUR",
-                text="Booking 2",
-                partner_name_raw="Frequent Partner",
-                created_at=import_utcnow(),
-            ),
-            JournalLine(
-                account_id=account.id,
-                import_run_id=import_run.id,
-                partner_id=UUID(rare['id']),
-                valuta_date="2026-04-03",
-                booking_date="2026-04-03",
-                amount=Decimal("-8.00"),
-                currency="EUR",
-                text="Booking 3",
-                partner_name_raw="Rare Partner",
-                created_at=import_utcnow(),
-            ),
-        ])
+        db_session.add_all(
+            [
+                JournalLine(
+                    account_id=account.id,
+                    import_run_id=import_run.id,
+                    partner_id=UUID(frequent["id"]),
+                    valuta_date="2026-04-01",
+                    booking_date="2026-04-01",
+                    amount=Decimal("-10.00"),
+                    currency="EUR",
+                    text="Booking 1",
+                    partner_name_raw="Frequent Partner",
+                    created_at=import_utcnow(),
+                ),
+                JournalLine(
+                    account_id=account.id,
+                    import_run_id=import_run.id,
+                    partner_id=UUID(frequent["id"]),
+                    valuta_date="2026-04-02",
+                    booking_date="2026-04-02",
+                    amount=Decimal("-12.00"),
+                    currency="EUR",
+                    text="Booking 2",
+                    partner_name_raw="Frequent Partner",
+                    created_at=import_utcnow(),
+                ),
+                JournalLine(
+                    account_id=account.id,
+                    import_run_id=import_run.id,
+                    partner_id=UUID(rare["id"]),
+                    valuta_date="2026-04-03",
+                    booking_date="2026-04-03",
+                    amount=Decimal("-8.00"),
+                    currency="EUR",
+                    text="Booking 3",
+                    partner_name_raw="Rare Partner",
+                    created_at=import_utcnow(),
+                ),
+            ]
+        )
         await db_session.commit()
 
         resp = await client.get(
@@ -239,18 +251,28 @@ class TestPartnerCRUD:
         assert items[0]["journal_line_count"] == 2
         assert items[1]["id"] == rare["id"]
 
-    async def test_list_partners_filters_by_service_type(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_list_partners_filters_by_service_type(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         user = await create_user(db_session, "filter@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
 
-        shareholder_partner = await create_partner(client, token, mandant.id, "Gesellschafter Partner")
-        supplier_partner = await create_partner(client, token, mandant.id, "Lieferant Partner")
+        shareholder_partner = await create_partner(
+            client, token, mandant.id, "Gesellschafter Partner"
+        )
+        supplier_partner = await create_partner(
+            client, token, mandant.id, "Lieferant Partner"
+        )
 
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/{shareholder_partner['id']}/services",
-            json={"name": "Entnahme", "service_type": "shareholder", "tax_rate": "0.00"},
+            json={
+                "name": "Entnahme",
+                "service_type": "shareholder",
+                "tax_rate": "0.00",
+            },
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 201
@@ -273,7 +295,9 @@ class TestPartnerCRUD:
         assert items[0]["id"] == shareholder_partner["id"]
         assert items[0]["service_types"] == ["shareholder", "unknown"]
 
-    async def test_delete_partner_without_bookings(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_delete_partner_without_bookings(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         user = await create_user(db_session, "acc@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
@@ -289,7 +313,9 @@ class TestPartnerCRUD:
         deleted_partner = await db_session.get(Partner, UUID(partner["id"]))
         assert deleted_partner is None
 
-    async def test_delete_partner_with_bookings_returns_409(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_delete_partner_with_bookings_returns_409(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         user = await create_user(db_session, "acc2@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
@@ -325,7 +351,7 @@ class TestPartnerCRUD:
             JournalLine(
                 account_id=account.id,
                 import_run_id=import_run.id,
-                partner_id=UUID(partner['id']),
+                partner_id=UUID(partner["id"]),
                 valuta_date="2026-04-01",
                 booking_date="2026-04-01",
                 amount=Decimal("-10.00"),
@@ -352,7 +378,9 @@ class TestPartnerCRUD:
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
-        partner_payload = await create_partner(client, token, mandant.id, "Cleanup Partner")
+        partner_payload = await create_partner(
+            client, token, mandant.id, "Cleanup Partner"
+        )
         partner_id = UUID(partner_payload["id"])
 
         partner = await db_session.get(Partner, partner_id)
@@ -388,7 +416,9 @@ class TestPartnerCRUD:
 
         base_service = (
             await db_session.exec(
-                select(Service).where(Service.partner_id == partner_id, Service.is_base_service == True)  # noqa: E712
+                select(Service).where(
+                    Service.partner_id == partner_id, Service.is_base_service == True
+                )  # noqa: E712
             )
         ).first()
         assert base_service is not None
@@ -402,9 +432,26 @@ class TestPartnerCRUD:
         )
         db_session.add(matcher)
 
-        db_session.add(PartnerIban(partner_id=partner_id, iban="AT611904300234573201", created_at=import_utcnow()))
-        db_session.add(PartnerAccount(partner_id=partner_id, account_number="1234567", blz="19043", created_at=import_utcnow()))
-        db_session.add(PartnerName(partner_id=partner_id, name="Cleanup Alias", created_at=import_utcnow()))
+        db_session.add(
+            PartnerIban(
+                partner_id=partner_id,
+                iban="AT611904300234573201",
+                created_at=import_utcnow(),
+            )
+        )
+        db_session.add(
+            PartnerAccount(
+                partner_id=partner_id,
+                account_number="1234567",
+                blz="19043",
+                created_at=import_utcnow(),
+            )
+        )
+        db_session.add(
+            PartnerName(
+                partner_id=partner_id, name="Cleanup Alias", created_at=import_utcnow()
+            )
+        )
 
         line = JournalLine(
             account_id=account.id,
@@ -422,11 +469,17 @@ class TestPartnerCRUD:
         await db_session.commit()
         await db_session.refresh(line)
 
-        db_session.add(JournalLineSplit(
-            journal_line_id=line.id, service_id=base_service.id,
-            amount=Decimal("-10.00"), assignment_mode="auto",
-            amount_consistency_ok=False, created_at=import_utcnow(), updated_at=import_utcnow(),
-        ))
+        db_session.add(
+            JournalLineSplit(
+                journal_line_id=line.id,
+                service_id=base_service.id,
+                amount=Decimal("-10.00"),
+                assignment_mode="auto",
+                amount_consistency_ok=False,
+                created_at=import_utcnow(),
+                updated_at=import_utcnow(),
+            )
+        )
         await db_session.commit()
 
         review = ReviewItem(
@@ -460,14 +513,30 @@ class TestPartnerCRUD:
 
         await db_session.refresh(line)
         assert line.partner_id is None
-        remaining_splits = (await db_session.exec(
-            select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
-        )).all()
+        remaining_splits = (
+            await db_session.exec(
+                select(JournalLineSplit).where(
+                    JournalLineSplit.journal_line_id == line.id
+                )
+            )
+        ).all()
         assert remaining_splits == []
 
-        ibans = (await db_session.exec(select(PartnerIban).where(PartnerIban.partner_id == partner_id))).all()
-        accounts = (await db_session.exec(select(PartnerAccount).where(PartnerAccount.partner_id == partner_id))).all()
-        names = (await db_session.exec(select(PartnerName).where(PartnerName.partner_id == partner_id))).all()
+        ibans = (
+            await db_session.exec(
+                select(PartnerIban).where(PartnerIban.partner_id == partner_id)
+            )
+        ).all()
+        accounts = (
+            await db_session.exec(
+                select(PartnerAccount).where(PartnerAccount.partner_id == partner_id)
+            )
+        ).all()
+        names = (
+            await db_session.exec(
+                select(PartnerName).where(PartnerName.partner_id == partner_id)
+            )
+        ).all()
         assert ibans == []
         assert accounts == []
         assert names == []
@@ -476,7 +545,9 @@ class TestPartnerCRUD:
 @pytest.mark.asyncio
 class TestPartnerIban:
 
-    async def test_add_iban_to_partner(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_add_iban_to_partner(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         user = await create_user(db_session, "acc@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
@@ -490,7 +561,9 @@ class TestPartnerIban:
         assert resp.status_code == 201
         assert resp.json()["iban"] == "DE89370400440532013000"  # normalized
 
-    async def test_global_iban_uniqueness(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_global_iban_uniqueness(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         """ADR-008: IBAN must be globally unique across all partners."""
         user = await create_user(db_session, "acc@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
@@ -501,11 +574,13 @@ class TestPartnerIban:
         iban = "LU96013000000726000067"
         await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/{p1['id']}/ibans",
-            json={"iban": iban}, headers={"Authorization": f"Bearer {token}"}
+            json={"iban": iban},
+            headers={"Authorization": f"Bearer {token}"},
         )
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/{p2['id']}/ibans",
-            json={"iban": iban}, headers={"Authorization": f"Bearer {token}"}
+            json={"iban": iban},
+            headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 409
 
@@ -519,7 +594,9 @@ class TestPartnerIban:
 
         source = await create_partner(client, token, mandant.id, "IBAN Quelle")
         target = await create_partner(client, token, mandant.id, "IBAN Ziel")
-        account, import_run = await _create_account_and_import_run(db_session, mandant.id, user.id)
+        account, import_run = await _create_account_and_import_run(
+            db_session, mandant.id, user.id
+        )
 
         line_matching = JournalLine(
             account_id=account.id,
@@ -568,7 +645,9 @@ class TestPartnerIban:
 @pytest.mark.asyncio
 class TestPartnerNameVariants:
 
-    async def test_add_name_variant(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_add_name_variant(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         user = await create_user(db_session, "acc@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
@@ -592,15 +671,15 @@ class TestPartnerNameVariants:
         partner = await create_partner(client, token, mandant.id)
         await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/names",
-            json={"name": "Duplicate"}, headers={"Authorization": f"Bearer {token}"}
+            json={"name": "Duplicate"},
+            headers={"Authorization": f"Bearer {token}"},
         )
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/names",
-            json={"name": "Duplicate"}, headers={"Authorization": f"Bearer {token}"}
+            json={"name": "Duplicate"},
+            headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 409
-
-
 
 
 @pytest.mark.asyncio
@@ -628,7 +707,9 @@ class TestPartnerSearch:
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
-        await create_partner(client, token, mandant.id, "Amazon EU", iban="DE89370400440532013000")
+        await create_partner(
+            client, token, mandant.id, "Amazon EU", iban="DE89370400440532013000"
+        )
         await create_partner(client, token, mandant.id, "Rewe GmbH")
 
         # Suche nach vollständiger normalisierter IBAN
@@ -641,13 +722,17 @@ class TestPartnerSearch:
         assert body["total"] == 1
         assert body["items"][0]["name"] == "Amazon EU"
 
-    async def test_search_by_iban_with_spaces(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_search_by_iban_with_spaces(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         """IBAN mit Leerzeichen im Suchbegriff soll normalisiert verglichen werden."""
         user = await create_user(db_session, "acc@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
-        await create_partner(client, token, mandant.id, "Amazon EU", iban="DE89370400440532013000")
+        await create_partner(
+            client, token, mandant.id, "Amazon EU", iban="DE89370400440532013000"
+        )
 
         resp = await client.get(
             f"/api/v1/mandants/{mandant.id}/partners?search=DE89 3704 0044 0532 0130 00",
@@ -658,7 +743,9 @@ class TestPartnerSearch:
         assert body["total"] == 1
         assert body["items"][0]["name"] == "Amazon EU"
 
-    async def test_search_no_match_returns_empty(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_search_no_match_returns_empty(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         user = await create_user(db_session, "acc@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
@@ -676,6 +763,7 @@ class TestPartnerSearch:
 async def _create_account_and_import_run(db_session, mandant_id, user_id) -> tuple:
     """Hilfsfunktion: legt Account + ImportRun an und gibt beide zurück."""
     from app.imports.models import utcnow as import_utcnow
+
     account = Account(
         mandant_id=mandant_id,
         name="Main",
@@ -710,6 +798,7 @@ class TestAccountPreviewAndReassign:
         self, client: AsyncClient, db_session: AsyncSession
     ):
         from app.imports.models import utcnow as import_utcnow
+
         user = await create_user(db_session, "acc@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
@@ -717,7 +806,9 @@ class TestAccountPreviewAndReassign:
 
         source = await create_partner(client, token, mandant.id, "Quelle GmbH")
         target = await create_partner(client, token, mandant.id, "Ziel GmbH")
-        account, import_run = await _create_account_and_import_run(db_session, mandant.id, user.id)
+        account, import_run = await _create_account_and_import_run(
+            db_session, mandant.id, user.id
+        )
 
         db_session.add(
             JournalLine(
@@ -753,13 +844,16 @@ class TestAccountPreviewAndReassign:
     ):
         """Zeilen die bereits diesem Partner gehören erscheinen mit already_assigned=True."""
         from app.imports.models import utcnow as import_utcnow
+
         user = await create_user(db_session, "acc@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
 
         partner = await create_partner(client, token, mandant.id, "Eigener Partner")
-        account, import_run = await _create_account_and_import_run(db_session, mandant.id, user.id)
+        account, import_run = await _create_account_and_import_run(
+            db_session, mandant.id, user.id
+        )
 
         db_session.add(
             JournalLine(
@@ -811,6 +905,7 @@ class TestAccountPreviewAndReassign:
         self, client: AsyncClient, db_session: AsyncSession
     ):
         from app.imports.models import utcnow as import_utcnow
+
         user = await create_user(db_session, "acc@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
@@ -818,7 +913,9 @@ class TestAccountPreviewAndReassign:
 
         source = await create_partner(client, token, mandant.id, "Alt GmbH")
         target = await create_partner(client, token, mandant.id, "Neu GmbH")
-        account, import_run = await _create_account_and_import_run(db_session, mandant.id, user.id)
+        account, import_run = await _create_account_and_import_run(
+            db_session, mandant.id, user.id
+        )
 
         line = JournalLine(
             account_id=account.id,
@@ -851,6 +948,7 @@ class TestAccountPreviewAndReassign:
         self, client: AsyncClient, db_session: AsyncSession
     ):
         from app.imports.models import utcnow as import_utcnow
+
         user = await create_user(db_session, "acc@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
@@ -858,7 +956,9 @@ class TestAccountPreviewAndReassign:
 
         source = await create_partner(client, token, mandant.id, "Leerer Partner")
         target = await create_partner(client, token, mandant.id, "Voller Partner")
-        account, import_run = await _create_account_and_import_run(db_session, mandant.id, user.id)
+        account, import_run = await _create_account_and_import_run(
+            db_session, mandant.id, user.id
+        )
 
         db_session.add(
             JournalLine(
@@ -893,6 +993,7 @@ class TestAccountPreviewAndReassign:
     ):
         """Nur Zeilen mit passender Kontonummer werden verschoben."""
         from app.imports.models import utcnow as import_utcnow
+
         user = await create_user(db_session, "acc@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
@@ -900,7 +1001,9 @@ class TestAccountPreviewAndReassign:
 
         source = await create_partner(client, token, mandant.id, "Misch Partner")
         target = await create_partner(client, token, mandant.id, "Ziel Partner")
-        account, import_run = await _create_account_and_import_run(db_session, mandant.id, user.id)
+        account, import_run = await _create_account_and_import_run(
+            db_session, mandant.id, user.id
+        )
 
         # Zeile 1: passt zur Kontonummer
         line_matching = JournalLine(
@@ -954,13 +1057,16 @@ class TestAccountPreviewAndReassign:
         """Zeilen ohne Partner (partner_id=NULL) werden dem neuen Partner zugeordnet.
         SQL NULL != UUID ergibt NULL (falsy) – muss explizit behandelt werden."""
         from app.imports.models import utcnow as import_utcnow
+
         user = await create_user(db_session, "acc@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
 
         target = await create_partner(client, token, mandant.id, "Erste Bank")
-        account, import_run = await _create_account_and_import_run(db_session, mandant.id, user.id)
+        account, import_run = await _create_account_and_import_run(
+            db_session, mandant.id, user.id
+        )
 
         # Zeile ohne Partner (wie "kein Partner"-Review-Einträge)
         line = JournalLine(

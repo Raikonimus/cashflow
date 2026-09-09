@@ -57,7 +57,9 @@ describe('MandantsPage', () => {
     await waitFor(() => expect(screen.getByText('Alpha GmbH')).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: 'Konfiguration' }))
 
-    await waitFor(() => expect(screen.getByText('Mandantendetail-Konfiguration')).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByText('Mandantendetail-Konfiguration')).toBeInTheDocument(),
+    )
     expect(screen.getByText('Mandant löschen')).toBeInTheDocument()
     expect(screen.getByText('Nur alle Daten dieses Mandanten löschen')).toBeInTheDocument()
     expect(screen.getAllByText('Buchungszeilen: 12')).toHaveLength(2)

@@ -45,7 +45,9 @@ function isExpired(user: UserInfo | null): boolean {
   return typeof user?.exp === 'number' && user.exp * 1000 <= Date.now()
 }
 
-function sanitizeAuthState(state: Pick<AuthState, 'token' | 'user' | 'mandants' | 'selectedMandant'>) {
+function sanitizeAuthState(
+  state: Pick<AuthState, 'token' | 'user' | 'mandants' | 'selectedMandant'>,
+) {
   if (!state.token) {
     return initialAuthState
   }
@@ -89,7 +91,8 @@ export const useAuthStore = create<AuthState>()(
         })
         set({
           ...nextState,
-          selectedMandant: nextState.user?.mandant_id === mandant.id ? mandant : nextState.selectedMandant,
+          selectedMandant:
+            nextState.user?.mandant_id === mandant.id ? mandant : nextState.selectedMandant,
         })
       },
 

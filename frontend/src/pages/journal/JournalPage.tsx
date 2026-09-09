@@ -9,10 +9,18 @@ import { listPartners } from '@/api/partners'
 import type { PartnerListItem } from '@/api/partners'
 
 const MONTHS = [
-  { value: 1, label: 'Jan' }, { value: 2, label: 'Feb' }, { value: 3, label: 'Mär' },
-  { value: 4, label: 'Apr' }, { value: 5, label: 'Mai' }, { value: 6, label: 'Jun' },
-  { value: 7, label: 'Jul' }, { value: 8, label: 'Aug' }, { value: 9, label: 'Sep' },
-  { value: 10, label: 'Okt' }, { value: 11, label: 'Nov' }, { value: 12, label: 'Dez' },
+  { value: 1, label: 'Jan' },
+  { value: 2, label: 'Feb' },
+  { value: 3, label: 'Mär' },
+  { value: 4, label: 'Apr' },
+  { value: 5, label: 'Mai' },
+  { value: 6, label: 'Jun' },
+  { value: 7, label: 'Jul' },
+  { value: 8, label: 'Aug' },
+  { value: 9, label: 'Sep' },
+  { value: 10, label: 'Okt' },
+  { value: 11, label: 'Nov' },
+  { value: 12, label: 'Dez' },
 ]
 
 const INTERNAL_UNMAPPED_DATA_KEYS = new Set(['_cashflow_source_values'])
@@ -72,16 +80,18 @@ export function JournalPage() {
   const [showBulkDialog, setShowBulkDialog] = useState(false)
 
   // Info-Tooltip
-  const [tooltip, setTooltip] = useState<{ line: JournalLine; top: number; right: number } | null>(null)
+  const [tooltip, setTooltip] = useState<{ line: JournalLine; top: number; right: number } | null>(
+    null,
+  )
   const handleTooltipEnter = (e: React.MouseEvent, line: JournalLine) => {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
     const tooltipHeight = 380
-    const top = rect.bottom + 8 + tooltipHeight > window.innerHeight
-      ? rect.top - tooltipHeight - 4
-      : rect.bottom + 4
+    const top =
+      rect.bottom + 8 + tooltipHeight > window.innerHeight
+        ? rect.top - tooltipHeight - 4
+        : rect.bottom + 4
     setTooltip({ line, top, right: window.innerWidth - rect.right })
   }
-
 
   const canBulkAssign = role === 'accountant' || role === 'mandant_admin' || role === 'admin'
 
@@ -163,20 +173,34 @@ export function JournalPage() {
       <div className="mb-4 flex flex-wrap gap-3">
         <select
           value={year ?? ''}
-          onChange={(e) => { setYear(e.target.value ? Number(e.target.value) : undefined); setPage(1) }}
+          onChange={(e) => {
+            setYear(e.target.value ? Number(e.target.value) : undefined)
+            setPage(1)
+          }}
           className="rounded border px-3 py-1.5 text-sm"
         >
           <option value="">Alle Jahre</option>
-          {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+          {yearOptions.map((y) => (
+            <option key={y} value={y}>
+              {y}
+            </option>
+          ))}
         </select>
 
         <select
           value={month ?? ''}
-          onChange={(e) => { setMonth(e.target.value ? Number(e.target.value) : undefined); setPage(1) }}
+          onChange={(e) => {
+            setMonth(e.target.value ? Number(e.target.value) : undefined)
+            setPage(1)
+          }}
           className="rounded border px-3 py-1.5 text-sm"
         >
           <option value="">Alle Monate</option>
-          {MONTHS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+          {MONTHS.map((m) => (
+            <option key={m.value} value={m.value}>
+              {m.label}
+            </option>
+          ))}
         </select>
 
         <select
@@ -189,11 +213,18 @@ export function JournalPage() {
           className="rounded border px-3 py-1.5 text-sm"
         >
           <option value="">Alle Konten</option>
-          {(accounts ?? []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          {(accounts ?? []).map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
         </select>
         <input
           value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+          onChange={(e) => {
+            setSearch(e.target.value)
+            setPage(1)
+          }}
           placeholder="Text oder Partnername…"
           className="rounded border px-3 py-1.5 text-sm min-w-48 focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
@@ -207,7 +238,9 @@ export function JournalPage() {
             >
               ← Zurück
             </button>
-            <span className="px-2 text-sm text-gray-500">Seite {page} von {data.pages}</span>
+            <span className="px-2 text-sm text-gray-500">
+              Seite {page} von {data.pages}
+            </span>
             <button
               onClick={() => setPage((p) => Math.min(data.pages, p + 1))}
               disabled={page === data.pages}
@@ -267,37 +300,43 @@ export function JournalPage() {
                 className="w-[8.5rem] cursor-pointer select-none whitespace-nowrap px-3 py-3 text-left hover:text-gray-700"
                 onClick={() => handleSort('valuta_date')}
               >
-                Valuta<SortIcon col="valuta_date" />
+                Valuta
+                <SortIcon col="valuta_date" />
               </th>
               <th
                 className="w-[8.5rem] cursor-pointer select-none px-3 py-3 text-left hover:text-gray-700"
                 onClick={() => handleSort('booking_date')}
               >
-                Buchung<SortIcon col="booking_date" />
+                Buchung
+                <SortIcon col="booking_date" />
               </th>
               <th
                 className="w-[30%] cursor-pointer select-none px-3 py-3 text-left hover:text-gray-700"
                 onClick={() => handleSort('text')}
               >
-                Text<SortIcon col="text" />
+                Text
+                <SortIcon col="text" />
               </th>
               <th
                 className="w-[18%] cursor-pointer select-none px-3 py-3 text-left hover:text-gray-700"
                 onClick={() => handleSort('service_name')}
               >
-                Leistung<SortIcon col="service_name" />
+                Leistung
+                <SortIcon col="service_name" />
               </th>
               <th
                 className="w-[24%] cursor-pointer select-none px-3 py-3 text-left hover:text-gray-700"
                 onClick={() => handleSort('partner_name')}
               >
-                Partner<SortIcon col="partner_name" />
+                Partner
+                <SortIcon col="partner_name" />
               </th>
               <th
                 className="w-[10rem] cursor-pointer select-none px-3 py-3 text-right hover:text-gray-700"
                 onClick={() => handleSort('amount')}
               >
-                Betrag<SortIcon col="amount" />
+                Betrag
+                <SortIcon col="amount" />
               </th>
               <th className="w-8 px-3 py-3" />
             </tr>
@@ -319,65 +358,85 @@ export function JournalPage() {
             )}
             {lines.map((line) => (
               <React.Fragment key={line.id}>
-              <tr
-                className={`hover:bg-gray-50 ${selected.has(line.id) ? 'bg-blue-50' : ''}`}
-              >
-                {canBulkAssign && (
-                  <td className="px-3 py-2">
-                    <input
-                      type="checkbox"
-                      checked={selected.has(line.id)}
-                      onChange={() => toggleOne(line.id)}
-                      className="rounded"
-                    />
-                  </td>
-                )}
-                <td className="w-[8.5rem] whitespace-nowrap px-3 py-2 font-mono text-xs text-gray-500">{line.valuta_date}</td>
-                <td className="w-[8.5rem] px-3 py-2 font-mono text-xs text-gray-400">{line.booking_date}</td>
-                <td className="px-3 py-2 text-gray-700">
-                  <div className="line-clamp-2 break-words">
-                  {line.text ?? line.partner_name_raw ?? <em className="text-gray-400">—</em>}
-                  </div>
-                </td>
-                <td className="w-[18%] px-3 py-2 text-sm text-gray-600">
-                  <div className="truncate" title={line.splits[0]?.service_name ?? undefined}>
-                    {line.splits[0]?.service_name ?? <span className="text-xs text-gray-400">—</span>}
-                  </div>
-                </td>
-                <td className="w-[24%] px-3 py-2">
-                  {line.partner_id ? (
-                    <Link
-                      to={`/partners/${line.partner_id}`}
-                      className="inline-block max-w-full truncate rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-700 hover:bg-green-200 hover:underline"
-                      title={line.partner_name ?? line.partner_name_raw ?? undefined}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {line.partner_name ?? line.partner_name_raw ?? line.partner_id.substring(0, 8) + '…'}
-                    </Link>
-                  ) : (
-                    <span className="text-xs text-gray-400">—</span>
+                <tr className={`hover:bg-gray-50 ${selected.has(line.id) ? 'bg-blue-50' : ''}`}>
+                  {canBulkAssign && (
+                    <td className="px-3 py-2">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(line.id)}
+                        onChange={() => toggleOne(line.id)}
+                        className="rounded"
+                      />
+                    </td>
                   )}
-                </td>
-                <td className={`w-[10rem] px-3 py-2 text-right font-mono text-sm ${Number(line.amount) < 0 ? 'text-red-600' : 'text-green-700'}`}>
-                  {Number(line.amount).toLocaleString('de-DE', { style: 'currency', currency: line.currency })}
-                </td>
-                <td className="px-3 py-2 text-center">
-                  <div
-                    className="inline-block"
-                    onMouseEnter={(e) => handleTooltipEnter(e, line)}
-                    onMouseLeave={() => setTooltip(null)}
+                  <td className="w-[8.5rem] whitespace-nowrap px-3 py-2 font-mono text-xs text-gray-500">
+                    {line.valuta_date}
+                  </td>
+                  <td className="w-[8.5rem] px-3 py-2 font-mono text-xs text-gray-400">
+                    {line.booking_date}
+                  </td>
+                  <td className="px-3 py-2 text-gray-700">
+                    <div className="line-clamp-2 break-words">
+                      {line.text ?? line.partner_name_raw ?? <em className="text-gray-400">—</em>}
+                    </div>
+                  </td>
+                  <td className="w-[18%] px-3 py-2 text-sm text-gray-600">
+                    <div className="truncate" title={line.splits[0]?.service_name ?? undefined}>
+                      {line.splits[0]?.service_name ?? (
+                        <span className="text-xs text-gray-400">—</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="w-[24%] px-3 py-2">
+                    {line.partner_id ? (
+                      <Link
+                        to={`/partners/${line.partner_id}`}
+                        className="inline-block max-w-full truncate rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-700 hover:bg-green-200 hover:underline"
+                        title={line.partner_name ?? line.partner_name_raw ?? undefined}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {line.partner_name ??
+                          line.partner_name_raw ??
+                          line.partner_id.substring(0, 8) + '…'}
+                      </Link>
+                    ) : (
+                      <span className="text-xs text-gray-400">—</span>
+                    )}
+                  </td>
+                  <td
+                    className={`w-[10rem] px-3 py-2 text-right font-mono text-sm ${Number(line.amount) < 0 ? 'text-red-600' : 'text-green-700'}`}
                   >
-                    <button
-                      onClick={(e) => e.stopPropagation()}
-                      className="rounded p-0.5 text-gray-400 hover:text-blue-600"
+                    {Number(line.amount).toLocaleString('de-DE', {
+                      style: 'currency',
+                      currency: line.currency,
+                    })}
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <div
+                      className="inline-block"
+                      onMouseEnter={(e) => handleTooltipEnter(e, line)}
+                      onMouseLeave={() => setTooltip(null)}
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                      </svg>
-                    </button>
-                  </div>
-                </td>
-              </tr>
+                      <button
+                        onClick={(e) => e.stopPropagation()}
+                        className="rounded p-0.5 text-gray-400 hover:text-blue-600"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="h-4 w-4"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                        >
+                          <path
+                            fillRule="evenodd"
+                            d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
+                            clipRule="evenodd"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
               </React.Fragment>
             ))}
           </tbody>
@@ -418,7 +477,10 @@ export function JournalPage() {
             )}
             <div className="mt-4 flex justify-end">
               <button
-                onClick={() => { setShowBulkDialog(false); setBulkPartnerQuery('') }}
+                onClick={() => {
+                  setShowBulkDialog(false)
+                  setBulkPartnerQuery('')
+                }}
                 className="rounded px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100"
               >
                 Abbrechen
@@ -436,35 +498,46 @@ export function JournalPage() {
         >
           <table className="w-full text-xs">
             <tbody>
-              {([
-                ['ID', tooltip.line.id],
-                ['Konto-ID', tooltip.line.account_id],
-                ['Import-Run', tooltip.line.import_run_id],
-                ['Valutadatum', tooltip.line.valuta_date],
-                ['Buchungsdatum', tooltip.line.booking_date],
-                ['Währung', tooltip.line.currency],
-                ['Buchungstext', tooltip.line.text],
-                ['Partner (roh)', tooltip.line.partner_name_raw],
-                ['IBAN (roh)', tooltip.line.partner_iban_raw],
-                ['Kontonummer (roh)', tooltip.line.partner_account_raw],
-                ['BLZ (roh)', tooltip.line.partner_blz_raw],
-                ['BIC (roh)', tooltip.line.partner_bic_raw],
-                ['Partner-ID', tooltip.line.partner_id],
-                ['Leistung', tooltip.line.splits[0]?.service_name],
-                ['Leistungs-ID', tooltip.line.splits[0]?.service_id],
-                ['Erstellt', new Date(tooltip.line.created_at + 'Z').toLocaleString('de-DE', { timeZone: 'Europe/Vienna' })],
-                ...(tooltip.line.unmapped_data
-                  ? Object.entries(tooltip.line.unmapped_data).filter(([key]) => !INTERNAL_UNMAPPED_DATA_KEYS.has(key))
-                  : []),
-              ] as [string, unknown][])
+              {(
+                [
+                  ['ID', tooltip.line.id],
+                  ['Konto-ID', tooltip.line.account_id],
+                  ['Import-Run', tooltip.line.import_run_id],
+                  ['Valutadatum', tooltip.line.valuta_date],
+                  ['Buchungsdatum', tooltip.line.booking_date],
+                  ['Währung', tooltip.line.currency],
+                  ['Buchungstext', tooltip.line.text],
+                  ['Partner (roh)', tooltip.line.partner_name_raw],
+                  ['IBAN (roh)', tooltip.line.partner_iban_raw],
+                  ['Kontonummer (roh)', tooltip.line.partner_account_raw],
+                  ['BLZ (roh)', tooltip.line.partner_blz_raw],
+                  ['BIC (roh)', tooltip.line.partner_bic_raw],
+                  ['Partner-ID', tooltip.line.partner_id],
+                  ['Leistung', tooltip.line.splits[0]?.service_name],
+                  ['Leistungs-ID', tooltip.line.splits[0]?.service_id],
+                  [
+                    'Erstellt',
+                    new Date(tooltip.line.created_at + 'Z').toLocaleString('de-DE', {
+                      timeZone: 'Europe/Vienna',
+                    }),
+                  ],
+                  ...(tooltip.line.unmapped_data
+                    ? Object.entries(tooltip.line.unmapped_data).filter(
+                        ([key]) => !INTERNAL_UNMAPPED_DATA_KEYS.has(key),
+                      )
+                    : []),
+                ] as [string, unknown][]
+              )
                 .map(([label, value]) => [label, formatTooltipValue(value)] as const)
                 .filter(([, value]) => value)
                 .map(([label, value]) => (
-                <tr key={label}>
-                  <td className="py-0.5 pr-3 align-top font-semibold text-gray-500 whitespace-nowrap text-right">{label}</td>
-                  <td className="py-0.5 break-all font-mono text-gray-700 text-left">{value}</td>
-                </tr>
-              ))}
+                  <tr key={label}>
+                    <td className="py-0.5 pr-3 align-top font-semibold text-gray-500 whitespace-nowrap text-right">
+                      {label}
+                    </td>
+                    <td className="py-0.5 break-all font-mono text-gray-700 text-left">{value}</td>
+                  </tr>
+                ))}
             </tbody>
           </table>
         </div>

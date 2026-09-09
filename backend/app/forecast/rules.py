@@ -15,6 +15,7 @@ Reihenfolge der Anwendung — sie ist bewusst so gewählt:
 
 Planposten stehen deshalb ganz am Ende und ersetzen das Ergebnis, statt es zu verändern.
 """
+
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -106,7 +107,11 @@ def scenario_shift(
     """
     if scenario is Scenario.expected:
         return _ZERO
-    spread = measured if measured is not None else SCENARIO_SPREAD.get(confidence, Decimal("0.25"))
+    spread = (
+        measured
+        if measured is not None
+        else SCENARIO_SPREAD.get(confidence, Decimal("0.25"))
+    )
     return -spread if scenario is Scenario.low else spread
 
 
@@ -131,8 +136,12 @@ def _manual_rule(
 ) -> ForecastRule:
     params = _params(override)
     bounds = {
-        "valid_from_index": month_index(valid_from.year, valid_from.month) if valid_from else None,
-        "valid_to_index": month_index(valid_to.year, valid_to.month) if valid_to else None,
+        "valid_from_index": (
+            month_index(valid_from.year, valid_from.month) if valid_from else None
+        ),
+        "valid_to_index": (
+            month_index(valid_to.year, valid_to.month) if valid_to else None
+        ),
     }
     try:
         rule_type = RuleType(override.rule_type or RuleType.none.value)
@@ -164,7 +173,9 @@ def _manual_rule(
 
     if rule_type is RuleType.rolling_average:
         window = max(1, int(params.get("window_months") or 6))
-        total = sum((history.get(window_end - offset, _ZERO) for offset in range(window)), _ZERO)
+        total = sum(
+            (history.get(window_end - offset, _ZERO) for offset in range(window)), _ZERO
+        )
         return ForecastRule(
             rule_type=rule_type,
             reason=f"Ø der letzten {window} Monate",
@@ -198,7 +209,9 @@ def _manual_rule(
             **bounds,
         )
 
-    return ForecastRule(rule_type=RuleType.none, reason="Keine Prognose (händisch gesetzt)")
+    return ForecastRule(
+        rule_type=RuleType.none, reason="Keine Prognose (händisch gesetzt)"
+    )
 
 
 def index_month_of(index: int) -> int:

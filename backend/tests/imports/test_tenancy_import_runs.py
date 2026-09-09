@@ -4,6 +4,7 @@
 selben Pfad — hier `account_id` — wird von der Dependency nicht geprueft. Ob sie zum
 Mandanten gehoert, muss der Service tun. Diese Tests halten fest, dass er es tut.
 """
+
 import pytest
 from httpx import AsyncClient
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -28,7 +29,9 @@ async def zwei_mandanten(db_session: AsyncSession, client: AsyncClient):
     """Nutzer gehoert zu Mandant A. Mandant B hat ein Konto mit einem Import."""
     eigener = await create_mandant(db_session, name="Mandant A")
     fremder = await create_mandant(db_session, name="Mandant B")
-    nutzer = await create_user(db_session, email="a@example.com", role=UserRole.accountant)
+    nutzer = await create_user(
+        db_session, email="a@example.com", role=UserRole.accountant
+    )
     await assign_user_to_mandant(db_session, nutzer, eigener)
 
     fremdes_konto = await create_account_db(db_session, fremder.id, name="Konto B")
@@ -54,7 +57,9 @@ async def zwei_mandanten(db_session: AsyncSession, client: AsyncClient):
     }
 
 
-async def test_fremde_importlaeufe_sind_nicht_auflistbar(client: AsyncClient, zwei_mandanten):
+async def test_fremde_importlaeufe_sind_nicht_auflistbar(
+    client: AsyncClient, zwei_mandanten
+):
     """Eigene mandant_id im Pfad, fremde account_id — die Liste muss verweigert werden."""
     ctx = zwei_mandanten
     resp = await client.get(
@@ -62,12 +67,15 @@ async def test_fremde_importlaeufe_sind_nicht_auflistbar(client: AsyncClient, zw
         headers=ctx["headers"],
     )
 
-    assert resp.status_code in (403, 404), (
-        f"Fremde Importlaeufe wurden ausgeliefert: {resp.status_code} {resp.text}"
-    )
+    assert resp.status_code in (
+        403,
+        404,
+    ), f"Fremde Importlaeufe wurden ausgeliefert: {resp.status_code} {resp.text}"
 
 
-async def test_fremder_importlauf_ist_nicht_abrufbar(client: AsyncClient, zwei_mandanten):
+async def test_fremder_importlauf_ist_nicht_abrufbar(
+    client: AsyncClient, zwei_mandanten
+):
     """Dasselbe fuer den Detailabruf eines einzelnen Laufs."""
     ctx = zwei_mandanten
     resp = await client.get(
@@ -76,6 +84,7 @@ async def test_fremder_importlauf_ist_nicht_abrufbar(client: AsyncClient, zwei_m
         headers=ctx["headers"],
     )
 
-    assert resp.status_code in (403, 404), (
-        f"Fremder Importlauf wurde ausgeliefert: {resp.status_code} {resp.text}"
-    )
+    assert resp.status_code in (
+        403,
+        404,
+    ), f"Fremder Importlauf wurde ausgeliefert: {resp.status_code} {resp.text}"

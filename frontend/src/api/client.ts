@@ -20,7 +20,10 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     const requestUrl = String(error.config?.url ?? '')
-    const isAuthRequest = requestUrl.includes('/auth/login') || requestUrl.includes('/auth/forgot-password') || requestUrl.includes('/auth/reset-password')
+    const isAuthRequest =
+      requestUrl.includes('/auth/login') ||
+      requestUrl.includes('/auth/forgot-password') ||
+      requestUrl.includes('/auth/reset-password')
 
     if (error.response?.status === 401 && !isAuthRequest) {
       useAuthStore.getState().logout()

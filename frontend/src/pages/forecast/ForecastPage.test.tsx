@@ -208,10 +208,7 @@ describe('ForecastPage – Übersicht', () => {
     renderPage()
     await screen.findByText(/Keine Leistungen gefunden/)
 
-    await userEvent.selectOptions(
-      screen.getByLabelText('Auswahl einschränken'),
-      'without_rule',
-    )
+    await userEvent.selectOptions(screen.getByLabelText('Auswahl einschränken'), 'without_rule')
 
     await waitFor(() => expect(calls.at(-1)).toContain('only_without_rule=true'))
   })
@@ -260,10 +257,9 @@ describe('ForecastPage – Handgesetztes erkennen', () => {
   })
 
   it('markiert Zahlungsverzug und Planposten', async () => {
-    mockOverview(
-      [overviewRow({ shift_months: 2, planned_item_count: 3, customised: true })],
-      { customised: 1 },
-    )
+    mockOverview([overviewRow({ shift_months: 2, planned_item_count: 3, customised: true })], {
+      customised: 1,
+    })
     renderPage()
 
     const row = await screen.findByRole('row', { name: /Gehalt/ })
@@ -310,7 +306,9 @@ describe('ForecastPage – Treffsicherheit', () => {
   beforeEach(() => setup())
 
   it('zeigt den gemessenen Fehler statt der geschätzten Confidence', async () => {
-    mockOverview([overviewRow({ backtest_ran: true, beats_baseline: true, relative_error: '0.3663' })])
+    mockOverview([
+      overviewRow({ backtest_ran: true, beats_baseline: true, relative_error: '0.3663' }),
+    ])
     renderPage()
 
     const row = await screen.findByRole('row', { name: /Gehalt/ })
@@ -655,9 +653,7 @@ describe('ForecastPage – Planposten im Editor', () => {
   })
 
   it('streicht einen verbrauchten Posten durch', async () => {
-    await openWith([
-      plannedItem({ period: '2026-09', status: 'used', remaining_in_month: '0.00' }),
-    ])
+    await openWith([plannedItem({ period: '2026-09', status: 'used', remaining_in_month: '0.00' })])
 
     expect(await screen.findByText('verbraucht')).toBeInTheDocument()
     expect(screen.getByText('-5.000,00 €').className).toContain('line-through')
@@ -723,9 +719,7 @@ describe('ForecastPage – Rückvergleich im Editor', () => {
   it('warnt, wenn die Regel schlechter trifft als gar keine', async () => {
     await open(ruleResponse({ backtest: backtest({ beats_baseline: false }) }))
 
-    expect(
-      await screen.findByText(/trifft schlechter als gar keine Prognose/),
-    ).toBeInTheDocument()
+    expect(await screen.findByText(/trifft schlechter als gar keine Prognose/)).toBeInTheDocument()
   })
 
   it('erklaert eine als beendet erkannte Leistung', async () => {
@@ -764,8 +758,9 @@ describe('ForecastPage – Rückvergleich im Editor', () => {
       }),
     )
 
-    expect(await screen.findByText(/Bandbreite dieser Leistung ist deshalb geschätzt/))
-      .toBeInTheDocument()
+    expect(
+      await screen.findByText(/Bandbreite dieser Leistung ist deshalb geschätzt/),
+    ).toBeInTheDocument()
   })
 })
 
@@ -825,10 +820,7 @@ describe('ForecastPage – Plan gegen Ist', () => {
     )
     renderPage()
 
-    await userEvent.type(
-      await screen.findByLabelText('Bezeichnung des Planstands'),
-      'Budgetrunde',
-    )
+    await userEvent.type(await screen.findByLabelText('Bezeichnung des Planstands'), 'Budgetrunde')
     await userEvent.click(screen.getByRole('button', { name: 'Planstand festhalten' }))
 
     await waitFor(() => expect(posted).toHaveLength(1))
@@ -900,8 +892,6 @@ describe('ForecastPage – Plan gegen Ist', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: 'Vergleich' }))
 
-    expect(
-      await screen.findByText(/Noch kein Monat vollständig abgelaufen/),
-    ).toBeInTheDocument()
+    expect(await screen.findByText(/Noch kein Monat vollständig abgelaufen/)).toBeInTheDocument()
   })
 })

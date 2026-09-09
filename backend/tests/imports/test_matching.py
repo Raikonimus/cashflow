@@ -1,9 +1,8 @@
 """Tests for PartnerMatchingService and ReviewItemFactory (Bolt 007)."""
+
 from decimal import Decimal
 from uuid import uuid4
 
-import pytest
-import pytest_asyncio
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -18,10 +17,10 @@ from tests.imports import (  # noqa: F401
     setup_db,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 async def _create_active_partner(
     session: AsyncSession,
@@ -31,7 +30,9 @@ async def _create_active_partner(
     alias: str | None = None,
 ) -> Partner:
     now = utcnow()
-    partner = Partner(mandant_id=mandant_id, name=name, is_active=True, created_at=now, updated_at=now)
+    partner = Partner(
+        mandant_id=mandant_id, name=name, is_active=True, created_at=now, updated_at=now
+    )
     session.add(partner)
     await session.flush()
     if iban:
@@ -51,7 +52,13 @@ async def _create_inactive_partner(
     alias: str | None = None,
 ) -> Partner:
     now = utcnow()
-    partner = Partner(mandant_id=mandant_id, name=name, is_active=False, created_at=now, updated_at=now)
+    partner = Partner(
+        mandant_id=mandant_id,
+        name=name,
+        is_active=False,
+        created_at=now,
+        updated_at=now,
+    )
     session.add(partner)
     await session.flush()
     if iban:
@@ -86,6 +93,7 @@ def _make_journal_line(
 # ---------------------------------------------------------------------------
 # PartnerMatchingService — IBAN match
 # ---------------------------------------------------------------------------
+
 
 class TestIbanMatch:
     async def test_iban_match_returns_iban_outcome(self, db_session: AsyncSession):
@@ -122,7 +130,9 @@ class TestIbanMatch:
         assert result.outcome == MatchOutcome.iban_match
         assert result.partner_id == partner.id
 
-    async def test_iban_match_ignored_for_inactive_partner(self, db_session: AsyncSession):
+    async def test_iban_match_ignored_for_inactive_partner(
+        self, db_session: AsyncSession
+    ):
         """ADR-011: inactive partners must never be matched by IBAN.
 
         Wenn die IBAN zu einem inaktiven Partner gehört und ein Partnername bekannt ist,
@@ -184,6 +194,7 @@ class TestIbanMatch:
 # PartnerMatchingService — Name match
 # ---------------------------------------------------------------------------
 
+
 class TestNameMatch:
     async def test_name_match_case_insensitive(self, db_session: AsyncSession):
         mandant = await create_mandant(db_session)
@@ -203,7 +214,9 @@ class TestNameMatch:
         assert result.review_context is not None
         assert result.review_context["matched_on"] == "name"
 
-    async def test_name_match_ignored_for_inactive_partner(self, db_session: AsyncSession):
+    async def test_name_match_ignored_for_inactive_partner(
+        self, db_session: AsyncSession
+    ):
         """ADR-011: inactive partners must never be matched by name."""
         mandant = await create_mandant(db_session)
         await _create_inactive_partner(
@@ -250,14 +263,16 @@ class TestNameMatch:
         svc = PartnerMatchingService(db_session)
         result = await svc.match(
             mandant_id=mandant.id,
-            iban_raw="AT611904300234573201",   # unbekannte IBAN
+            iban_raw="AT611904300234573201",  # unbekannte IBAN
             name_raw="Bekannter Partner",
         )
 
         assert result.outcome == MatchOutcome.name_match
         assert result.partner_id == partner.id
 
-    async def test_name_match_on_partner_name_without_alias(self, db_session: AsyncSession):
+    async def test_name_match_on_partner_name_without_alias(
+        self, db_session: AsyncSession
+    ):
         """Partner der manuell (ohne PartnerName-Eintrag) angelegt wurde, muss
         über partners.name gefunden werden – nicht nur über partner_names."""
         mandant = await create_mandant(db_session)
@@ -274,7 +289,9 @@ class TestNameMatch:
         assert result.outcome == MatchOutcome.name_match
         assert result.partner_id == partner.id
 
-    async def test_name_match_does_not_auto_add_excluded_account(self, db_session: AsyncSession):
+    async def test_name_match_does_not_auto_add_excluded_account(
+        self, db_session: AsyncSession
+    ):
         mandant = await create_mandant(db_session)
         partner = await _create_active_partner(
             db_session, mandant.id, "JETBRAINS", alias="JETBRAINS"
@@ -300,7 +317,9 @@ class TestNameMatch:
         ).all()
         assert stored_accounts == []
 
-    async def test_iban_not_found_falls_back_to_partner_name_without_alias(self, db_session: AsyncSession):
+    async def test_iban_not_found_falls_back_to_partner_name_without_alias(
+        self, db_session: AsyncSession
+    ):
         """Kombination: IBAN unbekannt + Partner nur mit partners.name (kein PartnerName-Eintrag)."""
         mandant = await create_mandant(db_session)
         partner = await _create_active_partner(db_session, mandant.id, "Sparkasse Wien")
@@ -308,7 +327,7 @@ class TestNameMatch:
         svc = PartnerMatchingService(db_session)
         result = await svc.match(
             mandant_id=mandant.id,
-            iban_raw="AT611904300234573201",   # unbekannte IBAN
+            iban_raw="AT611904300234573201",  # unbekannte IBAN
             name_raw="Sparkasse Wien",
         )
 
@@ -319,6 +338,7 @@ class TestNameMatch:
 # ---------------------------------------------------------------------------
 # PartnerMatchingService — New partner creation
 # ---------------------------------------------------------------------------
+
 
 class TestNewPartner:
     async def test_no_match_creates_new_partner(self, db_session: AsyncSession):
@@ -356,16 +376,20 @@ class TestNewPartner:
 # ReviewItemFactory
 # ---------------------------------------------------------------------------
 
+
 class TestReviewItemFactory:
     def test_creates_review_item_on_name_match_with_iban(self):
         """ADR-012: ReviewItem created when name_match + raw IBAN present."""
         from app.imports.matching import PartnerMatchResult
+
         result = PartnerMatchResult(
             partner_id=uuid4(),
             outcome=MatchOutcome.name_match,
             review_context={"matched_on": "name"},
         )
-        line = _make_journal_line(iban_raw="DE89370400440532013000", name_raw="Amazon EU")
+        line = _make_journal_line(
+            iban_raw="DE89370400440532013000", name_raw="Amazon EU"
+        )
         mandant_id = uuid4()
 
         ri = ReviewItemFactory.maybe_create(result, line, mandant_id)
@@ -380,6 +404,7 @@ class TestReviewItemFactory:
     def test_no_review_item_on_name_match_without_iban(self):
         """ADR-012: no ReviewItem when name_match but no raw IBAN (already expected)."""
         from app.imports.matching import PartnerMatchResult
+
         result = PartnerMatchResult(
             partner_id=uuid4(),
             outcome=MatchOutcome.name_match,
@@ -394,8 +419,11 @@ class TestReviewItemFactory:
     def test_no_review_item_on_iban_match(self):
         """IBAN match is unambiguous — no review needed."""
         from app.imports.matching import PartnerMatchResult
+
         result = PartnerMatchResult(partner_id=uuid4(), outcome=MatchOutcome.iban_match)
-        line = _make_journal_line(iban_raw="DE89370400440532013000", name_raw="Amazon EU")
+        line = _make_journal_line(
+            iban_raw="DE89370400440532013000", name_raw="Amazon EU"
+        )
 
         ri = ReviewItemFactory.maybe_create(result, line, uuid4())
 
@@ -404,8 +432,11 @@ class TestReviewItemFactory:
     def test_review_item_created_on_new_partner(self):
         """Automatisch angelegter neuer Partner erzeugt einen new_partner ReviewItem."""
         from app.imports.matching import PartnerMatchResult
+
         new_pid = uuid4()
-        result = PartnerMatchResult(partner_id=new_pid, outcome=MatchOutcome.new_partner)
+        result = PartnerMatchResult(
+            partner_id=new_pid, outcome=MatchOutcome.new_partner
+        )
         line = _make_journal_line(iban_raw=None, name_raw="Brand New")
         mandant_id = uuid4()
 
@@ -424,6 +455,7 @@ class TestReviewItemFactory:
 # no_partner_identified — Diagnose im review_context
 # ---------------------------------------------------------------------------
 
+
 class TestNoPartnerDiagnosis:
     async def test_diagnosis_no_iban_no_account_no_name(self, db_session: AsyncSession):
         """Kein Input → Diagnose zeigt alle Felder als 'nicht vorhanden'."""
@@ -438,7 +470,9 @@ class TestNoPartnerDiagnosis:
         assert diag["account"] == {"provided": False}
         assert diag["name"] == {"provided": False}
 
-    async def test_diagnosis_iban_provided_but_not_found(self, db_session: AsyncSession):
+    async def test_diagnosis_iban_provided_but_not_found(
+        self, db_session: AsyncSession
+    ):
         """IBAN vorhanden, aber kein Partner – Diagnose zeigt found=False."""
         mandant = await create_mandant(db_session)
         svc = PartnerMatchingService(db_session)
@@ -478,7 +512,9 @@ class TestNoPartnerDiagnosis:
         mandant = await create_mandant(db_session)
         svc = PartnerMatchingService(db_session)
 
-        result = await svc.match(mandant_id=mandant.id, iban_raw=None, name_raw=None, text_raw=None)
+        result = await svc.match(
+            mandant_id=mandant.id, iban_raw=None, name_raw=None, text_raw=None
+        )
 
         assert result.outcome == MatchOutcome.no_partner_identified
         sm_diag = result.review_context["diagnosis"]["service_matchers"]

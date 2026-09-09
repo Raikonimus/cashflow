@@ -1,7 +1,8 @@
 """
 Unit tests – security.py (hashing, JWT, token utilities)
 """
-import time
+
+from datetime import UTC
 
 import pytest
 from jose import jwt
@@ -43,11 +44,12 @@ class TestJwt:
         assert decoded["role"] == "accountant"
 
     def test_expired_token_raises(self):
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
+
         from jose import JWTError
 
         expired = jwt.encode(
-            {"sub": "x", "exp": datetime.now(timezone.utc) - timedelta(seconds=1)},
+            {"sub": "x", "exp": datetime.now(UTC) - timedelta(seconds=1)},
             settings.jwt_secret_key,
             algorithm="HS256",
         )

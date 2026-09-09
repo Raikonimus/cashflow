@@ -86,7 +86,12 @@ function fillValueRow(row: ExcelJS.Row, lastColumn: number, defaultFill: string)
   }
 }
 
-function writeHeader(worksheet: ExcelJS.Worksheet, sheet: ExcelSheet, subtitle: string, lastColumn: number): void {
+function writeHeader(
+  worksheet: ExcelJS.Worksheet,
+  sheet: ExcelSheet,
+  subtitle: string,
+  lastColumn: number,
+): void {
   worksheet.getColumn(LABEL_COLUMN).width = 46
   for (let column = FIRST_VALUE_COLUMN; column <= lastColumn; column += 1) {
     worksheet.getColumn(column).width = 14
@@ -130,7 +135,9 @@ function writeServiceRow(
   // Total-Spalte summiert die Periodenspalten derselben Zeile.
   const firstPeriod = columnLetter(FIRST_VALUE_COLUMN + 1)
   const lastPeriod = columnLetter(lastColumn)
-  row.getCell(FIRST_VALUE_COLUMN).value = formula(`SUM(${firstPeriod}${rowIndex}:${lastPeriod}${rowIndex})`)
+  row.getCell(FIRST_VALUE_COLUMN).value = formula(
+    `SUM(${firstPeriod}${rowIndex}:${lastPeriod}${rowIndex})`,
+  )
 
   for (let offset = 1; offset < columnCount; offset += 1) {
     row.getCell(FIRST_VALUE_COLUMN + offset).value = parseAmount(service.values[offset])
@@ -160,9 +167,10 @@ function writeGroupRow(
     const letter = columnLetter(column)
     const cell = row.getCell(column)
     // Gruppensumme = Summe ihrer Leistungszeilen. Eine leere Gruppe bleibt bei 0.
-    cell.value = group.services.length > 0
-      ? formula(`SUM(${letter}${firstServiceRow}:${letter}${lastServiceRow})`)
-      : 0
+    cell.value =
+      group.services.length > 0
+        ? formula(`SUM(${letter}${firstServiceRow}:${letter}${lastServiceRow})`)
+        : 0
     cell.numFmt = NUMBER_FORMAT
   }
   applyFill(row.getCell(LABEL_COLUMN), GROUP_FILL)
@@ -195,12 +203,19 @@ function writeTotalRow(
   row.font = { bold: true }
 }
 
-function writeExcludedCurrencyNote(worksheet: ExcelJS.Worksheet, sheet: ExcelSheet, rowIndex: number): void {
+function writeExcludedCurrencyNote(
+  worksheet: ExcelJS.Worksheet,
+  sheet: ExcelSheet,
+  rowIndex: number,
+): void {
   const amount = parseAmount(sheet.excludedCurrencyAmountGross)
   if (sheet.excludedCurrencyCount === 0 && Math.abs(amount) <= 0.0000001) {
     return
   }
-  const formatted = amount.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const formatted = amount.toLocaleString('de-DE', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
   const cell = worksheet.getCell(rowIndex, LABEL_COLUMN)
   cell.value = `Ausgeschlossene Fremdwährungen: ${sheet.excludedCurrencyCount} (${formatted} ${sheet.currency})`
   cell.font = { size: 10, italic: true, color: { argb: MUTED_COLOR } }
@@ -227,7 +242,14 @@ function writeSheet(workbook: ExcelJS.Workbook, sheet: ExcelSheet, subtitle: str
 
     const firstServiceRow = rowIndex
     for (const service of group.services) {
-      writeServiceRow(worksheet, service, rowIndex, sheet.columns.length, lastColumn, group.collapsed)
+      writeServiceRow(
+        worksheet,
+        service,
+        rowIndex,
+        sheet.columns.length,
+        lastColumn,
+        group.collapsed,
+      )
       rowIndex += 1
     }
 

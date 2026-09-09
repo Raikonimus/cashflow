@@ -1,4 +1,5 @@
 """Tests for Partner Merge (Bolt 005) – story 004-partner-merge."""
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,12 +36,17 @@ class TestPartnerMerge:
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
 
-        source = await create_partner_db(db_session, mandant.id, "Source Corp", iban="DE89370400440532013000")
+        source = await create_partner_db(
+            db_session, mandant.id, "Source Corp", iban="DE89370400440532013000"
+        )
         target = await create_partner_db(db_session, mandant.id, "Target Corp")
 
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/merge",
-            json={"source_partner_id": str(source.id), "target_partner_id": str(target.id)},
+            json={
+                "source_partner_id": str(source.id),
+                "target_partner_id": str(target.id),
+            },
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 200
@@ -72,7 +78,10 @@ class TestPartnerMerge:
         partner = await create_partner_db(db_session, mandant.id, "Solo Corp")
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/merge",
-            json={"source_partner_id": str(partner.id), "target_partner_id": str(partner.id)},
+            json={
+                "source_partner_id": str(partner.id),
+                "target_partner_id": str(partner.id),
+            },
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 400
@@ -87,14 +96,23 @@ class TestPartnerMerge:
         token = await get_auth_token(client, user, mandant)
 
         now = utcnow()
-        source = Partner(mandant_id=mandant.id, name="Inactive Corp", is_active=False, created_at=now, updated_at=now)
+        source = Partner(
+            mandant_id=mandant.id,
+            name="Inactive Corp",
+            is_active=False,
+            created_at=now,
+            updated_at=now,
+        )
         db_session.add(source)
         target = await create_partner_db(db_session, mandant.id, "Target Corp")
         await db_session.commit()
 
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/merge",
-            json={"source_partner_id": str(source.id), "target_partner_id": str(target.id)},
+            json={
+                "source_partner_id": str(source.id),
+                "target_partner_id": str(target.id),
+            },
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 404
@@ -115,7 +133,10 @@ class TestPartnerMerge:
 
         resp = await client.post(
             f"/api/v1/mandants/{mandant_a.id}/partners/merge",
-            json={"source_partner_id": str(source.id), "target_partner_id": str(target.id)},
+            json={
+                "source_partner_id": str(source.id),
+                "target_partner_id": str(target.id),
+            },
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 404
@@ -134,7 +155,10 @@ class TestPartnerMerge:
 
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/merge",
-            json={"source_partner_id": str(source.id), "target_partner_id": str(target.id)},
+            json={
+                "source_partner_id": str(source.id),
+                "target_partner_id": str(target.id),
+            },
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 403
@@ -154,16 +178,23 @@ class TestPartnerMerge:
 
         now = utcnow()
         source = await create_partner_db(db_session, mandant.id, "Source Dup")
-        target = await create_partner_db(db_session, mandant.id, "Target Dup", iban="DE89370400440532013000")
+        target = await create_partner_db(
+            db_session, mandant.id, "Target Dup", iban="DE89370400440532013000"
+        )
 
         # Add same IBAN to source (bypass normal service to force duplicate scenario)
-        source_iban = PartnerIban(partner_id=source.id, iban="DE89370400440532013001", created_at=now)
+        source_iban = PartnerIban(
+            partner_id=source.id, iban="DE89370400440532013001", created_at=now
+        )
         db_session.add(source_iban)
         await db_session.commit()
 
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/merge",
-            json={"source_partner_id": str(source.id), "target_partner_id": str(target.id)},
+            json={
+                "source_partner_id": str(source.id),
+                "target_partner_id": str(target.id),
+            },
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 200
@@ -189,7 +220,10 @@ class TestPartnerMerge:
 
         await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/merge",
-            json={"source_partner_id": str(source.id), "target_partner_id": str(target.id)},
+            json={
+                "source_partner_id": str(source.id),
+                "target_partner_id": str(target.id),
+            },
             headers={"Authorization": f"Bearer {token}"},
         )
 
@@ -197,7 +231,9 @@ class TestPartnerMerge:
             select(AuditLog).where(AuditLog.mandant_id == mandant.id)
         )
         entries = result.all()
-        partner_merge_entries = [entry for entry in entries if entry.event_type == "partner.merged"]
+        partner_merge_entries = [
+            entry for entry in entries if entry.event_type == "partner.merged"
+        ]
         assert len(partner_merge_entries) == 1
         payload = partner_merge_entries[0].payload
         assert payload["source_partner_id"] == str(source.id)
@@ -206,7 +242,9 @@ class TestPartnerMerge:
     async def test_merge_deletes_open_reviews_for_reassigned_lines(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        user = await create_user(db_session, "merge-review@test.com", UserRole.accountant)
+        user = await create_user(
+            db_session, "merge-review@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
@@ -254,17 +292,24 @@ class TestPartnerMerge:
 
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/merge",
-            json={"source_partner_id": str(source.id), "target_partner_id": str(target.id)},
+            json={
+                "source_partner_id": str(source.id),
+                "target_partner_id": str(target.id),
+            },
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 200
 
         remaining = (
             await db_session.exec(
-                select(ReviewItem).where(ReviewItem.journal_line_id == line.id, ReviewItem.status == "open")
+                select(ReviewItem).where(
+                    ReviewItem.journal_line_id == line.id, ReviewItem.status == "open"
+                )
             )
         ).all()
-        assert not any(review.item_type == "name_match_with_iban" for review in remaining)
+        assert not any(
+            review.item_type == "name_match_with_iban" for review in remaining
+        )
 
 
 @pytest.mark.asyncio
@@ -287,7 +332,10 @@ class TestAuditLog:
         target = await create_partner_db(db_session, mandant.id, "Target")
         await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/merge",
-            json={"source_partner_id": str(source.id), "target_partner_id": str(target.id)},
+            json={
+                "source_partner_id": str(source.id),
+                "target_partner_id": str(target.id),
+            },
             headers={"Authorization": f"Bearer {acc_token}"},
         )
 
@@ -312,7 +360,9 @@ class TestAuditLog:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 200
-        assert not any(item["event_type"] == "partner.merged" for item in resp.json()["items"])
+        assert not any(
+            item["event_type"] == "partner.merged" for item in resp.json()["items"]
+        )
 
 
 @pytest.mark.asyncio
@@ -322,33 +372,43 @@ class TestMergeTransfersAccounts:
         self, client: AsyncClient, db_session: AsyncSession
     ):
         """Kontonummern des Source-Partners werden beim Merge auf den Target-Partner übertragen."""
-        from app.partners.models import PartnerAccount
         from sqlmodel import select
+
+        from app.partners.models import PartnerAccount
 
         user = await create_user(db_session, "acc@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
 
-        source = await create_partner_db(db_session, mandant.id, "Source", account_number="49900997173", blz="20111")
+        source = await create_partner_db(
+            db_session, mandant.id, "Source", account_number="49900997173", blz="20111"
+        )
         target = await create_partner_db(db_session, mandant.id, "Target")
 
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/merge",
-            json={"source_partner_id": str(source.id), "target_partner_id": str(target.id)},
+            json={
+                "source_partner_id": str(source.id),
+                "target_partner_id": str(target.id),
+            },
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 200
 
-        accounts = (await db_session.exec(
-            select(PartnerAccount).where(PartnerAccount.partner_id == target.id)
-        )).all()
+        accounts = (
+            await db_session.exec(
+                select(PartnerAccount).where(PartnerAccount.partner_id == target.id)
+            )
+        ).all()
         assert any(a.account_number == "49900997173" for a in accounts)
 
         # Source-Partner darf die Kontonummer nicht mehr haben
-        source_accounts = (await db_session.exec(
-            select(PartnerAccount).where(PartnerAccount.partner_id == source.id)
-        )).all()
+        source_accounts = (
+            await db_session.exec(
+                select(PartnerAccount).where(PartnerAccount.partner_id == source.id)
+            )
+        ).all()
         assert not any(a.account_number == "49900997173" for a in source_accounts)
 
     async def test_duplicate_account_number_dropped_on_merge(
@@ -360,8 +420,9 @@ class TestMergeTransfersAccounts:
         mit unterschiedlicher BLZ kann also zwei verschiedenen Partnern gehören.
         Nach dem Merge soll die source-seitige Variante gelöscht werden.
         """
-        from app.partners.models import PartnerAccount
         from sqlmodel import select
+
+        from app.partners.models import PartnerAccount
 
         user = await create_user(db_session, "acc@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
@@ -369,19 +430,30 @@ class TestMergeTransfersAccounts:
         token = await get_auth_token(client, user, mandant)
 
         # Gleiche Kontonummer, aber unterschiedliche BLZ – beides erlaubt per Constraint
-        source = await create_partner_db(db_session, mandant.id, "Source", account_number="49900997173", blz="20815")
-        target = await create_partner_db(db_session, mandant.id, "Target", account_number="49900997173", blz="20111")
+        source = await create_partner_db(
+            db_session, mandant.id, "Source", account_number="49900997173", blz="20815"
+        )
+        target = await create_partner_db(
+            db_session, mandant.id, "Target", account_number="49900997173", blz="20111"
+        )
 
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/merge",
-            json={"source_partner_id": str(source.id), "target_partner_id": str(target.id)},
+            json={
+                "source_partner_id": str(source.id),
+                "target_partner_id": str(target.id),
+            },
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 200
 
-        accounts = (await db_session.exec(
-            select(PartnerAccount).where(PartnerAccount.account_number == "49900997173")
-        )).all()
+        accounts = (
+            await db_session.exec(
+                select(PartnerAccount).where(
+                    PartnerAccount.account_number == "49900997173"
+                )
+            )
+        ).all()
         # Source-seitiger Eintrag wurde gelöscht, Target-Eintrag bleibt
         assert len(accounts) == 1
         assert accounts[0].partner_id == target.id

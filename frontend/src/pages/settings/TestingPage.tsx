@@ -59,9 +59,13 @@ function MismatchCard({ item }: Readonly<{ item: AssignmentMismatchItem }>) {
     <article className="rounded-xl border border-amber-200 bg-amber-50/40 p-4 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">{item.reason_code}</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+            {item.reason_code}
+          </p>
           <h3 className="mt-1 text-sm font-semibold text-slate-900">{item.reason_text}</h3>
-          <p className="mt-1 text-xs text-slate-600">Regel-Erwartung: {formatOutcome(item.expected_outcome)}</p>
+          <p className="mt-1 text-xs text-slate-600">
+            Regel-Erwartung: {formatOutcome(item.expected_outcome)}
+          </p>
         </div>
         <div className="rounded-lg bg-white px-3 py-2 text-right text-xs text-slate-500">
           <p className="font-mono text-slate-900">{line.booking_date}</p>
@@ -82,7 +86,9 @@ function MismatchCard({ item }: Readonly<{ item: AssignmentMismatchItem }>) {
       </div>
 
       <details className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
-        <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-600">Komplette Buchungszeile</summary>
+        <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-600">
+          Komplette Buchungszeile
+        </summary>
         <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words text-xs text-slate-700">
           {JSON.stringify(line, null, 2)}
         </pre>
@@ -112,21 +118,26 @@ function ServiceAmountConsistencyCard({
   onToggleLineStatus,
 }: Readonly<ServiceAmountConsistencyCardProps>) {
   const ignoredLineCount = item.lines.filter((line) =>
-    line.splits.some((sp) => sp.service_id === item.service_id && sp.amount_consistency_ok)
+    line.splits.some((sp) => sp.service_id === item.service_id && sp.amount_consistency_ok),
   ).length
 
   return (
     <article className="rounded-xl border border-rose-200 bg-rose-50/40 p-4 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-rose-700">Gemischte Vorzeichen</p>
-          <h3 className="mt-1 text-sm font-semibold text-slate-900">{item.partner_name ?? '—'} / {item.service_name}</h3>
+          <p className="text-xs font-semibold uppercase tracking-wide text-rose-700">
+            Gemischte Vorzeichen
+          </p>
+          <h3 className="mt-1 text-sm font-semibold text-slate-900">
+            {item.partner_name ?? '—'} / {item.service_name}
+          </h3>
           <p className="mt-1 text-xs text-slate-600">
             Eingänge: {item.positive_line_count} {' · '} Ausgänge: {item.negative_line_count}
           </p>
           {ignoredLineCount > 0 ? (
             <p className="mt-1 text-xs font-medium text-emerald-700">
-              {ignoredLineCount} Buchung{ignoredLineCount === 1 ? '' : 'en'} ist als in Ordnung markiert und wird im Test ignoriert.
+              {ignoredLineCount} Buchung{ignoredLineCount === 1 ? '' : 'en'} ist als in Ordnung
+              markiert und wird im Test ignoriert.
             </p>
           ) : null}
         </div>
@@ -155,28 +166,40 @@ function ServiceAmountConsistencyCard({
               key={line.id}
               className={[
                 'rounded-lg border px-3 py-3',
-                line.splits.some((sp) => sp.service_id === item.service_id && sp.amount_consistency_ok)
+                line.splits.some(
+                  (sp) => sp.service_id === item.service_id && sp.amount_consistency_ok,
+                )
                   ? 'border-emerald-200 bg-emerald-50/80'
                   : 'border-slate-200 bg-slate-50',
-              ].join(' ')}    
+              ].join(' ')}
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{line.booking_date}</p>
-                    {line.splits.some((sp) => sp.service_id === item.service_id && sp.amount_consistency_ok) ? (
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      {line.booking_date}
+                    </p>
+                    {line.splits.some(
+                      (sp) => sp.service_id === item.service_id && sp.amount_consistency_ok,
+                    ) ? (
                       <span className="rounded-full border border-emerald-300 bg-white px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
                         Ist in Ordnung
                       </span>
                     ) : null}
                   </div>
                   <p className="mt-1 text-sm text-slate-700">{line.text ?? '—'}</p>
-                  {line.splits.some((sp) => sp.service_id === item.service_id && sp.amount_consistency_ok) ? (
-                    <p className="mt-1 text-xs text-emerald-700">Diese Buchungszeile wird bei Test 2 ignoriert.</p>
+                  {line.splits.some(
+                    (sp) => sp.service_id === item.service_id && sp.amount_consistency_ok,
+                  ) ? (
+                    <p className="mt-1 text-xs text-emerald-700">
+                      Diese Buchungszeile wird bei Test 2 ignoriert.
+                    </p>
                   ) : null}
                 </div>
                 <div className="text-right">
-                  <p className={`text-sm font-semibold ${getAmountToneClass(line.amount)}`}>{formatAmount(line.amount, line.currency)}</p>
+                  <p className={`text-sm font-semibold ${getAmountToneClass(line.amount)}`}>
+                    {formatAmount(line.amount, line.currency)}
+                  </p>
                   <p className="mt-1 text-xs text-slate-500">
                     Rohdaten: {line.partner_name_raw ?? '—'} / {line.partner_account_raw ?? '—'}
                   </p>
@@ -186,7 +209,9 @@ function ServiceAmountConsistencyCard({
                     disabled={isUpdatingLineId === line.id}
                     className={[
                       'mt-2 rounded-lg border px-3 py-2 text-xs font-semibold',
-                      line.splits.some((sp) => sp.service_id === item.service_id && sp.amount_consistency_ok)
+                      line.splits.some(
+                        (sp) => sp.service_id === item.service_id && sp.amount_consistency_ok,
+                      )
                         ? 'border-emerald-300 bg-white text-emerald-700 hover:border-emerald-400 hover:text-emerald-800'
                         : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400 hover:text-slate-900',
                       isUpdatingLineId === line.id ? 'cursor-not-allowed opacity-50' : '',
@@ -194,7 +219,9 @@ function ServiceAmountConsistencyCard({
                   >
                     {isUpdatingLineId === line.id
                       ? 'Speichert…'
-                      : line.splits.some((sp) => sp.service_id === item.service_id && sp.amount_consistency_ok)
+                      : line.splits.some(
+                            (sp) => sp.service_id === item.service_id && sp.amount_consistency_ok,
+                          )
                         ? 'Markierung entfernen'
                         : 'Als in Ordnung markieren'}
                   </button>
@@ -227,7 +254,8 @@ const TESTS: TestDefinition[] = [
   {
     id: 'service-link-consistency',
     title: 'Test 2: Service-Betragskonsistenz',
-    description: 'Findet Services, die eine Mischung aus Eingängen und Ausgängen haben, und zeigt die Buchungszeilen dazu an.',
+    description:
+      'Findet Services, die eine Mischung aus Eingängen und Ausgängen haben, und zeigt die Buchungszeilen dazu an.',
     available: true,
     buttonLabel: 'Test 2 ausführen',
   },
@@ -258,8 +286,15 @@ export function TestingPage() {
   })
 
   const serviceAmountLineStatusMutation = useMutation({
-    mutationFn: ({ lineId, splitServiceId, isOk }: { lineId: string; splitServiceId: string; isOk: boolean }) =>
-      setServiceAmountConsistencyLineStatus(mandantId, lineId, splitServiceId, isOk),
+    mutationFn: ({
+      lineId,
+      splitServiceId,
+      isOk,
+    }: {
+      lineId: string
+      splitServiceId: string
+      isOk: boolean
+    }) => setServiceAmountConsistencyLineStatus(mandantId, lineId, splitServiceId, isOk),
     onSuccess: () => {
       if (mandantId) {
         serviceAmountMutation.mutate()
@@ -267,12 +302,12 @@ export function TestingPage() {
     },
   })
 
-  const isPending = selectedTest.id === 'partner-assignment'
-    ? testMutation.isPending
-    : serviceAmountMutation.isPending
-  const hasError = selectedTest.id === 'partner-assignment'
-    ? testMutation.isError
-    : serviceAmountMutation.isError
+  const isPending =
+    selectedTest.id === 'partner-assignment'
+      ? testMutation.isPending
+      : serviceAmountMutation.isPending
+  const hasError =
+    selectedTest.id === 'partner-assignment' ? testMutation.isError : serviceAmountMutation.isError
 
   const mismatchCount = testMutation.data?.mismatches.length ?? 0
   const totalChecked = testMutation.data?.total_checked ?? 0
@@ -281,8 +316,8 @@ export function TestingPage() {
 
   const sortedMismatches = useMemo(() => {
     if (!testMutation.data) return []
-    return [...testMutation.data.mismatches].sort(
-      (a, b) => b.journal_line.booking_date.localeCompare(a.journal_line.booking_date),
+    return [...testMutation.data.mismatches].sort((a, b) =>
+      b.journal_line.booking_date.localeCompare(a.journal_line.booking_date),
     )
   }, [testMutation.data])
 
@@ -336,11 +371,20 @@ export function TestingPage() {
                   : 'border-slate-200 bg-white text-slate-900 hover:border-slate-300 hover:shadow-sm',
               ].join(' ')}
             >
-              <p className={['text-xs font-semibold uppercase tracking-wide', isSelected ? 'text-slate-200' : 'text-slate-500'].join(' ')}>
+              <p
+                className={[
+                  'text-xs font-semibold uppercase tracking-wide',
+                  isSelected ? 'text-slate-200' : 'text-slate-500',
+                ].join(' ')}
+              >
                 {test.available ? 'Verfügbar' : 'In Arbeit'}
               </p>
               <h2 className="mt-1 text-sm font-semibold">{test.title}</h2>
-              <p className={['mt-2 text-xs', isSelected ? 'text-slate-100' : 'text-slate-600'].join(' ')}>
+              <p
+                className={['mt-2 text-xs', isSelected ? 'text-slate-100' : 'text-slate-600'].join(
+                  ' ',
+                )}
+              >
                 {test.description}
               </p>
             </button>
@@ -350,7 +394,8 @@ export function TestingPage() {
 
       {selectedTest.available ? null : (
         <div className="mb-5 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-700">
-          {selectedTest.title} ist noch nicht implementiert. Wähle Test 1, um bereits verfügbare Diagnosen auszuführen.
+          {selectedTest.title} ist noch nicht implementiert. Wähle Test 1, um bereits verfügbare
+          Diagnosen auszuführen.
         </div>
       )}
 
@@ -365,7 +410,8 @@ export function TestingPage() {
           <p className="text-sm text-slate-600">
             Geprüfte Buchungen: <span className="font-semibold text-slate-900">{totalChecked}</span>
             {' · '}
-            Nicht erklärbare Zuordnungen: <span className="font-semibold text-amber-700">{mismatchCount}</span>
+            Nicht erklärbare Zuordnungen:{' '}
+            <span className="font-semibold text-amber-700">{mismatchCount}</span>
           </p>
         </div>
       ) : null}
@@ -373,9 +419,11 @@ export function TestingPage() {
       {serviceAmountMutation.data && selectedTest.id === 'service-link-consistency' ? (
         <div className="mb-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <p className="text-sm text-slate-600">
-            Geprüfte Services: <span className="font-semibold text-slate-900">{totalCheckedServices}</span>
+            Geprüfte Services:{' '}
+            <span className="font-semibold text-slate-900">{totalCheckedServices}</span>
             {' · '}
-            Services mit gemischten Vorzeichen: <span className="font-semibold text-rose-700">{inconsistentServiceCount}</span>
+            Services mit gemischten Vorzeichen:{' '}
+            <span className="font-semibold text-rose-700">{inconsistentServiceCount}</span>
           </p>
         </div>
       ) : null}
@@ -386,31 +434,39 @@ export function TestingPage() {
         </div>
       ) : null}
 
-      {serviceAmountMutation.data && selectedTest.id === 'service-link-consistency' && inconsistentServiceCount === 0 ? (
+      {serviceAmountMutation.data &&
+      selectedTest.id === 'service-link-consistency' &&
+      inconsistentServiceCount === 0 ? (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-700">
           Keine Services mit gemischten Eingangs- und Ausgangsbuchungen gefunden.
         </div>
       ) : null}
 
       <div className="space-y-3">
-        {selectedTest.id === 'partner-assignment' && sortedMismatches.map((item) => (
-          <MismatchCard key={item.journal_line.id} item={item} />
-        ))}
-        {selectedTest.id === 'service-link-consistency' && serviceAmountMutation.data?.inconsistent_services.map((item) => (
-          <ServiceAmountConsistencyCard
-            key={item.service_id}
-            item={item}
-            isUpdatingLineId={serviceAmountLineStatusMutation.isPending ? serviceAmountLineStatusMutation.variables?.lineId ?? null : null}
-            onToggleLineStatus={(line) => {
-              const currentOk = line.splits.some((sp) => sp.service_id === item.service_id && sp.amount_consistency_ok)
-              serviceAmountLineStatusMutation.mutate({
-                lineId: line.id,
-                splitServiceId: item.service_id,
-                isOk: !currentOk,
-              })
-            }}
-          />
-        ))}
+        {selectedTest.id === 'partner-assignment' &&
+          sortedMismatches.map((item) => <MismatchCard key={item.journal_line.id} item={item} />)}
+        {selectedTest.id === 'service-link-consistency' &&
+          serviceAmountMutation.data?.inconsistent_services.map((item) => (
+            <ServiceAmountConsistencyCard
+              key={item.service_id}
+              item={item}
+              isUpdatingLineId={
+                serviceAmountLineStatusMutation.isPending
+                  ? (serviceAmountLineStatusMutation.variables?.lineId ?? null)
+                  : null
+              }
+              onToggleLineStatus={(line) => {
+                const currentOk = line.splits.some(
+                  (sp) => sp.service_id === item.service_id && sp.amount_consistency_ok,
+                )
+                serviceAmountLineStatusMutation.mutate({
+                  lineId: line.id,
+                  splitServiceId: item.service_id,
+                  isOk: !currentOk,
+                })
+              }}
+            />
+          ))}
       </div>
     </div>
   )

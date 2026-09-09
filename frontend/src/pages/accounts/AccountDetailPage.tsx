@@ -71,9 +71,7 @@ export function AccountDetailPage() {
       </div>
 
       <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-        <h2 className="mb-4 text-base font-semibold text-gray-800">
-          Spalten-Mapping
-        </h2>
+        <h2 className="mb-4 text-base font-semibold text-gray-800">Spalten-Mapping</h2>
         <MappingEditor accountId={accountId} />
       </div>
 
@@ -82,7 +80,9 @@ export function AccountDetailPage() {
           Ausgeschlossene Identifikatoren
         </h2>
         <p className="mb-4 text-sm text-gray-500">
-          IBANs und Kontonummern, die in importierten Buchungen als Partnerdaten auftauchen, aber diesem Konto selbst gehören (z.&thinsp;B. bei Lastschriften). Diese werden bei der automatischen Partneridentifikation ignoriert.
+          IBANs und Kontonummern, die in importierten Buchungen als Partnerdaten auftauchen, aber
+          diesem Konto selbst gehören (z.&thinsp;B. bei Lastschriften). Diese werden bei der
+          automatischen Partneridentifikation ignoriert.
         </p>
         <ExcludedIdentifiersSection mandantId={mandantId} accountId={accountId} />
       </div>
@@ -158,7 +158,6 @@ function OpeningBalanceSection({
     </form>
   )
 }
-
 
 function ExcludedIdentifiersSection({
   mandantId,
@@ -247,7 +246,9 @@ function ExcludedIdentifiersSection({
           />
         </div>
         <div className="flex-1 min-w-32">
-          <label className="mb-1 block text-xs font-medium text-gray-600">Bezeichnung (optional)</label>
+          <label className="mb-1 block text-xs font-medium text-gray-600">
+            Bezeichnung (optional)
+          </label>
           <input
             type="text"
             value={label}
@@ -288,7 +289,9 @@ function ExcludedIdentifiersSection({
                   {e.identifier_type === 'iban' ? 'IBAN' : 'Kontonummer'}
                 </td>
                 <td className="py-1.5 pr-4 font-mono text-xs">{e.value}</td>
-                <td className="py-1.5 pr-4 text-gray-600">{e.label ?? <span className="text-gray-300">—</span>}</td>
+                <td className="py-1.5 pr-4 text-gray-600">
+                  {e.label ?? <span className="text-gray-300">—</span>}
+                </td>
                 <td className="py-1.5 text-right">
                   <button
                     onClick={() => deleteMutation.mutate(e.id)}
@@ -307,15 +310,16 @@ function ExcludedIdentifiersSection({
       {entries.length > 0 && (
         <div className="mt-4 flex items-center gap-3 border-t border-gray-100 pt-4">
           <button
-            onClick={() => { setApplyResult(null); applyMutation.mutate() }}
+            onClick={() => {
+              setApplyResult(null)
+              applyMutation.mutate()
+            }}
             disabled={applyMutation.isPending}
             className="rounded bg-amber-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
           >
             {applyMutation.isPending ? 'Wird geprüft …' : 'Datenbereinigung starten'}
           </button>
-          {applyResult && (
-            <span className="text-sm text-green-700">{applyResult}</span>
-          )}
+          {applyResult && <span className="text-sm text-green-700">{applyResult}</span>}
         </div>
       )}
     </div>

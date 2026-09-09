@@ -8,17 +8,17 @@ import type { ColumnAssignment } from '@/api/accounts'
 // ─── Zielfeld-Optionen ────────────────────────────────────────────────────────
 
 const TARGET_OPTIONS: { value: string; label: string }[] = [
-  { value: 'valuta_date',    label: 'Valutadatum *' },
-  { value: 'booking_date',  label: 'Buchungsdatum *' },
-  { value: 'amount',        label: 'Betrag *' },
-  { value: 'currency',      label: 'Währung' },
-  { value: 'partner_iban',  label: 'Partner-IBAN' },
+  { value: 'valuta_date', label: 'Valutadatum *' },
+  { value: 'booking_date', label: 'Buchungsdatum *' },
+  { value: 'amount', label: 'Betrag *' },
+  { value: 'currency', label: 'Währung' },
+  { value: 'partner_iban', label: 'Partner-IBAN' },
   { value: 'partner_account', label: 'Partner-Kontonummer' },
-  { value: 'partner_blz',   label: 'Partner-BLZ' },
-  { value: 'partner_bic',   label: 'Partner-BIC/SWIFT' },
-  { value: 'partner_name',  label: 'Partnername' },
-  { value: 'description',   label: 'Verwendungszweck' },
-  { value: 'unused',        label: '— Nicht verwendet —' },
+  { value: 'partner_blz', label: 'Partner-BLZ' },
+  { value: 'partner_bic', label: 'Partner-BIC/SWIFT' },
+  { value: 'partner_name', label: 'Partnername' },
+  { value: 'description', label: 'Verwendungszweck' },
+  { value: 'unused', label: '— Nicht verwendet —' },
 ]
 
 // Muss zu REQUIRED_TARGETS in backend/app/tenants/schemas.py passen.
@@ -37,19 +37,19 @@ const REQUIRED_TARGET_LABELS: Record<string, string> = {
 //   - partner_name zuletzt, weil 'partner' und 'name' sonst spezifischere
 //     Partnerfelder schlucken ("Partner IBAN" -> partner_iban, nicht partner_name).
 const TARGET_KEYWORDS: Record<string, string[]> = {
-  valuta_date:     ['valuta'],
-  description:     ['verwendung', 'zweck', 'detail', 'text', 'beschreibung', 'memo', 'info'],
+  valuta_date: ['valuta'],
+  description: ['verwendung', 'zweck', 'detail', 'text', 'beschreibung', 'memo', 'info'],
   // Nicht blosses 'buchung': das trifft auch "Buchungsreferenz" und schlaegt sie
   // als Datum vor. Eine Spalte, die nur "Buchung" heisst, greift weiterhin ueber
   // die umgekehrte Enthaltung.
-  booking_date:    ['buchungsdatum', 'buchungstag', 'bookingdate'],
-  amount:          ['betrag', 'amount', 'summe', 'saldo', 'umsatz'],
-  currency:        ['währung', 'currency', 'devisen', 'waehrung'],
-  partner_iban:    ['iban'],
+  booking_date: ['buchungsdatum', 'buchungstag', 'bookingdate'],
+  amount: ['betrag', 'amount', 'summe', 'saldo', 'umsatz'],
+  currency: ['währung', 'currency', 'devisen', 'waehrung'],
+  partner_iban: ['iban'],
   partner_account: ['kontonummer', 'konto', 'account', 'accountnumber'],
-  partner_blz:     ['blz', 'bankleitzahl', 'bankcode'],
-  partner_bic:     ['bic', 'swift'],
-  partner_name:    ['partner', 'name', 'auftraggeber', 'empfänger', 'beguenstigter'],
+  partner_blz: ['blz', 'bankleitzahl', 'bankcode'],
+  partner_bic: ['bic', 'swift'],
+  partner_name: ['partner', 'name', 'auftraggeber', 'empfänger', 'beguenstigter'],
 }
 
 // Spalten, die das eigene Konto beschreiben. Sie sehen wie Partnerfelder aus
@@ -174,7 +174,8 @@ export function MappingEditor({ accountId, onSaved }: Readonly<MappingEditorProp
         if (!targets.includes(a.target)) targets.push(a.target)
         assn[a.source] = targets
       }
-      for (const a of sorted) duplicateFlags[a.source] = duplicateFlags[a.source] || (a.duplicate_check ?? false)
+      for (const a of sorted)
+        duplicateFlags[a.source] = duplicateFlags[a.source] || (a.duplicate_check ?? false)
       setCsvColumns(cols)
       setAssignments(assn)
       setDuplicateChecks(duplicateFlags)
@@ -198,8 +199,12 @@ export function MappingEditor({ accountId, onSaved }: Readonly<MappingEditorProp
     setPreviewError(null)
     try {
       const result = await previewCsvColumns(
-        mandantId, accountId, file,
-        parser.delimiter, parser.encoding, parser.skip_rows,
+        mandantId,
+        accountId,
+        file,
+        parser.delimiter,
+        parser.encoding,
+        parser.skip_rows,
       )
       if (result.columns.length === 0) {
         setPreviewError('Keine Spalten erkannt – Trennzeichen und Zeichensatz prüfen.')
@@ -209,7 +214,7 @@ export function MappingEditor({ accountId, onSaved }: Readonly<MappingEditorProp
       setParser((p) => ({
         ...p,
         ...(result.detected_delimiter ? { delimiter: result.detected_delimiter } : {}),
-        ...(result.detected_encoding  ? { encoding:  result.detected_encoding  } : {}),
+        ...(result.detected_encoding ? { encoding: result.detected_encoding } : {}),
       }))
       const cols = result.columns
       // Bestehende Zuordnungen erhalten; neue Spalten auto-vorschlagen oder leer
@@ -320,10 +325,10 @@ export function MappingEditor({ accountId, onSaved }: Readonly<MappingEditorProp
 
   const canSave = isLegacyMode
     ? !!legacy.valuta_date_col && !!legacy.booking_date_col && !!legacy.amount_col
-    : csvColumns.length > 0
-      && csvColumns.every((col) => (assignments[col]?.length ?? 0) > 0)
-      && csvColumns.some((col) => duplicateChecks[col])
-      && missingRequiredTargets.length === 0
+    : csvColumns.length > 0 &&
+      csvColumns.every((col) => (assignments[col]?.length ?? 0) > 0) &&
+      csvColumns.some((col) => duplicateChecks[col]) &&
+      missingRequiredTargets.length === 0
 
   const unassignedCount = isLegacyMode
     ? 0
@@ -338,16 +343,17 @@ export function MappingEditor({ accountId, onSaved }: Readonly<MappingEditorProp
 
   return (
     <div className="space-y-5">
-
       {/* ── Parser-Einstellungen ─────────────────────────────────────────── */}
       <section className="rounded-xl border border-gray-200 bg-gray-50 p-4">
         <h3 className="mb-3 text-sm font-semibold text-gray-700">CSV-Parser-Einstellungen</h3>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {([
-            { key: 'delimiter',         label: 'Trennzeichen',           placeholder: ';' },
-            { key: 'decimal_separator', label: 'Dezimaltrennzeichen',    placeholder: ',' },
-            { key: 'date_format',       label: 'Datumsformat',           placeholder: '%d.%m.%Y' },
-          ] as { key: keyof ParserConfig; label: string; placeholder: string }[]).map(({ key, label, placeholder }) => (
+          {(
+            [
+              { key: 'delimiter', label: 'Trennzeichen', placeholder: ';' },
+              { key: 'decimal_separator', label: 'Dezimaltrennzeichen', placeholder: ',' },
+              { key: 'date_format', label: 'Datumsformat', placeholder: '%d.%m.%Y' },
+            ] as { key: keyof ParserConfig; label: string; placeholder: string }[]
+          ).map(({ key, label, placeholder }) => (
             <label key={key} className="block">
               <span className="text-xs font-medium text-gray-600">{label}</span>
               <input
@@ -387,19 +393,23 @@ export function MappingEditor({ accountId, onSaved }: Readonly<MappingEditorProp
 
       {/* ── CSV hochladen → Spalten erkennen ────────────────────────────── */}
       <section className="rounded-xl border border-gray-200 p-4">
-        <h3 className="mb-1 text-sm font-semibold text-gray-700">CSV hochladen zur Spalten-Erkennung</h3>
+        <h3 className="mb-1 text-sm font-semibold text-gray-700">
+          CSV hochladen zur Spalten-Erkennung
+        </h3>
         <p className="mb-3 text-xs text-gray-500">
-          Wähle eine CSV-Datei, um die Spaltennamen automatisch zu erkennen.
-          Die Parser-Einstellungen oben werden dabei berücksichtigt.
-          Mehrere Spalten können demselben Zielfeld zugewiesen werden – der Inhalt wird dann mit Zeilenumbruch zusammengeführt.
-          Umgekehrt kann eine Spalte mehrere Zielfelder bedienen: Liefert der Export nur ein Datum, weise es sowohl dem
-          Buchungs- als auch dem Valutadatum zu.
+          Wähle eine CSV-Datei, um die Spaltennamen automatisch zu erkennen. Die
+          Parser-Einstellungen oben werden dabei berücksichtigt. Mehrere Spalten können demselben
+          Zielfeld zugewiesen werden – der Inhalt wird dann mit Zeilenumbruch zusammengeführt.
+          Umgekehrt kann eine Spalte mehrere Zielfelder bedienen: Liefert der Export nur ein Datum,
+          weise es sowohl dem Buchungs- als auch dem Valutadatum zu.
         </p>
-        <label className={`flex cursor-pointer items-center gap-2 rounded-lg border-2 border-dashed px-4 py-3 text-sm transition-colors ${
-          previewLoading
-            ? 'border-blue-300 bg-blue-50 text-blue-500'
-            : 'border-gray-300 bg-gray-50 text-gray-600 hover:border-blue-400 hover:bg-blue-50'
-        }`}>
+        <label
+          className={`flex cursor-pointer items-center gap-2 rounded-lg border-2 border-dashed px-4 py-3 text-sm transition-colors ${
+            previewLoading
+              ? 'border-blue-300 bg-blue-50 text-blue-500'
+              : 'border-gray-300 bg-gray-50 text-gray-600 hover:border-blue-400 hover:bg-blue-50'
+          }`}
+        >
           {previewLoading ? 'Analysiere CSV …' : 'CSV-Datei auswählen …'}
           <input
             type="file"
@@ -416,8 +426,7 @@ export function MappingEditor({ accountId, onSaved }: Readonly<MappingEditorProp
       {csvColumns !== null && (
         <section className="rounded-xl border border-gray-200 p-4">
           <h3 className="mb-3 text-sm font-semibold text-gray-700">
-            Spaltenzuordnung
-            {' '}
+            Spaltenzuordnung{' '}
             <span className="ml-2 text-xs font-normal text-gray-400">
               {csvColumns.length} Spalten erkannt · * Pflichtfeld
               {unassignedCount > 0 && (
@@ -439,7 +448,9 @@ export function MappingEditor({ accountId, onSaved }: Readonly<MappingEditorProp
                 onClick={() => setPreviewRowIdx((i) => Math.max(0, i - 1))}
                 disabled={previewRowIdx === 0}
                 className="rounded border border-gray-200 px-2 py-0.5 text-xs hover:bg-gray-100 disabled:opacity-40"
-              >← Vorherige</button>
+              >
+                ← Vorherige
+              </button>
               <span className="text-xs font-medium text-gray-600">
                 Zeile {previewRowIdx + 1} von {sampleRows.length}
               </span>
@@ -447,17 +458,27 @@ export function MappingEditor({ accountId, onSaved }: Readonly<MappingEditorProp
                 onClick={() => setPreviewRowIdx((i) => Math.min(sampleRows.length - 1, i + 1))}
                 disabled={previewRowIdx === sampleRows.length - 1}
                 className="rounded border border-gray-200 px-2 py-0.5 text-xs hover:bg-gray-100 disabled:opacity-40"
-              >Nächste →</button>
+              >
+                Nächste →
+              </button>
             </div>
           )}
           <div className="overflow-hidden rounded-lg border border-gray-100">
             <table className="w-full text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">CSV-Spalte</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">Beispielwert</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">Dublettenprüfung</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">Zielfeld</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">
+                    CSV-Spalte
+                  </th>
+                  <th className="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">
+                    Beispielwert
+                  </th>
+                  <th className="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">
+                    Dublettenprüfung
+                  </th>
+                  <th className="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">
+                    Zielfeld
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 bg-white">
@@ -487,20 +508,24 @@ export function MappingEditor({ accountId, onSaved }: Readonly<MappingEditorProp
                           <input
                             type="checkbox"
                             checked={duplicateChecks[col] ?? false}
-                            onChange={(e) => setDuplicateChecks((current) => ({
-                              ...current,
-                              [col]: e.target.checked,
-                            }))}
+                            onChange={(e) =>
+                              setDuplicateChecks((current) => ({
+                                ...current,
+                                [col]: e.target.checked,
+                              }))
+                            }
                             className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                          />
-                          {' '}
+                          />{' '}
                           verwenden
                         </label>
                       </td>
                       <td className="px-3 py-2">
                         <div className="space-y-1">
                           {(val.length > 0 ? val : ['']).map((target, targetIndex) => (
-                            <div key={`${col}-target-${targetIndex}`} className="flex items-center gap-1">
+                            <div
+                              key={`${col}-target-${targetIndex}`}
+                              className="flex items-center gap-1"
+                            >
                               <select
                                 value={target}
                                 onChange={(e) => setTargetAt(col, targetIndex, e.target.value)}
@@ -514,7 +539,11 @@ export function MappingEditor({ accountId, onSaved }: Readonly<MappingEditorProp
                                   <option
                                     key={o.value}
                                     value={o.value}
-                                    disabled={o.value !== 'unused' && o.value !== target && val.includes(o.value)}
+                                    disabled={
+                                      o.value !== 'unused' &&
+                                      o.value !== target &&
+                                      val.includes(o.value)
+                                    }
                                   >
                                     {o.label}
                                   </option>
@@ -551,7 +580,8 @@ export function MappingEditor({ accountId, onSaved }: Readonly<MappingEditorProp
           </div>
           {!canSave && (
             <p className="mt-2 text-xs text-amber-600">
-              Bitte jeder Spalte mindestens ein Zielfeld zuweisen oder „Nicht verwendet" wählen und mindestens eine Dubletten-Spalte markieren.
+              Bitte jeder Spalte mindestens ein Zielfeld zuweisen oder „Nicht verwendet" wählen und
+              mindestens eine Dubletten-Spalte markieren.
             </p>
           )}
         </section>
@@ -562,18 +592,28 @@ export function MappingEditor({ accountId, onSaved }: Readonly<MappingEditorProp
         <section className="rounded-xl border border-gray-200 p-4">
           <h3 className="mb-1 text-sm font-semibold text-gray-700">Spaltennamen (manuell)</h3>
           <p className="mb-3 text-xs text-gray-500">
-            Alternativ kannst du die Spaltennamen direkt eingeben.
-            Empfehlung: CSV oben hochladen für geführtes Mapping mit Dropdowns.
+            Alternativ kannst du die Spaltennamen direkt eingeben. Empfehlung: CSV oben hochladen
+            für geführtes Mapping mit Dropdowns.
           </p>
           <div className="grid grid-cols-2 gap-3">
-            {([
-              { key: 'valuta_date_col',  label: 'Valutadatum *',            placeholder: 'Valuta' },
-              { key: 'booking_date_col', label: 'Buchungsdatum *',           placeholder: 'Buchungsdatum' },
-              { key: 'amount_col',       label: 'Betrag *',                  placeholder: 'Betrag' },
-              { key: 'partner_name_col', label: 'Partnername (optional)',     placeholder: 'Auftraggeber' },
-              { key: 'partner_iban_col', label: 'Partner-IBAN (optional)',    placeholder: 'IBAN' },
-              { key: 'description_col',  label: 'Verwendungszweck (optional)', placeholder: 'Verwendungszweck' },
-            ] as { key: keyof LegacyFields; label: string; placeholder: string }[]).map(({ key, label, placeholder }) => (
+            {(
+              [
+                { key: 'valuta_date_col', label: 'Valutadatum *', placeholder: 'Valuta' },
+                { key: 'booking_date_col', label: 'Buchungsdatum *', placeholder: 'Buchungsdatum' },
+                { key: 'amount_col', label: 'Betrag *', placeholder: 'Betrag' },
+                {
+                  key: 'partner_name_col',
+                  label: 'Partnername (optional)',
+                  placeholder: 'Auftraggeber',
+                },
+                { key: 'partner_iban_col', label: 'Partner-IBAN (optional)', placeholder: 'IBAN' },
+                {
+                  key: 'description_col',
+                  label: 'Verwendungszweck (optional)',
+                  placeholder: 'Verwendungszweck',
+                },
+              ] as { key: keyof LegacyFields; label: string; placeholder: string }[]
+            ).map(({ key, label, placeholder }) => (
               <label key={key} className="block">
                 <span className="text-xs font-medium text-gray-600">{label}</span>
                 <input
@@ -591,18 +631,18 @@ export function MappingEditor({ accountId, onSaved }: Readonly<MappingEditorProp
       {/* ── Fehler / Erfolg / Speichern ──────────────────────────────────── */}
       {missingRequiredTargets.length > 0 && (
         <p className="text-sm text-amber-600">
-          Pflichtfeld ohne Spalte: {missingRequiredTargets.map((target) => REQUIRED_TARGET_LABELS[target]).join(', ')}.
-          Ordne jedem Pflichtfeld (*) mindestens eine CSV-Spalte zu.
+          Pflichtfeld ohne Spalte:{' '}
+          {missingRequiredTargets.map((target) => REQUIRED_TARGET_LABELS[target]).join(', ')}. Ordne
+          jedem Pflichtfeld (*) mindestens eine CSV-Spalte zu.
         </p>
       )}
       {mutation.isError && (
         <p className="text-sm text-red-500">
-          Fehler beim Speichern der Konfiguration: {extractErrorMessage(mutation.error, 'Unbekannter Fehler.')}
+          Fehler beim Speichern der Konfiguration:{' '}
+          {extractErrorMessage(mutation.error, 'Unbekannter Fehler.')}
         </p>
       )}
-      {mutation.isSuccess && (
-        <p className="text-sm text-green-600">✓ Konfiguration gespeichert.</p>
-      )}
+      {mutation.isSuccess && <p className="text-sm text-green-600">✓ Konfiguration gespeichert.</p>}
 
       <div className="flex justify-end">
         <button
@@ -613,7 +653,6 @@ export function MappingEditor({ accountId, onSaved }: Readonly<MappingEditorProp
           {mutation.isPending ? 'Speichern …' : 'Speichern'}
         </button>
       </div>
-
     </div>
   )
 }

@@ -1,16 +1,16 @@
-from decimal import Decimal
 from datetime import datetime
-from typing import Any, Optional
+from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel
 
-
 # ─── Journal Lines ────────────────────────────────────────────────────────────
+
 
 class JournalLineSplitResponse(BaseModel):
     service_id: UUID
-    service_name: Optional[str] = None
+    service_name: str | None = None
     amount: Decimal
     assignment_mode: str
     amount_consistency_ok: bool
@@ -20,20 +20,20 @@ class JournalLineResponse(BaseModel):
     id: UUID
     account_id: UUID
     import_run_id: UUID
-    partner_id: Optional[UUID]
+    partner_id: UUID | None
     splits: list[JournalLineSplitResponse] = []
-    partner_name: Optional[str] = None
+    partner_name: str | None = None
     valuta_date: str
     booking_date: str
     amount: Decimal
     currency: str
-    text: Optional[str]
-    partner_name_raw: Optional[str]
-    partner_iban_raw: Optional[str]
-    partner_account_raw: Optional[str] = None
-    partner_blz_raw: Optional[str] = None
-    partner_bic_raw: Optional[str] = None
-    unmapped_data: Optional[Any] = None
+    text: str | None
+    partner_name_raw: str | None
+    partner_iban_raw: str | None
+    partner_account_raw: str | None = None
+    partner_blz_raw: str | None = None
+    partner_bic_raw: str | None = None
+    unmapped_data: Any | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -55,6 +55,7 @@ class JournalYearsResponse(BaseModel):
 
 # ─── Bulk-Assign ──────────────────────────────────────────────────────────────
 
+
 class BulkAssignRequest(BaseModel):
     line_ids: list[UUID]
     partner_id: UUID
@@ -64,7 +65,14 @@ class AssignServiceRequest(BaseModel):
     service_id: UUID
 
 
-SORTABLE_COLUMNS = {"valuta_date", "booking_date", "amount", "partner_name", "text", "service_name"}
+SORTABLE_COLUMNS = {
+    "valuta_date",
+    "booking_date",
+    "amount",
+    "partner_name",
+    "text",
+    "service_name",
+}
 
 
 class BulkAssignResponse(BaseModel):
@@ -141,17 +149,18 @@ class IncomeExpenseMatrixResponse(BaseModel):
 
 # ─── Kontosalden ──────────────────────────────────────────────────────────────
 
+
 class AccountBalanceRow(BaseModel):
     account_id: UUID
     account_name: str
-    iban: Optional[str] = None
+    iban: str | None = None
     currency: str
     is_active: bool
     opening_balance: str
     booked_amount: str
     current_balance: str
     line_count: int
-    last_booking_date: Optional[str] = None
+    last_booking_date: str | None = None
     foreign_currency_line_count: int = 0
 
 
@@ -170,6 +179,7 @@ class AccountBalancesResponse(BaseModel):
 
 # ─── Liquidität ───────────────────────────────────────────────────────────────
 
+
 class LiquidityMonth(BaseModel):
     period: str  # "YYYY-MM"
     opening_balance: str
@@ -187,10 +197,10 @@ class LiquidityResponse(BaseModel):
     currency: str
     scenario: str = "expected"
     start_balance: str
-    as_of: Optional[str] = None
+    as_of: str | None = None
     months: list[LiquidityMonth]
     lowest_balance: str
-    lowest_period: Optional[str] = None
+    lowest_period: str | None = None
     # Tiefster Punkt des Unsicherheitsbands — die Zahl, an der sich eine Kreditlinie
     # bemisst.
     lowest_balance_low: str

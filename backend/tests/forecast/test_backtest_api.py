@@ -1,4 +1,5 @@
 """Rückvergleich und Plan-Ist-Snapshots über die API."""
+
 from datetime import date
 from decimal import Decimal
 
@@ -139,7 +140,9 @@ class TestPlanpostenStatus:
         user, mandant, _, _, _, service = await setup_salary(db_session)
         headers = await auth(client, user, mandant)
 
-        created = await self._add(client, mandant, service, headers, "2027-04", "-1000.00")
+        created = await self._add(
+            client, mandant, service, headers, "2027-04", "-1000.00"
+        )
 
         assert created.json()["status"] == "active"
         assert created.json()["remaining_in_month"] == "-1000.00"
@@ -152,8 +155,12 @@ class TestPlanpostenStatus:
         headers = await auth(client, user, mandant)
         await self._add(client, mandant, service, headers, "2026-09", "-5000.00")
         await book(
-            db_session, account_id=account.id, import_run_id=run.id,
-            service_id=service.id, valuta_date="2026-09-20", amount="-3000.00",
+            db_session,
+            account_id=account.id,
+            import_run_id=run.id,
+            service_id=service.id,
+            valuta_date="2026-09-20",
+            amount="-3000.00",
         )
 
         item = (await self._items(client, mandant, headers))[0]
@@ -168,8 +175,12 @@ class TestPlanpostenStatus:
         headers = await auth(client, user, mandant)
         await self._add(client, mandant, service, headers, "2026-09", "-5000.00")
         await book(
-            db_session, account_id=account.id, import_run_id=run.id,
-            service_id=service.id, valuta_date="2026-09-20", amount="-5500.00",
+            db_session,
+            account_id=account.id,
+            import_run_id=run.id,
+            service_id=service.id,
+            valuta_date="2026-09-20",
+            amount="-5500.00",
         )
 
         item = (await self._items(client, mandant, headers))[0]
@@ -183,7 +194,9 @@ class TestPlanpostenStatus:
         user, mandant, _, _, _, service = await setup_salary(db_session)
         headers = await auth(client, user, mandant)
 
-        created = await self._add(client, mandant, service, headers, "2026-07", "-800.00")
+        created = await self._add(
+            client, mandant, service, headers, "2026-07", "-800.00"
+        )
 
         assert created.json()["status"] == "expired"
         assert created.json()["remaining_in_month"] == "0.00"
@@ -198,8 +211,12 @@ class TestPlanpostenStatus:
         await self._add(client, mandant, service, headers, "2026-09", "-2000.00")
         await self._add(client, mandant, service, headers, "2026-09", "-1000.00")
         await book(
-            db_session, account_id=account.id, import_run_id=run.id,
-            service_id=service.id, valuta_date="2026-09-20", amount="-3000.00",
+            db_session,
+            account_id=account.id,
+            import_run_id=run.id,
+            service_id=service.id,
+            valuta_date="2026-09-20",
+            amount="-3000.00",
         )
 
         items = await self._items(client, mandant, headers)
@@ -227,7 +244,12 @@ class TestPlanpostenStatus:
             "2026-07",  # abgelaufen, juengstes zuerst
             "2026-05",
         ]
-        assert [i["status"] for i in items] == ["active", "active", "expired", "expired"]
+        assert [i["status"] for i in items] == [
+            "active",
+            "active",
+            "expired",
+            "expired",
+        ]
 
 
 @pytest.mark.asyncio
@@ -288,7 +310,8 @@ class TestHandgesetztesErkennen:
         )
 
         row = next(
-            r for r in (await self._rows(client, mandant, headers))["services"]
+            r
+            for r in (await self._rows(client, mandant, headers))["services"]
             if r["service_name"] == "Gehalt"
         )
         assert row["customised"] is True
@@ -322,8 +345,13 @@ class TestHandgesetztesErkennen:
         url = f"/api/v1/mandants/{mandant.id}/services/{service.id}/forecast-rule"
         await client.put(
             url,
-            json={"mode": "manual", "rule_type": "rolling_average", "params": {},
-                  "adjustment_pct": "5.00", "shift_months": 1},
+            json={
+                "mode": "manual",
+                "rule_type": "rolling_average",
+                "params": {},
+                "adjustment_pct": "5.00",
+                "shift_months": 1,
+            },
             headers=headers,
         )
         assert (await self._rows(client, mandant, headers))["customised"] == 1

@@ -1,7 +1,8 @@
 """Tests for ReviewService and review API endpoints (Bolt 008)."""
+
 # pylint: disable=redefined-outer-name,unused-import
-from decimal import Decimal
 from datetime import timedelta
+from decimal import Decimal
 from uuid import uuid4
 
 from httpx import AsyncClient
@@ -12,7 +13,6 @@ from app.auth.models import UserRole
 from app.imports.models import JournalLine, JournalLineSplit, ReviewItem, utcnow
 from app.partners.models import AuditLog, Partner, PartnerIban
 from app.services.models import Service, ServiceType
-
 from tests.review import (  # noqa: F401
     assign_user_to_mandant,
     client,
@@ -25,10 +25,10 @@ from tests.review import (  # noqa: F401
     setup_db,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
@@ -121,11 +121,17 @@ async def _create_service_assignment_review_item(
     await session.flush()
 
     if current_service_id is not None:
-        session.add(JournalLineSplit(
-            journal_line_id=line.id, service_id=current_service_id,
-            amount=Decimal("100.00"), assignment_mode="auto",
-            amount_consistency_ok=False, created_at=now, updated_at=now,
-        ))
+        session.add(
+            JournalLineSplit(
+                journal_line_id=line.id,
+                service_id=current_service_id,
+                amount=Decimal("100.00"),
+                assignment_mode="auto",
+                amount_consistency_ok=False,
+                created_at=now,
+                updated_at=now,
+            )
+        )
         await session.flush()
 
     item = ReviewItem(
@@ -134,7 +140,9 @@ async def _create_service_assignment_review_item(
         journal_line_id=line.id,
         context={
             "current_service_id": str(current_service_id),
-            "proposed_service_id": str(proposed_service_id) if proposed_service_id else None,
+            "proposed_service_id": (
+                str(proposed_service_id) if proposed_service_id else None
+            ),
             "reason": reason,
         },
         status="open",
@@ -187,11 +195,17 @@ async def _create_service_type_review_item(
     await session.flush()
 
     for ln in lines:
-        session.add(JournalLineSplit(
-            journal_line_id=ln.id, service_id=service.id,
-            amount=ln.amount, assignment_mode="auto",
-            amount_consistency_ok=False, created_at=now, updated_at=now,
-        ))
+        session.add(
+            JournalLineSplit(
+                journal_line_id=ln.id,
+                service_id=service.id,
+                amount=ln.amount,
+                assignment_mode="auto",
+                amount_consistency_ok=False,
+                created_at=now,
+                updated_at=now,
+            )
+        )
     await session.flush()
 
     item = ReviewItem(
@@ -247,6 +261,7 @@ async def _create_archived_review_item(
 # GET /review — list
 # ---------------------------------------------------------------------------
 
+
 class TestListReviewItems:
     async def test_returns_open_items_by_default(
         self, client: AsyncClient, db_session: AsyncSession
@@ -257,7 +272,9 @@ class TestListReviewItems:
         token = await get_auth_token(client, user, mandant)
 
         partner = await create_partner_db(db_session, mandant.id, "Amazon EU")
-        _, item = await _create_review_item(db_session, mandant.id, partner_id=partner.id)
+        _, item = await _create_review_item(
+            db_session, mandant.id, partner_id=partner.id
+        )
 
         resp = await client.get(
             f"/api/v1/mandants/{mandant.id}/review",
@@ -278,8 +295,12 @@ class TestListReviewItems:
         token = await get_auth_token(client, user, mandant)
 
         partner = await create_partner_db(db_session, mandant.id, "Partner A")
-        await _create_review_item(db_session, mandant.id, partner_id=partner.id, status="open")
-        await _create_review_item(db_session, mandant.id, partner_id=partner.id, status="confirmed")
+        await _create_review_item(
+            db_session, mandant.id, partner_id=partner.id, status="open"
+        )
+        await _create_review_item(
+            db_session, mandant.id, partner_id=partner.id, status="confirmed"
+        )
 
         resp = await client.get(
             f"/api/v1/mandants/{mandant.id}/review?status=confirmed",
@@ -298,8 +319,12 @@ class TestListReviewItems:
         token = await get_auth_token(client, user, mandant)
 
         partner = await create_partner_db(db_session, mandant.id, "P")
-        await _create_review_item(db_session, mandant.id, partner_id=partner.id, status="open")
-        await _create_review_item(db_session, mandant.id, partner_id=partner.id, status="adjusted")
+        await _create_review_item(
+            db_session, mandant.id, partner_id=partner.id, status="open"
+        )
+        await _create_review_item(
+            db_session, mandant.id, partner_id=partner.id, status="adjusted"
+        )
 
         resp = await client.get(
             f"/api/v1/mandants/{mandant.id}/review?status=all",
@@ -323,9 +348,7 @@ class TestListReviewItems:
         assert resp.json()["total"] == 0
         assert resp.json()["items"] == []
 
-    async def test_viewer_gets_403(
-        self, client: AsyncClient, db_session: AsyncSession
-    ):
+    async def test_viewer_gets_403(self, client: AsyncClient, db_session: AsyncSession):
         user = await create_user(db_session, "viewer@test.com", UserRole.viewer)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
@@ -340,13 +363,17 @@ class TestListReviewItems:
     async def test_name_match_with_iban_includes_enriched_iban_context(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        user = await create_user(db_session, "iban-review@test.com", UserRole.accountant)
+        user = await create_user(
+            db_session, "iban-review@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
 
         partner = await create_partner_db(db_session, mandant.id, "Amazon EU")
-        db_session.add(PartnerIban(partner_id=partner.id, iban="DE12500105170648489890"))
+        db_session.add(
+            PartnerIban(partner_id=partner.id, iban="DE12500105170648489890")
+        )
         await db_session.commit()
 
         _, item = await _create_review_item(
@@ -361,19 +388,29 @@ class TestListReviewItems:
             headers=_auth(token),
         )
         assert resp.status_code == 200
-        review_item = next(entry for entry in resp.json()["items"] if entry["id"] == str(item.id))
+        review_item = next(
+            entry for entry in resp.json()["items"] if entry["id"] == str(item.id)
+        )
 
         assert review_item["context"]["raw_iban"] == "DE89370400440532013000"
-        assert review_item["context"]["matched_partner_ibans"] == ["DE12500105170648489890"]
+        assert review_item["context"]["matched_partner_ibans"] == [
+            "DE12500105170648489890"
+        ]
         assert review_item["context"]["matched_partner_iban_count"] == 1
         assert review_item["context"]["diagnosis"]["iban"]["provided"] is True
-        assert review_item["context"]["diagnosis"]["iban"]["normalized"] == "DE89370400440532013000"
-        assert review_item["context"]["diagnosis"]["iban"]["matches_partner_iban"] is False
+        assert (
+            review_item["context"]["diagnosis"]["iban"]["normalized"]
+            == "DE89370400440532013000"
+        )
+        assert (
+            review_item["context"]["diagnosis"]["iban"]["matches_partner_iban"] is False
+        )
 
 
 # ---------------------------------------------------------------------------
 # POST /review/{id}/confirm
 # ---------------------------------------------------------------------------
+
 
 class TestConfirmReviewItem:
     async def test_confirm_sets_status_and_resolved_fields(
@@ -386,7 +423,10 @@ class TestConfirmReviewItem:
 
         partner = await create_partner_db(db_session, mandant.id, "Amazon EU")
         _, item = await _create_review_item(
-            db_session, mandant.id, partner_id=partner.id, iban_raw="DE89370400440532013000"
+            db_session,
+            mandant.id,
+            partner_id=partner.id,
+            iban_raw="DE89370400440532013000",
         )
 
         resp = await client.post(
@@ -410,7 +450,10 @@ class TestConfirmReviewItem:
 
         partner = await create_partner_db(db_session, mandant.id, "Neue Firma")
         _, item = await _create_review_item(
-            db_session, mandant.id, partner_id=partner.id, iban_raw="DE89370400440532013000"
+            db_session,
+            mandant.id,
+            partner_id=partner.id,
+            iban_raw="DE89370400440532013000",
         )
 
         await client.post(
@@ -439,7 +482,10 @@ class TestConfirmReviewItem:
             db_session, mandant.id, "Amazon EU", iban="DE89370400440532013000"
         )
         _, item = await _create_review_item(
-            db_session, mandant.id, partner_id=partner.id, iban_raw="DE89370400440532013000"
+            db_session,
+            mandant.id,
+            partner_id=partner.id,
+            iban_raw="DE89370400440532013000",
         )
 
         await client.post(
@@ -483,7 +529,9 @@ class TestConfirmReviewItem:
         token = await get_auth_token(client, user, mandant)
 
         partner = await create_partner_db(db_session, mandant.id, "Firma X")
-        _, item = await _create_review_item(db_session, mandant.id, partner_id=partner.id)
+        _, item = await _create_review_item(
+            db_session, mandant.id, partner_id=partner.id
+        )
 
         await client.post(
             f"/api/v1/mandants/{mandant.id}/review/{item.id}/confirm",
@@ -504,6 +552,7 @@ class TestConfirmReviewItem:
 # ---------------------------------------------------------------------------
 # POST /review/{id}/reassign
 # ---------------------------------------------------------------------------
+
 
 class TestReassignReviewItem:
     async def test_reassign_updates_journal_line_partner(
@@ -541,7 +590,9 @@ class TestReassignReviewItem:
 
         old_partner = await create_partner_db(db_session, mandant.id, "P1")
         new_partner = await create_partner_db(db_session, mandant.id, "P2")
-        _, item = await _create_review_item(db_session, mandant.id, partner_id=old_partner.id)
+        _, item = await _create_review_item(
+            db_session, mandant.id, partner_id=old_partner.id
+        )
 
         await client.post(
             f"/api/v1/mandants/{mandant.id}/review/{item.id}/reassign",
@@ -566,7 +617,9 @@ class TestReassignReviewItem:
         token = await get_auth_token(client, user, mandant)
 
         partner = await create_partner_db(db_session, mandant.id, "Existing")
-        _, item = await _create_review_item(db_session, mandant.id, partner_id=partner.id)
+        _, item = await _create_review_item(
+            db_session, mandant.id, partner_id=partner.id
+        )
 
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/review/{item.id}/reassign",
@@ -599,24 +652,36 @@ class TestReassignReviewItem:
     async def test_reassign_deletes_other_open_reviews_for_same_line(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        user = await create_user(db_session, "acc-reassign@test.com", UserRole.accountant)
+        user = await create_user(
+            db_session, "acc-reassign@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
 
         old_partner = await create_partner_db(db_session, mandant.id, "Wrong Partner")
         new_partner = await create_partner_db(db_session, mandant.id, "Correct Partner")
-        current_service = await _create_service(db_session, old_partner.id, "Altservice")
-        proposed_service = await _create_service(db_session, old_partner.id, "Vorschlag")
+        current_service = await _create_service(
+            db_session, old_partner.id, "Altservice"
+        )
+        proposed_service = await _create_service(
+            db_session, old_partner.id, "Vorschlag"
+        )
         line, item = await _create_review_item(
             db_session, mandant.id, partner_id=old_partner.id
         )
         now = utcnow()
-        db_session.add(JournalLineSplit(
-            journal_line_id=line.id, service_id=current_service.id,
-            amount=line.amount, assignment_mode="auto", amount_consistency_ok=False,
-            created_at=now, updated_at=now,
-        ))
+        db_session.add(
+            JournalLineSplit(
+                journal_line_id=line.id,
+                service_id=current_service.id,
+                amount=line.amount,
+                assignment_mode="auto",
+                amount_consistency_ok=False,
+                created_at=now,
+                updated_at=now,
+            )
+        )
         await db_session.flush()
         db_session.add(
             ReviewItem(
@@ -651,12 +716,15 @@ class TestReassignReviewItem:
                 )
             )
         ).all()
-        assert not any(review.context.get("reason") == "matcher_changed" for review in remaining)
+        assert not any(
+            review.context.get("reason") == "matcher_changed" for review in remaining
+        )
 
 
 # ---------------------------------------------------------------------------
 # POST /review/{id}/new-partner
 # ---------------------------------------------------------------------------
+
 
 class TestNewPartnerReviewItem:
     async def test_new_partner_creates_partner_and_assigns(
@@ -668,7 +736,9 @@ class TestNewPartnerReviewItem:
         token = await get_auth_token(client, user, mandant)
 
         old_partner = await create_partner_db(db_session, mandant.id, "Old")
-        line, item = await _create_review_item(db_session, mandant.id, partner_id=old_partner.id)
+        line, item = await _create_review_item(
+            db_session, mandant.id, partner_id=old_partner.id
+        )
 
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/review/{item.id}/new-partner",
@@ -694,7 +764,9 @@ class TestNewPartnerReviewItem:
         token = await get_auth_token(client, user, mandant)
 
         partner = await create_partner_db(db_session, mandant.id, "Existing")
-        _, item = await _create_review_item(db_session, mandant.id, partner_id=partner.id)
+        _, item = await _create_review_item(
+            db_session, mandant.id, partner_id=partner.id
+        )
 
         await client.post(
             f"/api/v1/mandants/{mandant.id}/review/{item.id}/new-partner",
@@ -723,7 +795,10 @@ class TestNewPartnerReviewItem:
 
         old_partner = await create_partner_db(db_session, mandant.id, "Old Inc")
         line, item = await _create_review_item(
-            db_session, mandant.id, partner_id=old_partner.id, iban_raw="DE89370400440532013000"
+            db_session,
+            mandant.id,
+            partner_id=old_partner.id,
+            iban_raw="DE89370400440532013000",
         )
 
         await client.post(
@@ -766,19 +841,26 @@ class TestServiceAssignmentReviewItem:
             headers=_auth(token),
         )
         assert resp.status_code == 200
-        review_item = next(entry for entry in resp.json()["items"] if entry["id"] == str(item.id))
+        review_item = next(
+            entry for entry in resp.json()["items"] if entry["id"] == str(item.id)
+        )
         assert review_item["context"]["current_service_id"] == str(current_service.id)
         assert review_item["context"]["current_service_name"] == "Basisleistung"
         assert review_item["context"]["proposed_service_id"] == str(proposed_service.id)
         assert review_item["context"]["proposed_service_name"] == "Hosting"
         assert review_item["journal_line"]["id"] == str(line.id)
         assert review_item["journal_line"]["partner_name"] == "Amazon EU"
-        assert any(sp["service_id"] == str(current_service.id) for sp in review_item["journal_line"]["splits"])
+        assert any(
+            sp["service_id"] == str(current_service.id)
+            for sp in review_item["journal_line"]["splits"]
+        )
 
     async def test_confirm_assigns_proposed_service_and_sets_manual_mode(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        user = await create_user(db_session, "svc-confirm@test.com", UserRole.accountant)
+        user = await create_user(
+            db_session, "svc-confirm@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
@@ -803,7 +885,9 @@ class TestServiceAssignmentReviewItem:
 
         splits = (
             await db_session.exec(
-                select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
+                select(JournalLineSplit).where(
+                    JournalLineSplit.journal_line_id == line.id
+                )
             )
         ).all()
         assert len(splits) == 1
@@ -840,7 +924,9 @@ class TestServiceAssignmentReviewItem:
 
         splits = (
             await db_session.exec(
-                select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
+                select(JournalLineSplit).where(
+                    JournalLineSplit.journal_line_id == line.id
+                )
             )
         ).all()
         assert len(splits) == 1
@@ -850,7 +936,9 @@ class TestServiceAssignmentReviewItem:
     async def test_adjust_rejects_service_from_other_partner(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        user = await create_user(db_session, "svc-invalid@test.com", UserRole.accountant)
+        user = await create_user(
+            db_session, "svc-invalid@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
@@ -858,7 +946,9 @@ class TestServiceAssignmentReviewItem:
         partner = await create_partner_db(db_session, mandant.id, "Amazon EU")
         other_partner = await create_partner_db(db_session, mandant.id, "Other")
         current_service = await _create_service(db_session, partner.id, "Basisleistung")
-        foreign_service = await _create_service(db_session, other_partner.id, "Fremdleistung")
+        foreign_service = await _create_service(
+            db_session, other_partner.id, "Fremdleistung"
+        )
         _, item = await _create_service_assignment_review_item(
             db_session,
             mandant.id,
@@ -877,7 +967,9 @@ class TestServiceAssignmentReviewItem:
     async def test_confirm_keeps_open_service_type_review_for_assigned_service(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        user = await create_user(db_session, "svc-confirm-type@test.com", UserRole.accountant)
+        user = await create_user(
+            db_session, "svc-confirm-type@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
@@ -923,7 +1015,9 @@ class TestServiceAssignmentReviewItem:
     async def test_confirm_keeps_open_service_type_review_for_previous_service(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        user = await create_user(db_session, "svc-confirm-prev-type@test.com", UserRole.accountant)
+        user = await create_user(
+            db_session, "svc-confirm-prev-type@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
@@ -993,9 +1087,13 @@ class TestServiceAssignmentReviewItem:
         assert resp.json()["status"] == "rejected"
 
         await db_session.refresh(line)
-        split = (await db_session.exec(
-            select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
-        )).first()
+        split = (
+            await db_session.exec(
+                select(JournalLineSplit).where(
+                    JournalLineSplit.journal_line_id == line.id
+                )
+            )
+        ).first()
         assert split is not None
         assert split.service_id == current_service.id
         assert split.assignment_mode == "auto"
@@ -1005,13 +1103,17 @@ class TestServiceTypeReviewItem:
     async def test_list_can_filter_service_type_reviews_only(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        user = await create_user(db_session, "svc-type-filter@test.com", UserRole.accountant)
+        user = await create_user(
+            db_session, "svc-type-filter@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
 
         partner = await create_partner_db(db_session, mandant.id, "Payroll GmbH")
-        service, type_item, _ = await _create_service_type_review_item(db_session, mandant.id, partner.id)
+        service, type_item, _ = await _create_service_type_review_item(
+            db_session, mandant.id, partner.id
+        )
         current_service = await _create_service(db_session, partner.id, "Basisleistung")
         _, assignment_item = await _create_service_assignment_review_item(
             db_session,
@@ -1034,7 +1136,9 @@ class TestServiceTypeReviewItem:
     async def test_list_hides_legacy_open_service_type_reviews_without_context(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        user = await create_user(db_session, "svc-type-legacy@test.com", UserRole.accountant)
+        user = await create_user(
+            db_session, "svc-type-legacy@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
@@ -1061,16 +1165,21 @@ class TestServiceTypeReviewItem:
         assert resp.status_code == 200
         payload = resp.json()
         assert payload["items"] == []
+
     async def test_get_review_detail_includes_service_and_assigned_lines(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        user = await create_user(db_session, "svc-type-detail@test.com", UserRole.accountant)
+        user = await create_user(
+            db_session, "svc-type-detail@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
 
         partner = await create_partner_db(db_session, mandant.id, "Payroll GmbH")
-        service, item, lines = await _create_service_type_review_item(db_session, mandant.id, partner.id)
+        service, item, lines = await _create_service_type_review_item(
+            db_session, mandant.id, partner.id
+        )
 
         resp = await client.get(
             f"/api/v1/mandants/{mandant.id}/review/{item.id}",
@@ -1083,18 +1192,24 @@ class TestServiceTypeReviewItem:
         assert payload["context"]["previous_type"] == ServiceType.unknown.value
         assert payload["context"]["auto_assigned_type"] == ServiceType.employee.value
         assert payload["service"]["tax_rate"] == "0.00"
-        assert {entry["id"] for entry in payload["assigned_journal_lines"]} == {str(line.id) for line in lines}
+        assert {entry["id"] for entry in payload["assigned_journal_lines"]} == {
+            str(line.id) for line in lines
+        }
 
     async def test_confirm_marks_service_type_manual(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        user = await create_user(db_session, "svc-type-confirm@test.com", UserRole.accountant)
+        user = await create_user(
+            db_session, "svc-type-confirm@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
 
         partner = await create_partner_db(db_session, mandant.id, "Payroll GmbH")
-        service, item, _ = await _create_service_type_review_item(db_session, mandant.id, partner.id)
+        service, item, _ = await _create_service_type_review_item(
+            db_session, mandant.id, partner.id
+        )
         service.service_type_manual = False
         db_session.add(service)
         await db_session.commit()
@@ -1113,17 +1228,25 @@ class TestServiceTypeReviewItem:
     async def test_adjust_updates_service_type_and_tax_rate(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        user = await create_user(db_session, "svc-type-adjust@test.com", UserRole.accountant)
+        user = await create_user(
+            db_session, "svc-type-adjust@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
 
         partner = await create_partner_db(db_session, mandant.id, "Payroll GmbH")
-        service, item, _ = await _create_service_type_review_item(db_session, mandant.id, partner.id)
+        service, item, _ = await _create_service_type_review_item(
+            db_session, mandant.id, partner.id
+        )
 
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/review/{item.id}/adjust",
-            json={"service_type": "authority", "tax_rate": "10.00", "erfolgsneutral": True},
+            json={
+                "service_type": "authority",
+                "tax_rate": "10.00",
+                "erfolgsneutral": True,
+            },
             headers=_auth(token),
         )
         assert resp.status_code == 200
@@ -1139,13 +1262,17 @@ class TestServiceTypeReviewItem:
     async def test_viewer_cannot_confirm_service_type_review(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        user = await create_user(db_session, "svc-type-viewer@test.com", UserRole.viewer)
+        user = await create_user(
+            db_session, "svc-type-viewer@test.com", UserRole.viewer
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
 
         partner = await create_partner_db(db_session, mandant.id, "Payroll GmbH")
-        _, item, _ = await _create_service_type_review_item(db_session, mandant.id, partner.id)
+        _, item, _ = await _create_service_type_review_item(
+            db_session, mandant.id, partner.id
+        )
 
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/review/{item.id}/confirm",
@@ -1186,13 +1313,20 @@ class TestReviewArchive:
         assert resp.status_code == 200
         payload = resp.json()
         assert payload["total"] == 2
-        assert [item["id"] for item in payload["items"]] == [str(newer.id), str(older.id)]
+        assert [item["id"] for item in payload["items"]] == [
+            str(newer.id),
+            str(older.id),
+        ]
 
     async def test_archive_filters_by_item_type_and_resolved_by_and_date_range(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        user = await create_user(db_session, "archive-filter@test.com", UserRole.accountant)
-        other_user = await create_user(db_session, "archive-other@test.com", UserRole.accountant)
+        user = await create_user(
+            db_session, "archive-filter@test.com", UserRole.accountant
+        )
+        other_user = await create_user(
+            db_session, "archive-other@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         await assign_user_to_mandant(db_session, other_user, mandant)
@@ -1238,7 +1372,9 @@ class TestReviewArchive:
     async def test_write_action_on_archived_item_returns_409(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        user = await create_user(db_session, "archive-write@test.com", UserRole.accountant)
+        user = await create_user(
+            db_session, "archive-write@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
@@ -1261,10 +1397,12 @@ class TestReviewArchive:
 # manual_service_assignment review items
 # ---------------------------------------------------------------------------
 
+
 async def _create_partner_with_base_service(
     session: AsyncSession, mandant_id, name: str, *, manual_assignment: bool = False
 ) -> tuple["Partner", "Service"]:
     from app.services.service import ensure_base_service
+
     partner = await create_partner_db(session, mandant_id, name)
     partner.manual_assignment = manual_assignment
     session.add(partner)
@@ -1294,11 +1432,17 @@ async def _add_journal_line_on_service(
     )
     session.add(line)
     await session.flush()
-    session.add(JournalLineSplit(
-        journal_line_id=line.id, service_id=service_id,
-        amount=Decimal("-99.00"), assignment_mode="auto",
-        amount_consistency_ok=False, created_at=now, updated_at=now,
-    ))
+    session.add(
+        JournalLineSplit(
+            journal_line_id=line.id,
+            service_id=service_id,
+            amount=Decimal("-99.00"),
+            assignment_mode="auto",
+            amount_consistency_ok=False,
+            created_at=now,
+            updated_at=now,
+        )
+    )
     await session.commit()
     await session.refresh(line)
     return line
@@ -1318,7 +1462,9 @@ class TestManualServiceAssignmentReview:
         partner, base_service = await _create_partner_with_base_service(
             db_session, mandant.id, "Test GmbH", manual_assignment=True
         )
-        line = await _add_journal_line_on_service(db_session, partner.id, base_service.id)
+        line = await _add_journal_line_on_service(
+            db_session, partner.id, base_service.id
+        )
 
         # Create manual_service_assignment review item
         item = ReviewItem(
@@ -1360,9 +1506,13 @@ class TestManualServiceAssignmentReview:
 
         # Journal line should now point to other_service
         await db_session.refresh(line)
-        split = (await db_session.exec(
-            select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
-        )).first()
+        split = (
+            await db_session.exec(
+                select(JournalLineSplit).where(
+                    JournalLineSplit.journal_line_id == line.id
+                )
+            )
+        ).first()
         assert split is not None
         assert str(split.service_id) == str(other_service.id)
         assert split.assignment_mode == "manual"
@@ -1379,7 +1529,9 @@ class TestManualServiceAssignmentReview:
         partner, base_service = await _create_partner_with_base_service(
             db_session, mandant.id, "Test GmbH 2", manual_assignment=True
         )
-        line = await _add_journal_line_on_service(db_session, partner.id, base_service.id)
+        line = await _add_journal_line_on_service(
+            db_session, partner.id, base_service.id
+        )
 
         item = ReviewItem(
             mandant_id=mandant.id,
@@ -1406,7 +1558,9 @@ class TestManualServiceAssignmentReview:
     ):
         """When manual_assignment is set to True via PATCH /partners/:id,
         review items are created for all lines currently on the base service."""
-        user = await create_user(db_session, "msa-flip-true@test.com", UserRole.accountant)
+        user = await create_user(
+            db_session, "msa-flip-true@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
@@ -1414,13 +1568,19 @@ class TestManualServiceAssignmentReview:
         partner, base_service = await _create_partner_with_base_service(
             db_session, mandant.id, "Trigger GmbH", manual_assignment=False
         )
-        line1 = await _add_journal_line_on_service(db_session, partner.id, base_service.id, "Buchung 1")
-        line2 = await _add_journal_line_on_service(db_session, partner.id, base_service.id, "Buchung 2")
+        line1 = await _add_journal_line_on_service(
+            db_session, partner.id, base_service.id, "Buchung 1"
+        )
+        line2 = await _add_journal_line_on_service(
+            db_session, partner.id, base_service.id, "Buchung 2"
+        )
 
         # Confirm no review items yet
         existing = (
             await db_session.exec(
-                select(ReviewItem).where(ReviewItem.item_type == "manual_service_assignment")
+                select(ReviewItem).where(
+                    ReviewItem.item_type == "manual_service_assignment"
+                )
             )
         ).all()
         assert len(existing) == 0
@@ -1450,7 +1610,9 @@ class TestManualServiceAssignmentReview:
     ):
         """When manual_assignment is set to False, all open manual_service_assignment
         review items for the partner are deleted."""
-        user = await create_user(db_session, "msa-flip-false@test.com", UserRole.accountant)
+        user = await create_user(
+            db_session, "msa-flip-false@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
@@ -1458,7 +1620,9 @@ class TestManualServiceAssignmentReview:
         partner, base_service = await _create_partner_with_base_service(
             db_session, mandant.id, "Flip False GmbH", manual_assignment=True
         )
-        line = await _add_journal_line_on_service(db_session, partner.id, base_service.id)
+        line = await _add_journal_line_on_service(
+            db_session, partner.id, base_service.id
+        )
 
         item = ReviewItem(
             mandant_id=mandant.id,

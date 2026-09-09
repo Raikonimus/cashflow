@@ -138,7 +138,9 @@ describe('ImportPage', () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText(/der server ist nicht erreichbar\. bitte prüfen sie, ob backend und api laufen\./i),
+        screen.getByText(
+          /der server ist nicht erreichbar\. bitte prüfen sie, ob backend und api laufen\./i,
+        ),
       ).toBeInTheDocument()
     })
   })
@@ -192,7 +194,9 @@ describe('ImportPage', () => {
       expect(screen.getByText(/csv-import/i)).toBeInTheDocument()
     })
 
-    const dropzone = screen.getByText(/csv-dateien hierher ziehen oder klicken zum auswählen/i).closest('label')
+    const dropzone = screen
+      .getByText(/csv-dateien hierher ziehen oder klicken zum auswählen/i)
+      .closest('label')
     expect(dropzone).not.toBeNull()
 
     const file = new File(['a,b\n1,2'], 'dropped.csv', { type: 'text/csv' })

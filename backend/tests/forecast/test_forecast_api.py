@@ -1,4 +1,5 @@
 """Regel-Verwaltung, Planposten, Übersicht und Szenarien über die API."""
+
 from decimal import Decimal
 
 import pytest
@@ -67,9 +68,9 @@ class TestRuleEndpoint:
         assert resp.status_code == 200
         assert resp.json()["mode"] == "manual"
 
-        matrix = await JournalService(db_session, today=TODAY).get_income_expense_matrix(
-            mandant_id=mandant.id, year=2027
-        )
+        matrix = await JournalService(
+            db_session, today=TODAY
+        ).get_income_expense_matrix(mandant_id=mandant.id, year=2027)
         row = cells_of(matrix.model_dump(), "Gehalt")
         assert row["cells"]["jan"]["gross"] == "-4000.00"
         assert row["forecast_mode"] == "manual"
@@ -86,9 +87,9 @@ class TestRuleEndpoint:
             headers=headers,
         )
 
-        matrix = await JournalService(db_session, today=TODAY).get_income_expense_matrix(
-            mandant_id=mandant.id, year=2027
-        )
+        matrix = await JournalService(
+            db_session, today=TODAY
+        ).get_income_expense_matrix(mandant_id=mandant.id, year=2027)
         row = cells_of(matrix.model_dump(), "Gehalt")
         assert row["cells"]["jan"]["gross"] == "0.00"
         assert row["forecast_mode"] == "off"
@@ -105,9 +106,9 @@ class TestRuleEndpoint:
             headers=headers,
         )
 
-        matrix = await JournalService(db_session, today=TODAY).get_income_expense_matrix(
-            mandant_id=mandant.id, year=2027
-        )
+        matrix = await JournalService(
+            db_session, today=TODAY
+        ).get_income_expense_matrix(mandant_id=mandant.id, year=2027)
         row = cells_of(matrix.model_dump(), "Gehalt")
         assert row["cells"]["jan"]["gross"] == "-3090.00"
 
@@ -192,9 +193,9 @@ class TestPlannedItems:
         )
 
         assert resp.status_code == 201
-        matrix = await JournalService(db_session, today=TODAY).get_income_expense_matrix(
-            mandant_id=mandant.id, year=2027
-        )
+        matrix = await JournalService(
+            db_session, today=TODAY
+        ).get_income_expense_matrix(mandant_id=mandant.id, year=2027)
         row = cells_of(matrix.model_dump(), "Gehalt")
         assert row["cells"]["apr"]["gross"] == "-9999.00"
         assert row["cells"]["mar"]["gross"] == "-3000.00"
@@ -206,11 +207,17 @@ class TestPlannedItems:
         headers = await auth(client, user, mandant)
         await client.post(
             f"/api/v1/mandants/{mandant.id}/forecast/planned-items",
-            json={"service_id": str(service.id), "period": "2027-04", "amount": "-9999.00"},
+            json={
+                "service_id": str(service.id),
+                "period": "2027-04",
+                "amount": "-9999.00",
+            },
             headers=headers,
         )
 
-        matrix = await JournalService(db_session, today=TODAY).get_income_expense_matrix(
+        matrix = await JournalService(
+            db_session, today=TODAY
+        ).get_income_expense_matrix(
             mandant_id=mandant.id, year=2027, scenario=Scenario.low
         )
 
@@ -227,13 +234,17 @@ class TestPlannedItems:
         for amount in ("-1000.00", "-500.00"):
             await client.post(
                 f"/api/v1/mandants/{mandant.id}/forecast/planned-items",
-                json={"service_id": str(service.id), "period": "2027-05", "amount": amount},
+                json={
+                    "service_id": str(service.id),
+                    "period": "2027-05",
+                    "amount": amount,
+                },
                 headers=headers,
             )
 
-        matrix = await JournalService(db_session, today=TODAY).get_income_expense_matrix(
-            mandant_id=mandant.id, year=2027
-        )
+        matrix = await JournalService(
+            db_session, today=TODAY
+        ).get_income_expense_matrix(mandant_id=mandant.id, year=2027)
 
         row = cells_of(matrix.model_dump(), "Gehalt")
         assert row["cells"]["may"]["gross"] == "-1500.00"
@@ -246,7 +257,11 @@ class TestPlannedItems:
         base = f"/api/v1/mandants/{mandant.id}/forecast/planned-items"
         created = await client.post(
             base,
-            json={"service_id": str(service.id), "period": "2027-04", "amount": "-100.00"},
+            json={
+                "service_id": str(service.id),
+                "period": "2027-04",
+                "amount": "-100.00",
+            },
             headers=headers,
         )
         item_id = created.json()["id"]
@@ -272,7 +287,11 @@ class TestPlannedItems:
 
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/forecast/planned-items",
-            json={"service_id": str(service.id), "period": "2027-13", "amount": "-100.00"},
+            json={
+                "service_id": str(service.id),
+                "period": "2027-13",
+                "amount": "-100.00",
+            },
             headers=headers,
         )
 
@@ -285,7 +304,9 @@ class TestOverview:
         self, client: AsyncClient, db_session: SQLModelSession
     ):
         user, mandant, account, run, partner, _ = await setup_salary(db_session)
-        sporadic = await create_service_db(db_session, partner.id, "Projekt X", ServiceType.customer)
+        sporadic = await create_service_db(
+            db_session, partner.id, "Projekt X", ServiceType.customer
+        )
         await book(
             db_session,
             account_id=account.id,
@@ -312,7 +333,9 @@ class TestOverview:
         self, client: AsyncClient, db_session: SQLModelSession
     ):
         user, mandant, account, run, partner, _ = await setup_salary(db_session)
-        sporadic = await create_service_db(db_session, partner.id, "Projekt X", ServiceType.customer)
+        sporadic = await create_service_db(
+            db_session, partner.id, "Projekt X", ServiceType.customer
+        )
         await book(
             db_session,
             account_id=account.id,
@@ -331,12 +354,15 @@ class TestOverview:
         names = [row["service_name"] for row in resp.json()["services"]]
         assert names == ["Projekt X"]
 
-    async def test_sucht_nach_name(self, client: AsyncClient, db_session: SQLModelSession):
+    async def test_sucht_nach_name(
+        self, client: AsyncClient, db_session: SQLModelSession
+    ):
         user, mandant, *_ = await setup_salary(db_session)
         headers = await auth(client, user, mandant)
 
         resp = await client.get(
-            f"/api/v1/mandants/{mandant.id}/forecast/services?search=gehal", headers=headers
+            f"/api/v1/mandants/{mandant.id}/forecast/services?search=gehal",
+            headers=headers,
         )
 
         assert [row["service_name"] for row in resp.json()["services"]] == ["Gehalt"]
@@ -355,11 +381,16 @@ class TestScenarios:
             mandant_id=mandant.id, year=2027, scenario=Scenario.low
         )
 
-        assert cells_of(expected.model_dump(), "Gehalt")["cells"]["jan"]["gross"] == "-3000.00"
+        assert (
+            cells_of(expected.model_dump(), "Gehalt")["cells"]["jan"]["gross"]
+            == "-3000.00"
+        )
         # Das Gehalt ist im Rückvergleich exakt getroffen worden. Die Bandbreite ist
         # deshalb die gemessene Untergrenze von 5 %, nicht die geschätzten 10 % nach
         # Confidence — und sie wirkt nach unten auf den Saldo.
-        assert cells_of(low.model_dump(), "Gehalt")["cells"]["jan"]["gross"] == "-3150.00"
+        assert (
+            cells_of(low.model_dump(), "Gehalt")["cells"]["jan"]["gross"] == "-3150.00"
+        )
 
     async def test_liquiditaet_faellt_im_pessimistischen_szenario_tiefer(
         self, db_session: SQLModelSession
@@ -375,12 +406,15 @@ class TestScenarios:
         assert Decimal(low.lowest_balance) < Decimal(expected.lowest_balance)
         assert Decimal(high.lowest_balance) > Decimal(expected.lowest_balance)
 
-    async def test_szenario_ueber_http(self, client: AsyncClient, db_session: SQLModelSession):
+    async def test_szenario_ueber_http(
+        self, client: AsyncClient, db_session: SQLModelSession
+    ):
         user, mandant, *_ = await setup_salary(db_session)
         headers = await auth(client, user, mandant)
 
         resp = await client.get(
-            f"/api/v1/mandants/{mandant.id}/reports/liquidity?scenario=high", headers=headers
+            f"/api/v1/mandants/{mandant.id}/reports/liquidity?scenario=high",
+            headers=headers,
         )
 
         assert resp.status_code == 200
@@ -393,7 +427,8 @@ class TestScenarios:
         headers = await auth(client, user, mandant)
 
         resp = await client.get(
-            f"/api/v1/mandants/{mandant.id}/reports/liquidity?scenario=hoffnung", headers=headers
+            f"/api/v1/mandants/{mandant.id}/reports/liquidity?scenario=hoffnung",
+            headers=headers,
         )
 
         assert resp.status_code == 422

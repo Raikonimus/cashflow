@@ -59,7 +59,22 @@ beforeEach(() => {
         resolved_by: 'user-1',
         resolved_at: '2025-03-02T12:00:00Z',
         journal_line: {
-          id: 'line-1', partner_id: 'partner-1', splits: [{ service_id: 'service-1', amount: '-50.00', assignment_mode: 'manual', amount_consistency_ok: false }], valuta_date: '2025-03-01', booking_date: '2025-03-01', amount: '-50.00', currency: 'EUR', text: 'Hosting April', partner_name_raw: 'Amazon EU',
+          id: 'line-1',
+          partner_id: 'partner-1',
+          splits: [
+            {
+              service_id: 'service-1',
+              amount: '-50.00',
+              assignment_mode: 'manual',
+              amount_consistency_ok: false,
+            },
+          ],
+          valuta_date: '2025-03-01',
+          booking_date: '2025-03-01',
+          amount: '-50.00',
+          currency: 'EUR',
+          text: 'Hosting April',
+          partner_name_raw: 'Amazon EU',
         },
         service: null,
         assigned_journal_lines: [],
@@ -78,13 +93,15 @@ describe('ReviewArchivePage', () => {
     await act(async () => {
       renderPage()
     })
-    await waitFor(() => expect(mockListReviewArchive).toHaveBeenCalledWith(MANDANT_ID, {
-      itemType: undefined,
-      resolvedByUserId: undefined,
-      resolvedFrom: undefined,
-      resolvedTo: undefined,
-      size: 100,
-    }))
+    await waitFor(() =>
+      expect(mockListReviewArchive).toHaveBeenCalledWith(MANDANT_ID, {
+        itemType: undefined,
+        resolvedByUserId: undefined,
+        resolvedFrom: undefined,
+        resolvedTo: undefined,
+        size: 100,
+      }),
+    )
     expect(await screen.findByText(/hosting april/i)).toBeInTheDocument()
     expect(screen.getAllByText(/bestätigt/i).length).toBeGreaterThan(0)
   })
@@ -100,12 +117,14 @@ describe('ReviewArchivePage', () => {
       fireEvent.change(screen.getByLabelText(/typ/i), { target: { value: 'service_type_review' } })
       fireEvent.change(screen.getByPlaceholderText('UUID'), { target: { value: 'user-1' } })
     })
-    await waitFor(() => expect(mockListReviewArchive).toHaveBeenLastCalledWith(MANDANT_ID, {
-      itemType: 'service_type_review',
-      resolvedByUserId: 'user-1',
-      resolvedFrom: undefined,
-      resolvedTo: undefined,
-      size: 100,
-    }))
+    await waitFor(() =>
+      expect(mockListReviewArchive).toHaveBeenLastCalledWith(MANDANT_ID, {
+        itemType: 'service_type_review',
+        resolvedByUserId: 'user-1',
+        resolvedFrom: undefined,
+        resolvedTo: undefined,
+        size: 100,
+      }),
+    )
   })
 })

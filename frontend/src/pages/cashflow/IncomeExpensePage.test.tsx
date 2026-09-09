@@ -110,7 +110,9 @@ afterEach(() => {
 beforeEach(() => {
   downloadWorkbookMock.mockReset()
   server.use(
-    http.get(`/api/v1/mandants/${MANDANT_ID}/journal/years`, () => HttpResponse.json({ years: [2026] })),
+    http.get(`/api/v1/mandants/${MANDANT_ID}/journal/years`, () =>
+      HttpResponse.json({ years: [2026] }),
+    ),
   )
 })
 
@@ -357,9 +359,15 @@ describe('IncomeExpensePage', () => {
     expect(expenseSection).not.toBeNull()
     const expenseRows = within(expenseSection as HTMLElement).getAllByRole('row')
     const expenseText = expenseRows.map((row) => row.textContent ?? '')
-    const largestNegativeIndex = expenseText.findIndex((text) => text.includes('Lieferant B / Groß'))
-    const middleNegativeIndex = expenseText.findIndex((text) => text.includes('Lieferant C / Mittel'))
-    const smallestNegativeIndex = expenseText.findIndex((text) => text.includes('Lieferant A / Klein'))
+    const largestNegativeIndex = expenseText.findIndex((text) =>
+      text.includes('Lieferant B / Groß'),
+    )
+    const middleNegativeIndex = expenseText.findIndex((text) =>
+      text.includes('Lieferant C / Mittel'),
+    )
+    const smallestNegativeIndex = expenseText.findIndex((text) =>
+      text.includes('Lieferant A / Klein'),
+    )
 
     expect(largestNegativeIndex).toBeGreaterThan(-1)
     expect(middleNegativeIndex).toBeGreaterThan(-1)
@@ -381,7 +389,9 @@ describe('IncomeExpensePage', () => {
       renderPage()
     })
 
-    await waitFor(() => expect(screen.getByText(/Fehler beim Laden der Matrix/i)).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByText(/Fehler beim Laden der Matrix/i)).toBeInTheDocument(),
+    )
   })
 
   it('keeps empty groups visible for editing users', async () => {
@@ -528,7 +538,9 @@ describe('IncomeExpensePage', () => {
 
     expect(within(incomeSection).queryByText('Alpha GmbH / A Leistung')).not.toBeInTheDocument()
     expect(within(incomeSection).queryByText('Beta GmbH / B Leistung')).not.toBeInTheDocument()
-    expect(within(incomeSection).getByRole('button', { name: 'Alle aufklappen' })).toBeInTheDocument()
+    expect(
+      within(incomeSection).getByRole('button', { name: 'Alle aufklappen' }),
+    ).toBeInTheDocument()
 
     fireEvent.click(within(incomeSection).getByRole('button', { name: 'Alle aufklappen' }))
 
@@ -632,17 +644,22 @@ describe('IncomeExpensePage', () => {
     }
 
     server.use(
-      http.get(`/api/v1/mandants/${MANDANT_ID}/reports/income-expense`, () => HttpResponse.json(buildMatrixResponse())),
-      http.patch(`/api/v1/mandants/${MANDANT_ID}/service-groups/:groupId`, async ({ params, request }) => {
-        const payload = await request.json() as { sort_order?: number }
-        const group = incomeGroups.find((entry) => entry.group_id === params.groupId)
-        if (!group) {
-          return HttpResponse.json({ detail: 'not found' }, { status: 404 })
-        }
-        group.sort_order = payload.sort_order ?? group.sort_order
-        reorderRequests.push({ groupId: String(params.groupId), sortOrder: payload.sort_order })
-        return HttpResponse.json(group)
-      }),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/reports/income-expense`, () =>
+        HttpResponse.json(buildMatrixResponse()),
+      ),
+      http.patch(
+        `/api/v1/mandants/${MANDANT_ID}/service-groups/:groupId`,
+        async ({ params, request }) => {
+          const payload = (await request.json()) as { sort_order?: number }
+          const group = incomeGroups.find((entry) => entry.group_id === params.groupId)
+          if (!group) {
+            return HttpResponse.json({ detail: 'not found' }, { status: 404 })
+          }
+          group.sort_order = payload.sort_order ?? group.sort_order
+          reorderRequests.push({ groupId: String(params.groupId), sortOrder: payload.sort_order })
+          return HttpResponse.json(group)
+        },
+      ),
     )
 
     await act(async () => {
@@ -665,7 +682,11 @@ describe('IncomeExpensePage', () => {
     fireEvent.dragOver(targetRow, { dataTransfer })
     fireEvent.drop(targetRow, { dataTransfer })
 
-    await waitFor(() => expect(reorderRequests.some((entry) => entry.groupId === 'group-c' && entry.sortOrder === 1)).toBe(true))
+    await waitFor(() =>
+      expect(
+        reorderRequests.some((entry) => entry.groupId === 'group-c' && entry.sortOrder === 1),
+      ).toBe(true),
+    )
 
     await waitFor(() => {
       const gammaRow = screen.getByText('Gamma').closest('tr')
@@ -674,8 +695,12 @@ describe('IncomeExpensePage', () => {
       if (!gammaRow || !alphaRow || !betaRow) {
         throw new Error('Expected group rows not found after reorder')
       }
-      expect(gammaRow.compareDocumentPosition(alphaRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-      expect(alphaRow.compareDocumentPosition(betaRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(
+        gammaRow.compareDocumentPosition(alphaRow) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
+      expect(
+        alphaRow.compareDocumentPosition(betaRow) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
     })
   })
 
@@ -717,38 +742,54 @@ describe('IncomeExpensePage', () => {
     const assignmentRequests: Array<{ serviceId: string; groupId: string }> = []
 
     server.use(
-      http.get(`/api/v1/mandants/${MANDANT_ID}/reports/income-expense`, () => HttpResponse.json(
-        buildIncomeMatrixResponse([...incomeGroups].sort((left, right) => left.sort_order - right.sort_order)),
-      )),
-      http.post(`/api/v1/mandants/${MANDANT_ID}/services/:serviceId/group-assignment`, async ({ params, request }) => {
-        const payload = await request.json() as { service_group_id: string }
-        const sourceGroup = incomeGroups.find((group) => group.services.some((service) => service.service_id === params.serviceId))
-        const targetGroup = incomeGroups.find((group) => group.group_id === payload.service_group_id)
-        if (!sourceGroup || !targetGroup) {
-          return HttpResponse.json({ detail: 'not found' }, { status: 404 })
-        }
+      http.get(`/api/v1/mandants/${MANDANT_ID}/reports/income-expense`, () =>
+        HttpResponse.json(
+          buildIncomeMatrixResponse(
+            [...incomeGroups].sort((left, right) => left.sort_order - right.sort_order),
+          ),
+        ),
+      ),
+      http.post(
+        `/api/v1/mandants/${MANDANT_ID}/services/:serviceId/group-assignment`,
+        async ({ params, request }) => {
+          const payload = (await request.json()) as { service_group_id: string }
+          const sourceGroup = incomeGroups.find((group) =>
+            group.services.some((service) => service.service_id === params.serviceId),
+          )
+          const targetGroup = incomeGroups.find(
+            (group) => group.group_id === payload.service_group_id,
+          )
+          if (!sourceGroup || !targetGroup) {
+            return HttpResponse.json({ detail: 'not found' }, { status: 404 })
+          }
 
-        const serviceIndex = sourceGroup.services.findIndex((service) => service.service_id === params.serviceId)
-        const [service] = sourceGroup.services.splice(serviceIndex, 1)
-        if (!service) {
-          return HttpResponse.json({ detail: 'service not found' }, { status: 404 })
-        }
-        targetGroup.services.push(service)
-        sourceGroup.assigned_service_count = sourceGroup.services.length
-        targetGroup.assigned_service_count = targetGroup.services.length
-        sourceGroup.subtotal_cells = makeCells('0.00')
-        targetGroup.subtotal_cells = makeCells('100.00')
-        assignmentRequests.push({ serviceId: String(params.serviceId), groupId: payload.service_group_id })
+          const serviceIndex = sourceGroup.services.findIndex(
+            (service) => service.service_id === params.serviceId,
+          )
+          const [service] = sourceGroup.services.splice(serviceIndex, 1)
+          if (!service) {
+            return HttpResponse.json({ detail: 'service not found' }, { status: 404 })
+          }
+          targetGroup.services.push(service)
+          sourceGroup.assigned_service_count = sourceGroup.services.length
+          targetGroup.assigned_service_count = targetGroup.services.length
+          sourceGroup.subtotal_cells = makeCells('0.00')
+          targetGroup.subtotal_cells = makeCells('100.00')
+          assignmentRequests.push({
+            serviceId: String(params.serviceId),
+            groupId: payload.service_group_id,
+          })
 
-        return HttpResponse.json({
-          id: 'assignment-1',
-          mandant_id: MANDANT_ID,
-          service_id: String(params.serviceId),
-          service_group_id: payload.service_group_id,
-          created_at: '2026-04-16T00:00:00Z',
-          updated_at: '2026-04-16T00:00:00Z',
-        })
-      }),
+          return HttpResponse.json({
+            id: 'assignment-1',
+            mandant_id: MANDANT_ID,
+            service_id: String(params.serviceId),
+            service_group_id: payload.service_group_id,
+            created_at: '2026-04-16T00:00:00Z',
+            updated_at: '2026-04-16T00:00:00Z',
+          })
+        },
+      ),
     )
 
     await act(async () => {
@@ -771,14 +812,21 @@ describe('IncomeExpensePage', () => {
     fireEvent.dragOver(targetRow, { dataTransfer })
     fireEvent.drop(targetRow, { dataTransfer })
 
-    await waitFor(() => expect(assignmentRequests).toContainEqual({ serviceId: 'service-move', groupId: 'group-target' }))
+    await waitFor(() =>
+      expect(assignmentRequests).toContainEqual({
+        serviceId: 'service-move',
+        groupId: 'group-target',
+      }),
+    )
     await waitFor(() => {
       const targetGroupRow = screen.getByText('Ziel').closest('tr')
       const serviceRow = screen.getByText('Alpha GmbH / Verschieben').closest('tr')
       if (!targetGroupRow || !serviceRow) {
         throw new Error('Expected rows not found after service move')
       }
-      expect(targetGroupRow.compareDocumentPosition(serviceRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(
+        targetGroupRow.compareDocumentPosition(serviceRow) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
     })
   })
 
@@ -786,48 +834,50 @@ describe('IncomeExpensePage', () => {
     setup('accountant')
 
     server.use(
-      http.get(`/api/v1/mandants/${MANDANT_ID}/reports/income-expense`, () => HttpResponse.json(
-        buildIncomeMatrixResponse([
-          {
-            group_id: 'group-source',
-            group_name: 'Quelle',
-            sort_order: 1,
-            collapsed: false,
-            assigned_service_count: 1,
-            active_years: [2026],
-            subtotal_cells: makeCells('100.00'),
-            services: [
-              {
-                service_id: 'service-move',
-                service_name: 'Verschieben',
-                partner_name: 'Alpha GmbH',
-                service_type: 'customer',
-                erfolgsneutral: false,
-                cells: makeCells('100.00'),
-              },
-            ],
-          },
-          {
-            group_id: 'group-target',
-            group_name: 'Ziel',
-            sort_order: 2,
-            collapsed: false,
-            assigned_service_count: 1,
-            active_years: [2026],
-            subtotal_cells: makeCells('50.00'),
-            services: [
-              {
-                service_id: 'service-other',
-                service_name: 'Bleibt',
-                partner_name: 'Beta GmbH',
-                service_type: 'customer',
-                erfolgsneutral: false,
-                cells: makeCells('50.00'),
-              },
-            ],
-          },
-        ]),
-      )),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/reports/income-expense`, () =>
+        HttpResponse.json(
+          buildIncomeMatrixResponse([
+            {
+              group_id: 'group-source',
+              group_name: 'Quelle',
+              sort_order: 1,
+              collapsed: false,
+              assigned_service_count: 1,
+              active_years: [2026],
+              subtotal_cells: makeCells('100.00'),
+              services: [
+                {
+                  service_id: 'service-move',
+                  service_name: 'Verschieben',
+                  partner_name: 'Alpha GmbH',
+                  service_type: 'customer',
+                  erfolgsneutral: false,
+                  cells: makeCells('100.00'),
+                },
+              ],
+            },
+            {
+              group_id: 'group-target',
+              group_name: 'Ziel',
+              sort_order: 2,
+              collapsed: false,
+              assigned_service_count: 1,
+              active_years: [2026],
+              subtotal_cells: makeCells('50.00'),
+              services: [
+                {
+                  service_id: 'service-other',
+                  service_name: 'Bleibt',
+                  partner_name: 'Beta GmbH',
+                  service_type: 'customer',
+                  erfolgsneutral: false,
+                  cells: makeCells('50.00'),
+                },
+              ],
+            },
+          ]),
+        ),
+      ),
     )
 
     await act(async () => {
@@ -859,34 +909,39 @@ describe('IncomeExpensePage', () => {
     setup('accountant')
 
     server.use(
-      http.get(`/api/v1/mandants/${MANDANT_ID}/reports/income-expense`, () => HttpResponse.json(
-        buildIncomeMatrixResponse([
-          {
-            group_id: 'group-source',
-            group_name: 'Quelle',
-            sort_order: 1,
-            collapsed: false,
-            assigned_service_count: 1,
-            active_years: [2026],
-            subtotal_cells: makeCells('100.00'),
-            services: [
-              {
-                service_id: 'service-move',
-                service_name: 'Verschieben',
-                partner_name: 'Alpha GmbH',
-                service_type: 'customer',
-                erfolgsneutral: false,
-                cells: makeCells('100.00'),
-              },
-            ],
-          },
-        ]),
-      )),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/reports/income-expense`, () =>
+        HttpResponse.json(
+          buildIncomeMatrixResponse([
+            {
+              group_id: 'group-source',
+              group_name: 'Quelle',
+              sort_order: 1,
+              collapsed: false,
+              assigned_service_count: 1,
+              active_years: [2026],
+              subtotal_cells: makeCells('100.00'),
+              services: [
+                {
+                  service_id: 'service-move',
+                  service_name: 'Verschieben',
+                  partner_name: 'Alpha GmbH',
+                  service_type: 'customer',
+                  erfolgsneutral: false,
+                  cells: makeCells('100.00'),
+                },
+              ],
+            },
+          ]),
+        ),
+      ),
     )
 
     const scrollBy = vi.spyOn(globalThis, 'scrollBy').mockImplementation(() => {})
     // jsdom meldet ein Dokument ohne Hoehe, sonst greift die Bereichspruefung des Auto-Scrolls.
-    Object.defineProperty(document.documentElement, 'scrollHeight', { configurable: true, value: 5000 })
+    Object.defineProperty(document.documentElement, 'scrollHeight', {
+      configurable: true,
+      value: 5000,
+    })
 
     try {
       await act(async () => {
@@ -904,7 +959,11 @@ describe('IncomeExpensePage', () => {
       // jsdom kennt keinen DragEvent-Konstruktor, MouseEvent traegt das benoetigte clientY.
       act(() => {
         document.body.dispatchEvent(
-          new MouseEvent('dragover', { bubbles: true, cancelable: true, clientY: globalThis.innerHeight - 4 }),
+          new MouseEvent('dragover', {
+            bubbles: true,
+            cancelable: true,
+            clientY: globalThis.innerHeight - 4,
+          }),
         )
       })
 
@@ -962,21 +1021,31 @@ describe('IncomeExpensePage', () => {
     const assignmentRequests: Array<{ serviceId: string; groupId: string }> = []
 
     server.use(
-      http.get(`/api/v1/mandants/${MANDANT_ID}/reports/income-expense`, () => HttpResponse.json(
-        buildIncomeMatrixResponse([...incomeGroups].sort((left, right) => left.sort_order - right.sort_order)),
-      )),
-      http.post(`/api/v1/mandants/${MANDANT_ID}/services/:serviceId/group-assignment`, async ({ params, request }) => {
-        const payload = await request.json() as { service_group_id: string }
-        assignmentRequests.push({ serviceId: String(params.serviceId), groupId: payload.service_group_id })
-        return HttpResponse.json({
-          id: 'assignment-plain',
-          mandant_id: MANDANT_ID,
-          service_id: String(params.serviceId),
-          service_group_id: payload.service_group_id,
-          created_at: '2026-04-16T00:00:00Z',
-          updated_at: '2026-04-16T00:00:00Z',
-        })
-      }),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/reports/income-expense`, () =>
+        HttpResponse.json(
+          buildIncomeMatrixResponse(
+            [...incomeGroups].sort((left, right) => left.sort_order - right.sort_order),
+          ),
+        ),
+      ),
+      http.post(
+        `/api/v1/mandants/${MANDANT_ID}/services/:serviceId/group-assignment`,
+        async ({ params, request }) => {
+          const payload = (await request.json()) as { service_group_id: string }
+          assignmentRequests.push({
+            serviceId: String(params.serviceId),
+            groupId: payload.service_group_id,
+          })
+          return HttpResponse.json({
+            id: 'assignment-plain',
+            mandant_id: MANDANT_ID,
+            service_id: String(params.serviceId),
+            service_group_id: payload.service_group_id,
+            created_at: '2026-04-16T00:00:00Z',
+            updated_at: '2026-04-16T00:00:00Z',
+          })
+        },
+      ),
     )
 
     await act(async () => {
@@ -991,13 +1060,21 @@ describe('IncomeExpensePage', () => {
     }
 
     const plainTextTransfer = {
-      getData: (type: string) => type === 'text/plain' ? JSON.stringify({ serviceId: 'service-plain', section: 'income' }) : '',
+      getData: (type: string) =>
+        type === 'text/plain'
+          ? JSON.stringify({ serviceId: 'service-plain', section: 'income' })
+          : '',
     }
 
     fireEvent.dragOver(targetRow, { dataTransfer: plainTextTransfer })
     fireEvent.drop(targetRow, { dataTransfer: plainTextTransfer })
 
-    await waitFor(() => expect(assignmentRequests).toContainEqual({ serviceId: 'service-plain', groupId: 'group-target' }))
+    await waitFor(() =>
+      expect(assignmentRequests).toContainEqual({
+        serviceId: 'service-plain',
+        groupId: 'group-target',
+      }),
+    )
   })
 
   it('blocks deleting a group that still has assigned services in other years', async () => {
@@ -1054,8 +1131,12 @@ describe('IncomeExpensePage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Gruppe Archivgruppe löschen' }))
 
-    await waitFor(() => expect(screen.getByText(/Diese Gruppe enthält noch 2 Services/i)).toBeInTheDocument())
-    expect(screen.getByText(/In der aktuellen Jahresansicht sind keine Services sichtbar/i)).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByText(/Diese Gruppe enthält noch 2 Services/i)).toBeInTheDocument(),
+    )
+    expect(
+      screen.getByText(/In der aktuellen Jahresansicht sind keine Services sichtbar/i),
+    ).toBeInTheDocument()
     expect(screen.getByText(/2024, 2025/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Löschen' })).toBeDisabled()
   })
@@ -1064,7 +1145,9 @@ describe('IncomeExpensePage', () => {
     setup('viewer')
 
     server.use(
-      http.get(`/api/v1/mandants/${MANDANT_ID}/journal/years`, () => HttpResponse.json({ years: [2025, 2026] })),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/journal/years`, () =>
+        HttpResponse.json({ years: [2025, 2026] }),
+      ),
       http.get(`/api/v1/mandants/${MANDANT_ID}/reports/income-expense`, ({ request }) => {
         const requestUrl = new URL(request.url)
         const requestedYear = Number(requestUrl.searchParams.get('year') ?? '2026')
@@ -1144,7 +1227,9 @@ describe('IncomeExpensePage', () => {
     const requestedYears: number[] = []
 
     server.use(
-      http.get(`/api/v1/mandants/${MANDANT_ID}/journal/years`, () => HttpResponse.json({ years: [2024, 2025, 2026] })),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/journal/years`, () =>
+        HttpResponse.json({ years: [2024, 2025, 2026] }),
+      ),
       http.get(`/api/v1/mandants/${MANDANT_ID}/reports/income-expense`, ({ request }) => {
         const requestUrl = new URL(request.url)
         const requestedYear = Number(requestUrl.searchParams.get('year') ?? '2026')
@@ -1218,7 +1303,9 @@ describe('IncomeExpensePage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Zur Jahresansicht' }))
 
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Mehrjahresansicht' })).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Mehrjahresansicht' })).toBeInTheDocument(),
+    )
     expect(screen.getByRole('button', { name: '◀ Vorjahr' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Folgejahr ▶' })).toBeDisabled()
   })
@@ -1227,68 +1314,74 @@ describe('IncomeExpensePage', () => {
     setup('accountant')
 
     const incomeGroupsByYear = new Map<number, Array<Record<string, unknown>>>([
-      [2025, [
-        {
-          group_id: 'group-source',
-          group_name: 'Quelle',
-          sort_order: 1,
-          collapsed: false,
-          assigned_service_count: 1,
-          active_years: [2025, 2026],
-          subtotal_cells: makeCells('100.00'),
-          services: [
-            {
-              service_id: 'service-move',
-              service_name: 'Mehrjahr',
-              partner_name: 'Alpha GmbH',
-              service_type: 'customer',
-              erfolgsneutral: false,
-              cells: makeCells('100.00'),
-            },
-          ],
-        },
-        {
-          group_id: 'group-target',
-          group_name: 'Ziel',
-          sort_order: 2,
-          collapsed: false,
-          assigned_service_count: 0,
-          active_years: [2025, 2026],
-          subtotal_cells: makeCells('0.00'),
-          services: [],
-        },
-      ]],
-      [2026, [
-        {
-          group_id: 'group-source',
-          group_name: 'Quelle',
-          sort_order: 1,
-          collapsed: false,
-          assigned_service_count: 1,
-          active_years: [2025, 2026],
-          subtotal_cells: makeCells('200.00'),
-          services: [
-            {
-              service_id: 'service-move',
-              service_name: 'Mehrjahr',
-              partner_name: 'Alpha GmbH',
-              service_type: 'customer',
-              erfolgsneutral: false,
-              cells: makeCells('200.00'),
-            },
-          ],
-        },
-        {
-          group_id: 'group-target',
-          group_name: 'Ziel',
-          sort_order: 2,
-          collapsed: false,
-          assigned_service_count: 0,
-          active_years: [2025, 2026],
-          subtotal_cells: makeCells('0.00'),
-          services: [],
-        },
-      ]],
+      [
+        2025,
+        [
+          {
+            group_id: 'group-source',
+            group_name: 'Quelle',
+            sort_order: 1,
+            collapsed: false,
+            assigned_service_count: 1,
+            active_years: [2025, 2026],
+            subtotal_cells: makeCells('100.00'),
+            services: [
+              {
+                service_id: 'service-move',
+                service_name: 'Mehrjahr',
+                partner_name: 'Alpha GmbH',
+                service_type: 'customer',
+                erfolgsneutral: false,
+                cells: makeCells('100.00'),
+              },
+            ],
+          },
+          {
+            group_id: 'group-target',
+            group_name: 'Ziel',
+            sort_order: 2,
+            collapsed: false,
+            assigned_service_count: 0,
+            active_years: [2025, 2026],
+            subtotal_cells: makeCells('0.00'),
+            services: [],
+          },
+        ],
+      ],
+      [
+        2026,
+        [
+          {
+            group_id: 'group-source',
+            group_name: 'Quelle',
+            sort_order: 1,
+            collapsed: false,
+            assigned_service_count: 1,
+            active_years: [2025, 2026],
+            subtotal_cells: makeCells('200.00'),
+            services: [
+              {
+                service_id: 'service-move',
+                service_name: 'Mehrjahr',
+                partner_name: 'Alpha GmbH',
+                service_type: 'customer',
+                erfolgsneutral: false,
+                cells: makeCells('200.00'),
+              },
+            ],
+          },
+          {
+            group_id: 'group-target',
+            group_name: 'Ziel',
+            sort_order: 2,
+            collapsed: false,
+            assigned_service_count: 0,
+            active_years: [2025, 2026],
+            subtotal_cells: makeCells('0.00'),
+            services: [],
+          },
+        ],
+      ],
     ])
     const assignmentRequests: Array<{ serviceId: string; groupId: string }> = []
 
@@ -1323,44 +1416,63 @@ describe('IncomeExpensePage', () => {
     }
 
     server.use(
-      http.get(`/api/v1/mandants/${MANDANT_ID}/journal/years`, () => HttpResponse.json({ years: [2025, 2026] })),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/journal/years`, () =>
+        HttpResponse.json({ years: [2025, 2026] }),
+      ),
       http.get(`/api/v1/mandants/${MANDANT_ID}/reports/income-expense`, ({ request }) => {
         const requestUrl = new URL(request.url)
         const requestedYear = Number(requestUrl.searchParams.get('year') ?? '2026')
         return HttpResponse.json(buildResponseForYear(requestedYear))
       }),
-      http.post(`/api/v1/mandants/${MANDANT_ID}/services/:serviceId/group-assignment`, async ({ params, request }) => {
-        const payload = await request.json() as { service_group_id: string }
-        assignmentRequests.push({ serviceId: String(params.serviceId), groupId: payload.service_group_id })
+      http.post(
+        `/api/v1/mandants/${MANDANT_ID}/services/:serviceId/group-assignment`,
+        async ({ params, request }) => {
+          const payload = (await request.json()) as { service_group_id: string }
+          assignmentRequests.push({
+            serviceId: String(params.serviceId),
+            groupId: payload.service_group_id,
+          })
 
-        for (const groups of incomeGroupsByYear.values()) {
-          const sourceGroup = groups.find((group) => Array.isArray(group.services) && group.services.some((service) => service.service_id === params.serviceId))
-          const targetGroup = groups.find((group) => group.group_id === payload.service_group_id)
-          if (!sourceGroup || !targetGroup || !Array.isArray(sourceGroup.services) || !Array.isArray(targetGroup.services)) {
-            continue
+          for (const groups of incomeGroupsByYear.values()) {
+            const sourceGroup = groups.find(
+              (group) =>
+                Array.isArray(group.services) &&
+                group.services.some((service) => service.service_id === params.serviceId),
+            )
+            const targetGroup = groups.find((group) => group.group_id === payload.service_group_id)
+            if (
+              !sourceGroup ||
+              !targetGroup ||
+              !Array.isArray(sourceGroup.services) ||
+              !Array.isArray(targetGroup.services)
+            ) {
+              continue
+            }
+
+            const serviceIndex = sourceGroup.services.findIndex(
+              (service) => service.service_id === params.serviceId,
+            )
+            const [service] = sourceGroup.services.splice(serviceIndex, 1)
+            if (!service) {
+              continue
+            }
+            targetGroup.services.push(service)
+            sourceGroup.assigned_service_count = sourceGroup.services.length
+            targetGroup.assigned_service_count = targetGroup.services.length
+            sourceGroup.subtotal_cells = makeCells('0.00')
+            targetGroup.subtotal_cells = makeCells(service.cells.year_total.net)
           }
 
-          const serviceIndex = sourceGroup.services.findIndex((service) => service.service_id === params.serviceId)
-          const [service] = sourceGroup.services.splice(serviceIndex, 1)
-          if (!service) {
-            continue
-          }
-          targetGroup.services.push(service)
-          sourceGroup.assigned_service_count = sourceGroup.services.length
-          targetGroup.assigned_service_count = targetGroup.services.length
-          sourceGroup.subtotal_cells = makeCells('0.00')
-          targetGroup.subtotal_cells = makeCells(service.cells.year_total.net)
-        }
-
-        return HttpResponse.json({
-          id: 'assignment-multi',
-          mandant_id: MANDANT_ID,
-          service_id: String(params.serviceId),
-          service_group_id: payload.service_group_id,
-          created_at: '2026-04-19T00:00:00Z',
-          updated_at: '2026-04-19T00:00:00Z',
-        })
-      }),
+          return HttpResponse.json({
+            id: 'assignment-multi',
+            mandant_id: MANDANT_ID,
+            service_id: String(params.serviceId),
+            service_group_id: payload.service_group_id,
+            created_at: '2026-04-19T00:00:00Z',
+            updated_at: '2026-04-19T00:00:00Z',
+          })
+        },
+      ),
     )
 
     await act(async () => {
@@ -1387,14 +1499,21 @@ describe('IncomeExpensePage', () => {
     fireEvent.dragOver(targetRow, { dataTransfer })
     fireEvent.drop(targetRow, { dataTransfer })
 
-    await waitFor(() => expect(assignmentRequests).toContainEqual({ serviceId: 'service-move', groupId: 'group-target' }))
+    await waitFor(() =>
+      expect(assignmentRequests).toContainEqual({
+        serviceId: 'service-move',
+        groupId: 'group-target',
+      }),
+    )
     await waitFor(() => {
       const targetGroupRow = screen.getByText('Ziel').closest('tr')
       const serviceRow = screen.getByText('Alpha GmbH / Mehrjahr').closest('tr')
       if (!targetGroupRow || !serviceRow) {
         throw new Error('Expected rows not found after multi-year service move')
       }
-      expect(targetGroupRow.compareDocumentPosition(serviceRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(
+        targetGroupRow.compareDocumentPosition(serviceRow) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
     })
   })
 
@@ -1402,7 +1521,9 @@ describe('IncomeExpensePage', () => {
     setup('viewer')
 
     server.use(
-      http.get(`/api/v1/mandants/${MANDANT_ID}/journal/years`, () => HttpResponse.json({ years: [2025, 2026] })),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/journal/years`, () =>
+        HttpResponse.json({ years: [2025, 2026] }),
+      ),
       http.get(`/api/v1/mandants/${MANDANT_ID}/reports/income-expense`, ({ request }) => {
         const requestUrl = new URL(request.url)
         const requestedYear = Number(requestUrl.searchParams.get('year') ?? '2026')
@@ -1460,7 +1581,9 @@ describe('IncomeExpensePage', () => {
       renderPage()
     })
 
-    await waitFor(() => expect(screen.getByText('Beispiel GmbH / Leistung 2026')).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByText('Beispiel GmbH / Leistung 2026')).toBeInTheDocument(),
+    )
 
     const incomeSection = screen.getByRole('heading', { name: 'Einnahmen' }).closest('section')
     if (!incomeSection) {
@@ -1468,7 +1591,9 @@ describe('IncomeExpensePage', () => {
     }
 
     fireEvent.click(within(incomeSection).getByRole('button', { name: '▼' }))
-    expect(within(incomeSection).queryByText('Beispiel GmbH / Leistung 2026')).not.toBeInTheDocument()
+    expect(
+      within(incomeSection).queryByText('Beispiel GmbH / Leistung 2026'),
+    ).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '◀ Vorjahr' }))
 
@@ -1479,10 +1604,11 @@ describe('IncomeExpensePage', () => {
       throw new Error('Updated income section not found')
     }
 
-    expect(within(updatedIncomeSection).queryByText('Beispiel GmbH / Leistung 2025')).not.toBeInTheDocument()
+    expect(
+      within(updatedIncomeSection).queryByText('Beispiel GmbH / Leistung 2025'),
+    ).not.toBeInTheDocument()
     expect(within(updatedIncomeSection).getByRole('button', { name: '▶' })).toBeInTheDocument()
   })
-
 
   it('exportiert die Jahresansicht mit einem Tabellenblatt je Sektion', async () => {
     setup('viewer')
@@ -1490,43 +1616,46 @@ describe('IncomeExpensePage', () => {
     server.use(
       http.get(`/api/v1/mandants/${MANDANT_ID}/reports/income-expense`, () =>
         HttpResponse.json(
-          buildIncomeMatrixResponse([
-            {
-              group_id: 'group-income',
-              group_name: 'Kunden',
-              sort_order: 1,
-              collapsed: false,
-              assigned_service_count: 2,
-              active_years: [2026],
-              subtotal_cells: makeCells('300.00'),
-              services: [
-                {
-                  service_id: 'service-small',
-                  service_name: 'Beratung',
-                  partner_name: 'Beispiel GmbH',
-                  service_type: 'customer',
-                  erfolgsneutral: false,
-                  cells: makeCells('100.00'),
-                },
-                {
-                  service_id: 'service-big',
-                  service_name: 'Premium',
-                  partner_name: 'Beispiel GmbH',
-                  service_type: 'customer',
-                  erfolgsneutral: false,
-                  cells: makeCells('200.00'),
-                },
-                {
-                  service_id: 'service-zero',
-                  service_name: 'Nullzeile',
-                  partner_name: 'Beispiel GmbH',
-                  service_type: 'customer',
-                  erfolgsneutral: false,
-                  cells: makeCells('0.00'),
-                },
-              ],
-            },
-          ], '300.00'),
+          buildIncomeMatrixResponse(
+            [
+              {
+                group_id: 'group-income',
+                group_name: 'Kunden',
+                sort_order: 1,
+                collapsed: false,
+                assigned_service_count: 2,
+                active_years: [2026],
+                subtotal_cells: makeCells('300.00'),
+                services: [
+                  {
+                    service_id: 'service-small',
+                    service_name: 'Beratung',
+                    partner_name: 'Beispiel GmbH',
+                    service_type: 'customer',
+                    erfolgsneutral: false,
+                    cells: makeCells('100.00'),
+                  },
+                  {
+                    service_id: 'service-big',
+                    service_name: 'Premium',
+                    partner_name: 'Beispiel GmbH',
+                    service_type: 'customer',
+                    erfolgsneutral: false,
+                    cells: makeCells('200.00'),
+                  },
+                  {
+                    service_id: 'service-zero',
+                    service_name: 'Nullzeile',
+                    partner_name: 'Beispiel GmbH',
+                    service_type: 'customer',
+                    erfolgsneutral: false,
+                    cells: makeCells('0.00'),
+                  },
+                ],
+              },
+            ],
+            '300.00',
+          ),
         ),
       ),
     )
@@ -1541,7 +1670,10 @@ describe('IncomeExpensePage', () => {
     })
 
     expect(downloadWorkbookMock).toHaveBeenCalledTimes(1)
-    const [input, fileName] = downloadWorkbookMock.mock.calls[0] as [IncomeExpenseWorkbookInput, string]
+    const [input, fileName] = downloadWorkbookMock.mock.calls[0] as [
+      IncomeExpenseWorkbookInput,
+      string,
+    ]
 
     expect(fileName).toBe('Einnahmen-Ausgaben_2026.xlsx')
     expect(input.subtitle).toBe('Jahresansicht 2026')
@@ -1620,7 +1752,9 @@ describe('IncomeExpensePage', () => {
     setup('viewer')
 
     server.use(
-      http.get(`/api/v1/mandants/${MANDANT_ID}/journal/years`, () => HttpResponse.json({ years: [2025, 2026] })),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/journal/years`, () =>
+        HttpResponse.json({ years: [2025, 2026] }),
+      ),
       http.get(`/api/v1/mandants/${MANDANT_ID}/reports/income-expense`, ({ request }) => {
         const requestedYear = new URL(request.url).searchParams.get('year') ?? '2026'
         return HttpResponse.json(
@@ -1652,7 +1786,9 @@ describe('IncomeExpensePage', () => {
     await act(async () => {
       renderPage()
     })
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Mehrjahresansicht' })).toBeEnabled())
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Mehrjahresansicht' })).toBeEnabled(),
+    )
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Mehrjahresansicht' }))
@@ -1663,10 +1799,17 @@ describe('IncomeExpensePage', () => {
       fireEvent.click(screen.getByRole('button', { name: /Export Excel/ }))
     })
 
-    const [input, fileName] = downloadWorkbookMock.mock.calls[0] as [IncomeExpenseWorkbookInput, string]
+    const [input, fileName] = downloadWorkbookMock.mock.calls[0] as [
+      IncomeExpenseWorkbookInput,
+      string,
+    ]
     expect(fileName).toBe('Einnahmen-Ausgaben_2025-2026.xlsx')
     expect(input.subtitle).toBe('Mehrjahresansicht 2025-2026')
-    expect(input.sheets[0].columns.map((column) => column.label)).toEqual(['Gesamt', '2025', '2026'])
+    expect(input.sheets[0].columns.map((column) => column.label)).toEqual([
+      'Gesamt',
+      '2025',
+      '2026',
+    ])
     // Jahressumme pro Jahr, die Gesamtspalte rechnet Excel selbst.
     expect(input.sheets[0].groups[0].services[0].values).toEqual(['200.00', '100.00', '100.00'])
   })
@@ -1690,6 +1833,8 @@ describe('IncomeExpensePage', () => {
       fireEvent.click(screen.getByRole('button', { name: /Export Excel/ }))
     })
 
-    expect(await screen.findByText('Excel-Export fehlgeschlagen. Bitte erneut versuchen.')).toBeInTheDocument()
+    expect(
+      await screen.findByText('Excel-Export fehlgeschlagen. Bitte erneut versuchen.'),
+    ).toBeInTheDocument()
   })
 })

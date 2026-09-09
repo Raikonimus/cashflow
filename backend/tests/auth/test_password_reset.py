@@ -3,11 +3,12 @@ Integration tests – POST /api/v1/auth/forgot-password
                     POST /api/v1/auth/reset-password
 (Story 002-password-reset)
 """
-import pytest
 
-from tests.auth.conftest import create_user
+from datetime import UTC
+
 from app.auth.models import PasswordResetToken
 from app.auth.security import generate_raw_token, hash_token
+from tests.auth.conftest import create_user
 
 
 class TestForgotPassword:
@@ -32,6 +33,7 @@ class TestForgotPassword:
             "/api/v1/auth/forgot-password", json={"email": "test@example.com"}
         )
         from sqlmodel import select
+
         result = await db_session.exec(select(PasswordResetToken))
         tokens = result.all()
         assert len(tokens) == 1
@@ -41,13 +43,13 @@ class TestForgotPassword:
 class TestResetPassword:
     async def _create_token(self, db_session, user) -> str:
         """Helper: create a valid reset token and return the raw token."""
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
 
         raw = generate_raw_token()
         token = PasswordResetToken(
             user_id=user.id,
             token_hash=hash_token(raw),
-            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
         )
         db_session.add(token)
         await db_session.commit()
@@ -93,6 +95,7 @@ class TestResetPassword:
             json={"token": raw, "password": "NewPassword99"},
         )
         from sqlmodel import select
+
         result = await db_session.exec(select(PasswordResetToken))
         for t in result.all():
             assert t.used_at is not None
@@ -120,14 +123,14 @@ class TestResetPassword:
         assert resp.status_code == 400
 
     async def test_expired_token_returns_400(self, client, db_session):
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
 
         user = await create_user(db_session)
         raw = generate_raw_token()
         expired_token = PasswordResetToken(
             user_id=user.id,
             token_hash=hash_token(raw),
-            expires_at=datetime.now(timezone.utc) - timedelta(seconds=1),
+            expires_at=datetime.now(UTC) - timedelta(seconds=1),
         )
         db_session.add(expired_token)
         await db_session.commit()

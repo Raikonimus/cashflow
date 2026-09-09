@@ -2,7 +2,12 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { faPenToSquare, faTrashCan, faArrowUpRightFromSquare, faFileExcel } from '@fortawesome/free-solid-svg-icons'
+import {
+  faPenToSquare,
+  faTrashCan,
+  faArrowUpRightFromSquare,
+  faFileExcel,
+} from '@fortawesome/free-solid-svg-icons'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { getIncomeExpenseMatrix, listJournalYears } from '@/api/journal'
 import type {
@@ -12,7 +17,12 @@ import type {
   IncomeExpenseServiceRow,
   MatrixCells,
 } from '@/api/journal'
-import { assignServiceGroup, createServiceGroup, deleteServiceGroup, updateServiceGroup } from '@/api/services'
+import {
+  assignServiceGroup,
+  createServiceGroup,
+  deleteServiceGroup,
+  updateServiceGroup,
+} from '@/api/services'
 import type { ServiceGroupSection } from '@/api/services'
 import { ScenarioSelect } from '@/components/ScenarioSelect'
 import type { Scenario } from '@/api/forecast'
@@ -20,8 +30,36 @@ import { useAuthStore } from '@/store/auth-store'
 import type { ExcelSheet } from './income-expense-excel'
 
 const BASE_SERVICE_NAME = 'Basisleistung'
-const MONTH_KEYS: Array<keyof MatrixCells> = ['year_total', 'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
-const HEADERS = ['Jahr', 'Jan', 'Feb', 'Mar', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez']
+const MONTH_KEYS: Array<keyof MatrixCells> = [
+  'year_total',
+  'jan',
+  'feb',
+  'mar',
+  'apr',
+  'may',
+  'jun',
+  'jul',
+  'aug',
+  'sep',
+  'oct',
+  'nov',
+  'dec',
+]
+const HEADERS = [
+  'Jahr',
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'Mai',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Okt',
+  'Nov',
+  'Dez',
+]
 const LABEL_COLUMN_WIDTH_CLASS = 'w-[26rem]'
 const VALUE_COLUMN_WIDTH_CLASS = 'w-[6.5rem]'
 const SECTION_LABELS: Record<ServiceGroupSection, string> = {
@@ -94,7 +132,10 @@ function formatMoney(value: string, currency: string): string {
   if (Number.isNaN(numeric)) {
     return currency === 'EUR' ? '0' : `0 ${currency}`
   }
-  const formatted = numeric.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+  const formatted = numeric.toLocaleString('de-DE', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  })
   return currency === 'EUR' ? formatted : `${formatted} ${currency}`
 }
 
@@ -146,7 +187,9 @@ function compareServicesByPeriodTotal(
   return rightTotal - leftTotal
 }
 
-function getServiceDisplayName(service: Pick<IncomeExpenseServiceRow, 'service_name' | 'partner_name'>): string {
+function getServiceDisplayName(
+  service: Pick<IncomeExpenseServiceRow, 'service_name' | 'partner_name'>,
+): string {
   if (service.partner_name) {
     if (service.service_name === BASE_SERVICE_NAME) {
       return service.partner_name
@@ -221,7 +264,9 @@ function toDisplaySection(section: IncomeExpenseSection): DisplaySection {
   }
 }
 
-function buildYearDisplaySections(sections: IncomeExpenseMatrixResponse['sections']): DisplaySections {
+function buildYearDisplaySections(
+  sections: IncomeExpenseMatrixResponse['sections'],
+): DisplaySections {
   return {
     income: toDisplaySection(sections.income),
     expense: toDisplaySection(sections.expense),
@@ -234,16 +279,19 @@ function buildMultiYearDisplaySections(
   years: number[],
 ): DisplaySections {
   function buildSection(sectionKey: ServiceGroupSection): DisplaySection {
-    const groups = new Map<string, {
-      group_id: string
-      group_name: string
-      sort_order: number
-      collapsed: boolean
-      assigned_service_count: number
-      active_years: Set<number>
-      periodValuesByYear: Map<number, string>
-      services: Map<string, DisplayServiceRow & { periodValuesByYear: Map<number, string> }>
-    }>()
+    const groups = new Map<
+      string,
+      {
+        group_id: string
+        group_name: string
+        sort_order: number
+        collapsed: boolean
+        assigned_service_count: number
+        active_years: Set<number>
+        periodValuesByYear: Map<number, string>
+        services: Map<string, DisplayServiceRow & { periodValuesByYear: Map<number, string> }>
+      }
+    >()
     const totalsByYear = new Map<number, string>()
     let currency = 'EUR'
     let excludedCurrencyCount = 0
@@ -273,13 +321,20 @@ function buildMultiYearDisplaySections(
       })
     }
 
-    function upsertGroup(section: IncomeExpenseSection, group: IncomeExpenseGroupRow, year: number) {
+    function upsertGroup(
+      section: IncomeExpenseSection,
+      group: IncomeExpenseGroupRow,
+      year: number,
+    ) {
       currency = section.currency
       const existingGroup = groups.get(group.group_id)
       if (existingGroup) {
         existingGroup.group_name = group.group_name
         existingGroup.sort_order = group.sort_order
-        existingGroup.assigned_service_count = Math.max(existingGroup.assigned_service_count, group.assigned_service_count)
+        existingGroup.assigned_service_count = Math.max(
+          existingGroup.assigned_service_count,
+          group.assigned_service_count,
+        )
         for (const activeYear of group.active_years) {
           existingGroup.active_years.add(activeYear)
         }
@@ -295,14 +350,21 @@ function buildMultiYearDisplaySections(
         assigned_service_count: group.assigned_service_count,
         active_years: new Set(group.active_years),
         periodValuesByYear: new Map([[year, group.subtotal_cells.year_total.net]]),
-        services: new Map<string, DisplayServiceRow & { periodValuesByYear: Map<number, string> }>(),
+        services: new Map<
+          string,
+          DisplayServiceRow & { periodValuesByYear: Map<number, string> }
+        >(),
       }
       groups.set(group.group_id, nextGroup)
       return nextGroup
     }
 
-    function toDisplayService(service: DisplayServiceRow & { periodValuesByYear: Map<number, string> }): DisplayServiceRow {
-      const serviceYearlyValues = years.map((entryYear) => service.periodValuesByYear.get(entryYear) ?? '0.00')
+    function toDisplayService(
+      service: DisplayServiceRow & { periodValuesByYear: Map<number, string> },
+    ): DisplayServiceRow {
+      const serviceYearlyValues = years.map(
+        (entryYear) => service.periodValuesByYear.get(entryYear) ?? '0.00',
+      )
       return {
         service_id: service.service_id,
         partner_id: service.partner_id,
@@ -339,7 +401,11 @@ function buildMultiYearDisplaySections(
       excluded_currency_count: excludedCurrencyCount,
       excluded_currency_amount_gross: formatAmount(excludedCurrencyAmount),
       groups: [...groups.values()]
-        .sort((left, right) => left.sort_order - right.sort_order || left.group_name.localeCompare(right.group_name, 'de'))
+        .sort(
+          (left, right) =>
+            left.sort_order - right.sort_order ||
+            left.group_name.localeCompare(right.group_name, 'de'),
+        )
         .map((group) => {
           const yearlyValues = years.map((year) => group.periodValuesByYear.get(year) ?? '0.00')
           return {
@@ -370,7 +436,11 @@ function parseDragPayload(raw: string): { serviceId: string; section: ServiceGro
     if (!parsed.serviceId || !parsed.section) {
       return null
     }
-    if (parsed.section !== 'income' && parsed.section !== 'expense' && parsed.section !== 'neutral') {
+    if (
+      parsed.section !== 'income' &&
+      parsed.section !== 'expense' &&
+      parsed.section !== 'neutral'
+    ) {
       return null
     }
     return { serviceId: parsed.serviceId, section: parsed.section }
@@ -379,13 +449,19 @@ function parseDragPayload(raw: string): { serviceId: string; section: ServiceGro
   }
 }
 
-function parseGroupDragPayload(raw: string): { groupId: string; section: ServiceGroupSection } | null {
+function parseGroupDragPayload(
+  raw: string,
+): { groupId: string; section: ServiceGroupSection } | null {
   try {
     const parsed = JSON.parse(raw) as { groupId?: string; section?: string }
     if (!parsed.groupId || !parsed.section) {
       return null
     }
-    if (parsed.section !== 'income' && parsed.section !== 'expense' && parsed.section !== 'neutral') {
+    if (
+      parsed.section !== 'income' &&
+      parsed.section !== 'expense' &&
+      parsed.section !== 'neutral'
+    ) {
       return null
     }
     return { groupId: parsed.groupId, section: parsed.section }
@@ -395,7 +471,8 @@ function parseGroupDragPayload(raw: string): { groupId: string; section: Service
 }
 
 function getDragPayload(dataTransfer: DataTransfer, type: 'group' | 'service'): string {
-  const customType = type === 'group' ? 'application/x-cashflow-group' : 'application/x-cashflow-service'
+  const customType =
+    type === 'group' ? 'application/x-cashflow-group' : 'application/x-cashflow-service'
   const customPayload = dataTransfer.getData(customType)
   if (customPayload) {
     return customPayload
@@ -435,7 +512,11 @@ function OverlayDialog({
       <div className="w-full max-w-lg rounded-xl border border-gray-200 bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
           <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
-          <button type="button" onClick={onClose} className="rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100"
+          >
             Schließen
           </button>
         </div>
@@ -486,7 +567,10 @@ function useDragAutoScroll(active: boolean) {
       }
 
       const maxScrollY = document.documentElement.scrollHeight - viewportHeight
-      if ((delta < 0 && globalThis.scrollY <= 0) || (delta > 0 && globalThis.scrollY >= maxScrollY - 1)) {
+      if (
+        (delta < 0 && globalThis.scrollY <= 0) ||
+        (delta > 0 && globalThis.scrollY >= maxScrollY - 1)
+      ) {
         return
       }
       globalThis.scrollBy(0, delta)
@@ -549,17 +633,22 @@ function SectionTable({
   )
   const showTotals = hasNonZeroPeriodValues(section.totals)
   const excludedCurrencyAmount = Number.parseFloat(section.excluded_currency_amount_gross)
-  const showExcludedCurrencyInfo = section.excluded_currency_count > 0
-    || (!Number.isNaN(excludedCurrencyAmount) && Math.abs(excludedCurrencyAmount) > 0.0000001)
+  const showExcludedCurrencyInfo =
+    section.excluded_currency_count > 0 ||
+    (!Number.isNaN(excludedCurrencyAmount) && Math.abs(excludedCurrencyAmount) > 0.0000001)
   const visibleGroupIds = visibleGroups.map((group) => group.group_id)
   const hasVisibleGroups = visibleGroupIds.length > 0
-  const areAllVisibleGroupsCollapsed = hasVisibleGroups && visibleGroupIds.every((groupId) => collapsedGroups.has(groupId))
+  const areAllVisibleGroupsCollapsed =
+    hasVisibleGroups && visibleGroupIds.every((groupId) => collapsedGroups.has(groupId))
 
-  useEffect(() => () => {
-    if (serviceDragCollapseTimeout.current !== null) {
-      clearTimeout(serviceDragCollapseTimeout.current)
-    }
-  }, [])
+  useEffect(
+    () => () => {
+      if (serviceDragCollapseTimeout.current !== null) {
+        clearTimeout(serviceDragCollapseTimeout.current)
+      }
+    },
+    [],
+  )
 
   function beginServiceDrag(sourceGroupId: string) {
     setIsDragging(true)
@@ -649,7 +738,8 @@ function SectionTable({
           )}
           {showExcludedCurrencyInfo && (
             <div className="text-xs text-gray-500">
-              Ausgeschlossene Fremdwährungen: {section.excluded_currency_count} ({formatMoney(section.excluded_currency_amount_gross, section.currency)})
+              Ausgeschlossene Fremdwährungen: {section.excluded_currency_count} (
+              {formatMoney(section.excluded_currency_amount_gross, section.currency)})
             </div>
           )}
         </div>
@@ -664,7 +754,9 @@ function SectionTable({
           </colgroup>
           <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
             <tr>
-              <th className="sticky left-0 z-10 bg-gray-50 px-4 py-2 text-left">Leistung / Gruppe</th>
+              <th className="sticky left-0 z-10 bg-gray-50 px-4 py-2 text-left">
+                Leistung / Gruppe
+              </th>
               {columns.map((column, index) => (
                 <th
                   key={column.key}
@@ -680,8 +772,9 @@ function SectionTable({
             {visibleGroups.map((group) => {
               // Waehrend eine Leistung gezogen wird, bleibt nur ihre Quellgruppe offen:
               // Drop-Ziele sind ausschliesslich Gruppenkopfzeilen, die so ohne Scrollen erreichbar bleiben.
-              const isCollapsed = collapsedGroups.has(group.group_id)
-                || (serviceDragSourceGroupId !== null && serviceDragSourceGroupId !== group.group_id)
+              const isCollapsed =
+                collapsedGroups.has(group.group_id) ||
+                (serviceDragSourceGroupId !== null && serviceDragSourceGroupId !== group.group_id)
               const isPendingGroup = pendingGroupIds.includes(group.group_id)
               const isDropTarget = dragOverGroupId === group.group_id
               return (
@@ -694,11 +787,11 @@ function SectionTable({
                       if (!canEdit) {
                         return
                       }
-                      const payload = JSON.stringify({ groupId: group.group_id, section: sectionKey })
-                      event.dataTransfer.setData(
-                        'application/x-cashflow-group',
-                        payload,
-                      )
+                      const payload = JSON.stringify({
+                        groupId: group.group_id,
+                        section: sectionKey,
+                      })
+                      event.dataTransfer.setData('application/x-cashflow-group', payload)
                       event.dataTransfer.setData('text/plain', payload)
                       event.dataTransfer.effectAllowed = 'move'
                       setIsDragging(true)
@@ -729,7 +822,9 @@ function SectionTable({
                       handleGroupDrop(group.group_id, getDragPayload(event.dataTransfer, 'service'))
                     }}
                   >
-                    <td className={`sticky left-0 z-10 px-4 py-2 text-left ${isDropTarget ? 'bg-amber-100' : 'bg-gray-50'}`}>
+                    <td
+                      className={`sticky left-0 z-10 px-4 py-2 text-left ${isDropTarget ? 'bg-amber-100' : 'bg-gray-50'}`}
+                    >
                       <button
                         type="button"
                         onClick={() => onToggleGroup(group.group_id)}
@@ -742,14 +837,16 @@ function SectionTable({
                         <span className="ml-2 inline-flex items-center gap-px align-middle">
                           <button
                             type="button"
-                            onClick={() => onRequestRenameGroup({
-                              id: group.group_id,
-                              name: group.group_name,
-                              section: sectionKey,
-                              assignedServiceCount: group.assigned_service_count,
-                              currentYearServiceCount: group.services.length,
-                              activeYears: group.active_years,
-                            })}
+                            onClick={() =>
+                              onRequestRenameGroup({
+                                id: group.group_id,
+                                name: group.group_name,
+                                section: sectionKey,
+                                assignedServiceCount: group.assigned_service_count,
+                                currentYearServiceCount: group.services.length,
+                                activeYears: group.active_years,
+                              })
+                            }
                             aria-label={`Gruppe ${group.group_name} umbenennen`}
                             title="Gruppe umbenennen"
                             className="inline-flex h-5 w-5 items-center justify-center rounded text-gray-500 hover:bg-gray-200/70 hover:text-gray-700"
@@ -758,14 +855,16 @@ function SectionTable({
                           </button>
                           <button
                             type="button"
-                            onClick={() => onRequestDeleteGroup({
-                              id: group.group_id,
-                              name: group.group_name,
-                              section: sectionKey,
-                              assignedServiceCount: group.assigned_service_count,
-                              currentYearServiceCount: group.services.length,
-                              activeYears: group.active_years,
-                            })}
+                            onClick={() =>
+                              onRequestDeleteGroup({
+                                id: group.group_id,
+                                name: group.group_name,
+                                section: sectionKey,
+                                assignedServiceCount: group.assigned_service_count,
+                                currentYearServiceCount: group.services.length,
+                                activeYears: group.active_years,
+                              })
+                            }
                             aria-label={`Gruppe ${group.group_name} löschen`}
                             title="Gruppe löschen"
                             className="inline-flex h-5 w-5 items-center justify-center rounded text-gray-500 hover:bg-red-100/70 hover:text-red-600"
@@ -784,53 +883,61 @@ function SectionTable({
                       </td>
                     ))}
                   </tr>
-                  {!isCollapsed && group.services.map((service) => {
-                    const serviceDisplayName = getServiceDisplayName(service)
-                    return (
-                      <tr
-                        key={service.service_id}
-                        className={`text-gray-700 ${pendingServiceId === service.service_id ? 'bg-amber-50' : ''}`}
-                        draggable={canEdit}
-                        onDragStart={(event) => {
-                          if (!canEdit) {
-                            return
-                          }
-                          const payload = JSON.stringify({ serviceId: service.service_id, section: sectionKey })
-                          event.dataTransfer.setData(
-                            'application/x-cashflow-service',
-                            payload,
-                          )
-                          event.dataTransfer.setData('text/plain', payload)
-                          event.dataTransfer.effectAllowed = 'move'
-                          beginServiceDrag(group.group_id)
-                        }}
-                        onDragEnd={endDrag}
-                      >
-                        <td className="sticky left-0 z-10 bg-white px-4 py-2 text-left">
-                          <span className="ml-6 flex items-center gap-1 truncate" title={serviceDisplayName}>
-                            <span className="truncate">{serviceDisplayName}</span>
-                            <Link
-                              to={`/partners/${service.partner_id}/services?expand=${service.service_id}`}
-                              className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] text-gray-400 hover:bg-gray-200/70 hover:text-gray-700"
-                              title="Zur Leistungsdetailansicht"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <FontAwesomeIcon icon={faArrowUpRightFromSquare} />
-                            </Link>
-                          </span>
-                        </td>
-                      {service.periodValues.map((value, index) => (
-                        <td
-                          key={`${service.service_id}-${index}`}
-                          className={`px-3 py-2 text-right ${index === YEAR_COLUMN_INDEX ? 'bg-amber-50/60 font-medium text-amber-950' : ''} ${forecastColumns[index] ? FORECAST_CELL_CLASS : ''}`}
-                          title={forecastColumns[index] ? service.forecast_reason ?? undefined : undefined}
+                  {!isCollapsed &&
+                    group.services.map((service) => {
+                      const serviceDisplayName = getServiceDisplayName(service)
+                      return (
+                        <tr
+                          key={service.service_id}
+                          className={`text-gray-700 ${pendingServiceId === service.service_id ? 'bg-amber-50' : ''}`}
+                          draggable={canEdit}
+                          onDragStart={(event) => {
+                            if (!canEdit) {
+                              return
+                            }
+                            const payload = JSON.stringify({
+                              serviceId: service.service_id,
+                              section: sectionKey,
+                            })
+                            event.dataTransfer.setData('application/x-cashflow-service', payload)
+                            event.dataTransfer.setData('text/plain', payload)
+                            event.dataTransfer.effectAllowed = 'move'
+                            beginServiceDrag(group.group_id)
+                          }}
+                          onDragEnd={endDrag}
                         >
-                          {formatMoney(value, section.currency)}
-                        </td>
-                      ))}
-                      </tr>
-                    )
-                  })}
+                          <td className="sticky left-0 z-10 bg-white px-4 py-2 text-left">
+                            <span
+                              className="ml-6 flex items-center gap-1 truncate"
+                              title={serviceDisplayName}
+                            >
+                              <span className="truncate">{serviceDisplayName}</span>
+                              <Link
+                                to={`/partners/${service.partner_id}/services?expand=${service.service_id}`}
+                                className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] text-gray-400 hover:bg-gray-200/70 hover:text-gray-700"
+                                title="Zur Leistungsdetailansicht"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <FontAwesomeIcon icon={faArrowUpRightFromSquare} />
+                              </Link>
+                            </span>
+                          </td>
+                          {service.periodValues.map((value, index) => (
+                            <td
+                              key={`${service.service_id}-${index}`}
+                              className={`px-3 py-2 text-right ${index === YEAR_COLUMN_INDEX ? 'bg-amber-50/60 font-medium text-amber-950' : ''} ${forecastColumns[index] ? FORECAST_CELL_CLASS : ''}`}
+                              title={
+                                forecastColumns[index]
+                                  ? (service.forecast_reason ?? undefined)
+                                  : undefined
+                              }
+                            >
+                              {formatMoney(value, section.currency)}
+                            </td>
+                          ))}
+                        </tr>
+                      )
+                    })}
                 </Fragment>
               )
             })}
@@ -880,19 +987,29 @@ export function IncomeExpensePage() {
   const [viewMode, setViewMode] = useState<ViewMode>('year')
   const [scenario, setScenario] = useState<Scenario>('expected')
   const [pendingServiceId, setPendingServiceId] = useState<string | null>(null)
-  const [createDialog, setCreateDialog] = useState<CreateGroupDialogState>({ open: false, section: 'income' })
-  const [renameDialog, setRenameDialog] = useState<RenameGroupDialogState>({ open: false, group: null })
-  const [deleteDialog, setDeleteDialog] = useState<DeleteGroupDialogState>({ open: false, group: null })
+  const [createDialog, setCreateDialog] = useState<CreateGroupDialogState>({
+    open: false,
+    section: 'income',
+  })
+  const [renameDialog, setRenameDialog] = useState<RenameGroupDialogState>({
+    open: false,
+    group: null,
+  })
+  const [deleteDialog, setDeleteDialog] = useState<DeleteGroupDialogState>({
+    open: false,
+    group: null,
+  })
   const [newGroupName, setNewGroupName] = useState('')
   const [renameGroupName, setRenameGroupName] = useState('')
   const [pendingGroupIds, setPendingGroupIds] = useState<string[]>([])
   const [isExporting, setIsExporting] = useState(false)
   const [exportFailed, setExportFailed] = useState(false)
-  const [collapsedGroupsBySection, setCollapsedGroupsBySection] = useState<CollapsedGroupsBySection>({
-    income: new Set(),
-    expense: new Set(),
-    neutral: new Set(),
-  })
+  const [collapsedGroupsBySection, setCollapsedGroupsBySection] =
+    useState<CollapsedGroupsBySection>({
+      income: new Set(),
+      expense: new Set(),
+      neutral: new Set(),
+    })
   const queryClient = useQueryClient()
   const canEdit = EDIT_ROLES.has(role)
 
@@ -946,7 +1063,10 @@ export function IncomeExpensePage() {
     if (viewMode === 'multi-year') {
       return [
         { key: 'total', label: 'Gesamt' },
-        ...availableYears.map((entryYear) => ({ key: String(entryYear), label: String(entryYear) })),
+        ...availableYears.map((entryYear) => ({
+          key: String(entryYear),
+          label: String(entryYear),
+        })),
       ]
     }
     return [
@@ -972,13 +1092,15 @@ export function IncomeExpensePage() {
 
   const exportPeriod = useMemo(() => {
     if (viewMode === 'multi-year') {
-      const range = availableYears.length > 0 ? `${availableYears[0]}-${availableYears.at(-1)}` : 'alle-Jahre'
+      const range =
+        availableYears.length > 0 ? `${availableYears[0]}-${availableYears.at(-1)}` : 'alle-Jahre'
       return { label: `Mehrjahresansicht ${range}`, fileSuffix: range }
     }
     return { label: `Jahresansicht ${year}`, fileSuffix: String(year) }
   }, [availableYears, viewMode, year])
 
-  const isLoading = viewMode === 'multi-year' ? multiYearMatrixQuery.isLoading : yearMatrixQuery.isLoading
+  const isLoading =
+    viewMode === 'multi-year' ? multiYearMatrixQuery.isLoading : yearMatrixQuery.isLoading
   const isError = viewMode === 'multi-year' ? multiYearMatrixQuery.isError : yearMatrixQuery.isError
   const error = viewMode === 'multi-year' ? multiYearMatrixQuery.error : yearMatrixQuery.error
 
@@ -1003,8 +1125,15 @@ export function IncomeExpensePage() {
   }
 
   const createGroupMutation = useMutation({
-    mutationFn: ({ section, name, sortOrder }: { section: ServiceGroupSection; name: string; sortOrder: number }) =>
-      createServiceGroup(mandantId, { section, name, sort_order: sortOrder }),
+    mutationFn: ({
+      section,
+      name,
+      sortOrder,
+    }: {
+      section: ServiceGroupSection
+      name: string
+      sortOrder: number
+    }) => createServiceGroup(mandantId, { section, name, sort_order: sortOrder }),
     onSuccess: () => {
       invalidateMatrixQueries()
     },
@@ -1020,7 +1149,11 @@ export function IncomeExpensePage() {
 
   const deleteGroupMutation = useMutation({
     mutationFn: ({ groupId, reassignToGroupId }: { groupId: string; reassignToGroupId?: string }) =>
-      deleteServiceGroup(mandantId, groupId, reassignToGroupId ? { reassign_to_group_id: reassignToGroupId } : {}),
+      deleteServiceGroup(
+        mandantId,
+        groupId,
+        reassignToGroupId ? { reassign_to_group_id: reassignToGroupId } : {},
+      ),
     onSuccess: () => {
       invalidateMatrixQueries()
     },
@@ -1039,9 +1172,17 @@ export function IncomeExpensePage() {
   })
 
   const reorderGroupsMutation = useMutation({
-    mutationFn: async ({ section, orderedGroupIds }: { section: ServiceGroupSection; orderedGroupIds: string[] }) => {
+    mutationFn: async ({
+      section,
+      orderedGroupIds,
+    }: {
+      section: ServiceGroupSection
+      orderedGroupIds: string[]
+    }) => {
       const currentGroups = groupsBySection[section]
-      const currentSortOrders = new Map(currentGroups.map((group) => [group.group_id, group.sort_order]))
+      const currentSortOrders = new Map(
+        currentGroups.map((group) => [group.group_id, group.sort_order]),
+      )
       const orderedSortValues = [...currentGroups]
         .map((group) => group.sort_order)
         .sort((left, right) => left - right)
@@ -1054,7 +1195,9 @@ export function IncomeExpensePage() {
         .filter((entry) => currentSortOrders.get(entry.groupId) !== entry.sortOrder)
 
       await Promise.all(
-        updates.map((entry) => updateServiceGroup(mandantId, entry.groupId, { sort_order: entry.sortOrder })),
+        updates.map((entry) =>
+          updateServiceGroup(mandantId, entry.groupId, { sort_order: entry.sortOrder }),
+        ),
       )
     },
     onMutate: ({ orderedGroupIds }) => {
@@ -1130,13 +1273,18 @@ export function IncomeExpensePage() {
     if (!target || target.assignedServiceCount > 0) {
       return
     }
-    deleteGroupMutation.mutate({ groupId: target.id }, {
-      onSuccess: () => closeDeleteDialog(),
-    })
+    deleteGroupMutation.mutate(
+      { groupId: target.id },
+      {
+        onSuccess: () => closeDeleteDialog(),
+      },
+    )
   }
 
   const deleteDialogHasAssignedServices = (deleteDialog.group?.assignedServiceCount ?? 0) > 0
-  const deleteDialogOtherYears = (deleteDialog.group?.activeYears ?? []).filter((activeYear) => activeYear !== year)
+  const deleteDialogOtherYears = (deleteDialog.group?.activeYears ?? []).filter(
+    (activeYear) => activeYear !== year,
+  )
 
   function toggleGroup(section: ServiceGroupSection, groupId: string) {
     setCollapsedGroupsBySection((prev) => {
@@ -1177,7 +1325,10 @@ export function IncomeExpensePage() {
     }
   }
 
-  function setCollapsedGroupsForSection(section: ServiceGroupSection, updater: (prev: Set<string>) => Set<string>) {
+  function setCollapsedGroupsForSection(
+    section: ServiceGroupSection,
+    updater: (prev: Set<string>) => Set<string>,
+  ) {
     setCollapsedGroupsBySection((prev) => ({
       ...prev,
       [section]: updater(prev[section]),
@@ -1204,14 +1355,20 @@ export function IncomeExpensePage() {
             Alle Angaben in € (netto)
           </p>
         </div>
-        {!canEdit && <p className="mt-2 text-xs text-teal-200">Read-only Modus: Gruppen und Zuordnungen sind nicht bearbeitbar.</p>}
+        {!canEdit && (
+          <p className="mt-2 text-xs text-teal-200">
+            Read-only Modus: Gruppen und Zuordnungen sind nicht bearbeitbar.
+          </p>
+        )}
       </header>
 
       <div className="flex items-center rounded-lg border border-gray-200 bg-white px-4 py-3">
         {viewMode === 'year' ? (
           <>
             <div className="flex items-center gap-3">
-              <div className="rounded bg-gray-100 px-3 py-1.5 font-semibold text-gray-800">Jahresansicht</div>
+              <div className="rounded bg-gray-100 px-3 py-1.5 font-semibold text-gray-800">
+                Jahresansicht
+              </div>
               <button
                 type="button"
                 onClick={() => setYear((prev) => prev - 1)}
@@ -1220,7 +1377,9 @@ export function IncomeExpensePage() {
               >
                 ◀ Vorjahr
               </button>
-              <div className="rounded bg-gray-100 px-3 py-1.5 font-semibold text-gray-800">{year}</div>
+              <div className="rounded bg-gray-100 px-3 py-1.5 font-semibold text-gray-800">
+                {year}
+              </div>
               <button
                 type="button"
                 onClick={() => setYear((prev) => prev + 1)}
@@ -1231,7 +1390,11 @@ export function IncomeExpensePage() {
               </button>
             </div>
             <div className="ml-auto flex items-center gap-2">
-              <ExcelExportButton disabled={!sections || isLoading || isError} busy={isExporting} onExport={handleExportExcel} />
+              <ExcelExportButton
+                disabled={!sections || isLoading || isError}
+                busy={isExporting}
+                onExport={handleExportExcel}
+              />
               <button
                 type="button"
                 onClick={() => setViewMode('multi-year')}
@@ -1245,13 +1408,21 @@ export function IncomeExpensePage() {
         ) : (
           <>
             <div className="flex items-center gap-3">
-              <div className="rounded bg-gray-100 px-3 py-1.5 font-semibold text-gray-800">Mehrjahresansicht</div>
+              <div className="rounded bg-gray-100 px-3 py-1.5 font-semibold text-gray-800">
+                Mehrjahresansicht
+              </div>
               {availableYears.length > 0 && (
-                <div className="text-sm text-gray-500">{availableYears[0]} bis {availableYears.at(-1)}</div>
+                <div className="text-sm text-gray-500">
+                  {availableYears[0]} bis {availableYears.at(-1)}
+                </div>
               )}
             </div>
             <div className="ml-auto flex items-center gap-2">
-              <ExcelExportButton disabled={!sections || isLoading || isError} busy={isExporting} onExport={handleExportExcel} />
+              <ExcelExportButton
+                disabled={!sections || isLoading || isError}
+                busy={isExporting}
+                onExport={handleExportExcel}
+              />
               <button
                 type="button"
                 onClick={() => setViewMode('year')}
@@ -1275,20 +1446,25 @@ export function IncomeExpensePage() {
 
       {forecastColumns.some(Boolean) && (
         <p className="text-xs text-gray-500">
-          <span className={`${FORECAST_CELL_CLASS} not-italic font-medium`}>Graue, kursive Werte</span>{' '}
-          sind Prognosen aus der Historie der jeweiligen Leistung. Der laufende Monat wird auf
-          einen vollen Monat hochgerechnet, soweit die Prognose über das bereits Gebuchte
-          hinausgeht. Woher ein Wert stammt, steht im Tooltip der Zelle.
+          <span className={`${FORECAST_CELL_CLASS} not-italic font-medium`}>
+            Graue, kursive Werte
+          </span>{' '}
+          sind Prognosen aus der Historie der jeweiligen Leistung. Der laufende Monat wird auf einen
+          vollen Monat hochgerechnet, soweit die Prognose über das bereits Gebuchte hinausgeht.
+          Woher ein Wert stammt, steht im Tooltip der Zelle.
         </p>
       )}
 
       {isLoading && (
-        <div className="rounded-xl border border-gray-200 bg-white px-6 py-8 text-center text-gray-500">Daten werden geladen...</div>
+        <div className="rounded-xl border border-gray-200 bg-white px-6 py-8 text-center text-gray-500">
+          Daten werden geladen...
+        </div>
       )}
 
       {isError && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-6 py-4 text-sm text-red-700">
-          Fehler beim Laden der Matrix: {error instanceof Error ? error.message : 'Unbekannter Fehler'}
+          Fehler beim Laden der Matrix:{' '}
+          {error instanceof Error ? error.message : 'Unbekannter Fehler'}
         </div>
       )}
 
@@ -1298,7 +1474,10 @@ export function IncomeExpensePage() {
         </div>
       )}
 
-      {(createGroupMutation.isError || renameGroupMutation.isError || deleteGroupMutation.isError || assignServiceMutation.isError) && (
+      {(createGroupMutation.isError ||
+        renameGroupMutation.isError ||
+        deleteGroupMutation.isError ||
+        assignServiceMutation.isError) && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-6 py-4 text-sm text-red-700">
           Bearbeitung fehlgeschlagen. Bitte Eingaben prüfen und erneut versuchen.
         </div>
@@ -1316,8 +1495,12 @@ export function IncomeExpensePage() {
             onRequestCreateGroup={openCreateDialog}
             onRequestRenameGroup={openRenameDialog}
             onRequestDeleteGroup={openDeleteDialog}
-            onAssignService={(serviceId, groupId) => assignServiceMutation.mutate({ serviceId, groupId })}
-            onReorderGroups={(orderedGroupIds) => reorderGroupsMutation.mutate({ section: 'income', orderedGroupIds })}
+            onAssignService={(serviceId, groupId) =>
+              assignServiceMutation.mutate({ serviceId, groupId })
+            }
+            onReorderGroups={(orderedGroupIds) =>
+              reorderGroupsMutation.mutate({ section: 'income', orderedGroupIds })
+            }
             collapsedGroups={collapsedGroupsBySection.income}
             onToggleGroup={(groupId) => toggleGroup('income', groupId)}
             onSetCollapsedGroups={(updater) => setCollapsedGroupsForSection('income', updater)}
@@ -1334,8 +1517,12 @@ export function IncomeExpensePage() {
             onRequestCreateGroup={openCreateDialog}
             onRequestRenameGroup={openRenameDialog}
             onRequestDeleteGroup={openDeleteDialog}
-            onAssignService={(serviceId, groupId) => assignServiceMutation.mutate({ serviceId, groupId })}
-            onReorderGroups={(orderedGroupIds) => reorderGroupsMutation.mutate({ section: 'expense', orderedGroupIds })}
+            onAssignService={(serviceId, groupId) =>
+              assignServiceMutation.mutate({ serviceId, groupId })
+            }
+            onReorderGroups={(orderedGroupIds) =>
+              reorderGroupsMutation.mutate({ section: 'expense', orderedGroupIds })
+            }
             collapsedGroups={collapsedGroupsBySection.expense}
             onToggleGroup={(groupId) => toggleGroup('expense', groupId)}
             onSetCollapsedGroups={(updater) => setCollapsedGroupsForSection('expense', updater)}
@@ -1352,8 +1539,12 @@ export function IncomeExpensePage() {
             onRequestCreateGroup={openCreateDialog}
             onRequestRenameGroup={openRenameDialog}
             onRequestDeleteGroup={openDeleteDialog}
-            onAssignService={(serviceId, groupId) => assignServiceMutation.mutate({ serviceId, groupId })}
-            onReorderGroups={(orderedGroupIds) => reorderGroupsMutation.mutate({ section: 'neutral', orderedGroupIds })}
+            onAssignService={(serviceId, groupId) =>
+              assignServiceMutation.mutate({ serviceId, groupId })
+            }
+            onReorderGroups={(orderedGroupIds) =>
+              reorderGroupsMutation.mutate({ section: 'neutral', orderedGroupIds })
+            }
             collapsedGroups={collapsedGroupsBySection.neutral}
             onToggleGroup={(groupId) => toggleGroup('neutral', groupId)}
             onSetCollapsedGroups={(updater) => setCollapsedGroupsForSection('neutral', updater)}
@@ -1376,17 +1567,25 @@ export function IncomeExpensePage() {
             className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
           />
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={closeCreateDialog} className="rounded border border-gray-300 px-3 py-1.5 text-sm">Abbrechen</button>
-            <button type="button" onClick={submitCreateGroup} className="rounded bg-gray-900 px-3 py-1.5 text-sm text-white">Anlegen</button>
+            <button
+              type="button"
+              onClick={closeCreateDialog}
+              className="rounded border border-gray-300 px-3 py-1.5 text-sm"
+            >
+              Abbrechen
+            </button>
+            <button
+              type="button"
+              onClick={submitCreateGroup}
+              className="rounded bg-gray-900 px-3 py-1.5 text-sm text-white"
+            >
+              Anlegen
+            </button>
           </div>
         </div>
       </OverlayDialog>
 
-      <OverlayDialog
-        open={renameDialog.open}
-        title="Gruppe umbenennen"
-        onClose={closeRenameDialog}
-      >
+      <OverlayDialog open={renameDialog.open} title="Gruppe umbenennen" onClose={closeRenameDialog}>
         <div className="space-y-3">
           <input
             value={renameGroupName}
@@ -1395,17 +1594,25 @@ export function IncomeExpensePage() {
             className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
           />
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={closeRenameDialog} className="rounded border border-gray-300 px-3 py-1.5 text-sm">Abbrechen</button>
-            <button type="button" onClick={submitRenameGroup} className="rounded bg-gray-900 px-3 py-1.5 text-sm text-white">Speichern</button>
+            <button
+              type="button"
+              onClick={closeRenameDialog}
+              className="rounded border border-gray-300 px-3 py-1.5 text-sm"
+            >
+              Abbrechen
+            </button>
+            <button
+              type="button"
+              onClick={submitRenameGroup}
+              className="rounded bg-gray-900 px-3 py-1.5 text-sm text-white"
+            >
+              Speichern
+            </button>
           </div>
         </div>
       </OverlayDialog>
 
-      <OverlayDialog
-        open={deleteDialog.open}
-        title="Gruppe löschen"
-        onClose={closeDeleteDialog}
-      >
+      <OverlayDialog open={deleteDialog.open} title="Gruppe löschen" onClose={closeDeleteDialog}>
         <div className="space-y-3">
           <p className="text-sm text-gray-700">
             Gruppe <strong>{deleteDialog.group?.name}</strong> wirklich löschen?
@@ -1414,19 +1621,36 @@ export function IncomeExpensePage() {
           {deleteDialogHasAssignedServices && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
               <p>
-                Diese Gruppe enthält noch {deleteDialog.group?.assignedServiceCount} Service{deleteDialog.group?.assignedServiceCount === 1 ? '' : 's'} und kann deshalb nicht gelöscht werden.
+                Diese Gruppe enthält noch {deleteDialog.group?.assignedServiceCount} Service
+                {deleteDialog.group?.assignedServiceCount === 1 ? '' : 's'} und kann deshalb nicht
+                gelöscht werden.
               </p>
-              {deleteDialog.group?.currentYearServiceCount === 0 && deleteDialogOtherYears.length > 0 && (
-                <p className="mt-1">
-                  In der aktuellen Jahresansicht sind keine Services sichtbar. Zugeordnete Buchungen gibt es jedoch in den Jahren {deleteDialogOtherYears.join(', ')}.
-                </p>
-              )}
+              {deleteDialog.group?.currentYearServiceCount === 0 &&
+                deleteDialogOtherYears.length > 0 && (
+                  <p className="mt-1">
+                    In der aktuellen Jahresansicht sind keine Services sichtbar. Zugeordnete
+                    Buchungen gibt es jedoch in den Jahren {deleteDialogOtherYears.join(', ')}.
+                  </p>
+                )}
             </div>
           )}
 
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={closeDeleteDialog} className="rounded border border-gray-300 px-3 py-1.5 text-sm">Abbrechen</button>
-            <button type="button" onClick={submitDeleteGroup} disabled={deleteDialogHasAssignedServices} className="rounded bg-red-600 px-3 py-1.5 text-sm text-white disabled:cursor-not-allowed disabled:bg-red-300">Löschen</button>
+            <button
+              type="button"
+              onClick={closeDeleteDialog}
+              className="rounded border border-gray-300 px-3 py-1.5 text-sm"
+            >
+              Abbrechen
+            </button>
+            <button
+              type="button"
+              onClick={submitDeleteGroup}
+              disabled={deleteDialogHasAssignedServices}
+              className="rounded bg-red-600 px-3 py-1.5 text-sm text-white disabled:cursor-not-allowed disabled:bg-red-300"
+            >
+              Löschen
+            </button>
           </div>
         </div>
       </OverlayDialog>

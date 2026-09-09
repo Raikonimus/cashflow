@@ -107,8 +107,12 @@ describe('ServiceManagementPage', () => {
     ]
 
     server.use(
-      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () => HttpResponse.json(partnerDetail)),
-      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () => HttpResponse.json(services)),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () =>
+        HttpResponse.json(partnerDetail),
+      ),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () =>
+        HttpResponse.json(services),
+      ),
       http.get(`/api/v1/mandants/${MANDANT_ID}/journal`, ({ request }) => {
         const url = new URL(request.url)
         if (url.searchParams.get('service_id') !== 'service-hosting') {
@@ -125,7 +129,15 @@ describe('ServiceManagementPage', () => {
               partner_name: 'Amazon EU',
               service_id: 'service-hosting',
               service_name: 'Hosting',
-              splits: [{ service_id: 'service-hosting', service_name: 'Hosting', amount: '-99.90', assignment_mode: 'manual', amount_consistency_ok: false }],
+              splits: [
+                {
+                  service_id: 'service-hosting',
+                  service_name: 'Hosting',
+                  amount: '-99.90',
+                  assignment_mode: 'manual',
+                  amount_consistency_ok: false,
+                },
+              ],
               valuta_date: '2026-04-15',
               booking_date: '2026-04-15',
               amount: '-99.90',
@@ -146,28 +158,31 @@ describe('ServiceManagementPage', () => {
           pages: 1,
         })
       }),
-      http.post(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, async ({ request }) => {
-        const body = (await request.json()) as Record<string, string | null>
-        services.push({
-          id: 'service-support',
-          partner_id: PARTNER_ID,
-          name: String(body.name),
-          description: body.description ? String(body.description) : null,
-          service_type: String(body.service_type ?? 'unknown') as ServiceType,
-          tax_rate: String(body.tax_rate ?? '20.00'),
-          erfolgsneutral: false,
-          valid_from: body.valid_from ? String(body.valid_from) : null,
-          valid_to: body.valid_to ? String(body.valid_to) : null,
-          is_base_service: false,
-          service_type_manual: false,
-          tax_rate_manual: false,
-          created_at: '2026-04-02T00:00:00Z',
-          updated_at: '2026-04-02T00:00:00Z',
-          journal_line_count: 0,
-          matchers: [],
-        })
-        return HttpResponse.json(services[services.length - 1], { status: 201 })
-      }),
+      http.post(
+        `/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`,
+        async ({ request }) => {
+          const body = (await request.json()) as Record<string, string | null>
+          services.push({
+            id: 'service-support',
+            partner_id: PARTNER_ID,
+            name: String(body.name),
+            description: body.description ? String(body.description) : null,
+            service_type: String(body.service_type ?? 'unknown') as ServiceType,
+            tax_rate: String(body.tax_rate ?? '20.00'),
+            erfolgsneutral: false,
+            valid_from: body.valid_from ? String(body.valid_from) : null,
+            valid_to: body.valid_to ? String(body.valid_to) : null,
+            is_base_service: false,
+            service_type_manual: false,
+            tax_rate_manual: false,
+            created_at: '2026-04-02T00:00:00Z',
+            updated_at: '2026-04-02T00:00:00Z',
+            journal_line_count: 0,
+            matchers: [],
+          })
+          return HttpResponse.json(services[services.length - 1], { status: 201 })
+        },
+      ),
       http.patch(`/api/v1/mandants/${MANDANT_ID}/services/service-hosting`, async ({ request }) => {
         const body = (await request.json()) as Record<string, string | null>
         services[1] = {
@@ -188,32 +203,48 @@ describe('ServiceManagementPage', () => {
       http.post(`/api/v1/mandants/${MANDANT_ID}/services/service-hosting/matchers/preview`, () =>
         HttpResponse.json({ matched_lines: [], total: 0 }),
       ),
-      http.post(`/api/v1/mandants/${MANDANT_ID}/services/service-hosting/matchers`, async ({ request }) => {
-        const body = (await request.json()) as Record<string, string | boolean>
-        services[1].matchers.push({
-          id: 'matcher-new',
-          pattern: String(body.pattern),
-          pattern_type: body.pattern_type as 'string' | 'regex',
-          internal_only: Boolean(body.internal_only),
-          created_at: '2026-04-02T00:00:00Z',
-          updated_at: '2026-04-02T00:00:00Z',
-        })
-        return HttpResponse.json(services[1].matchers[services[1].matchers.length - 1], { status: 201 })
-      }),
-      http.patch(`/api/v1/mandants/${MANDANT_ID}/services/service-hosting/matchers/matcher-existing`, async ({ request }) => {
-        const body = (await request.json()) as Record<string, string | boolean>
-        services[1].matchers[0] = {
-          ...services[1].matchers[0],
-          pattern: String(body.pattern),
-          pattern_type: body.pattern_type as 'string' | 'regex',
-          internal_only: body.internal_only === undefined ? services[1].matchers[0].internal_only : Boolean(body.internal_only),
-        }
-        return HttpResponse.json(services[1].matchers[0])
-      }),
-      http.delete(`/api/v1/mandants/${MANDANT_ID}/services/service-hosting/matchers/matcher-existing`, () => {
-        services[1].matchers = services[1].matchers.filter((matcher) => matcher.id !== 'matcher-existing')
-        return new HttpResponse(null, { status: 204 })
-      }),
+      http.post(
+        `/api/v1/mandants/${MANDANT_ID}/services/service-hosting/matchers`,
+        async ({ request }) => {
+          const body = (await request.json()) as Record<string, string | boolean>
+          services[1].matchers.push({
+            id: 'matcher-new',
+            pattern: String(body.pattern),
+            pattern_type: body.pattern_type as 'string' | 'regex',
+            internal_only: Boolean(body.internal_only),
+            created_at: '2026-04-02T00:00:00Z',
+            updated_at: '2026-04-02T00:00:00Z',
+          })
+          return HttpResponse.json(services[1].matchers[services[1].matchers.length - 1], {
+            status: 201,
+          })
+        },
+      ),
+      http.patch(
+        `/api/v1/mandants/${MANDANT_ID}/services/service-hosting/matchers/matcher-existing`,
+        async ({ request }) => {
+          const body = (await request.json()) as Record<string, string | boolean>
+          services[1].matchers[0] = {
+            ...services[1].matchers[0],
+            pattern: String(body.pattern),
+            pattern_type: body.pattern_type as 'string' | 'regex',
+            internal_only:
+              body.internal_only === undefined
+                ? services[1].matchers[0].internal_only
+                : Boolean(body.internal_only),
+          }
+          return HttpResponse.json(services[1].matchers[0])
+        },
+      ),
+      http.delete(
+        `/api/v1/mandants/${MANDANT_ID}/services/service-hosting/matchers/matcher-existing`,
+        () => {
+          services[1].matchers = services[1].matchers.filter(
+            (matcher) => matcher.id !== 'matcher-existing',
+          )
+          return new HttpResponse(null, { status: 204 })
+        },
+      ),
     )
 
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
@@ -231,20 +262,34 @@ describe('ServiceManagementPage', () => {
     await waitFor(() => expect(screen.getByText('AWS April')).toBeInTheDocument())
     expect(screen.getByText(/Buchungsname: Amazon EU Sarl/)).toBeInTheDocument()
 
-    expect(screen.queryByText(/ohne datumsangaben ist die leistung immer gültig/i)).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(/ohne datumsangaben ist die leistung immer gültig/i),
+    ).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /^Neue Leistung$/i }))
-    expect(screen.getByText(/ohne datumsangaben ist die leistung immer gültig/i)).toBeInTheDocument()
-    expect(screen.getByText(/leer gelassene datumsfelder bedeuten: immer gültig/i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/ohne datumsangaben ist die leistung immer gültig/i),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/leer gelassene datumsfelder bedeuten: immer gültig/i),
+    ).toBeInTheDocument()
 
-    fireEvent.change(screen.getAllByPlaceholderText(/z\. b\./i)[0], { target: { value: 'Support' } })
-    fireEvent.change(screen.getByPlaceholderText(/optional/i), { target: { value: 'Premium Support' } })
-    fireEvent.change(screen.getAllByDisplayValue('Unbekannt')[0], { target: { value: 'shareholder' } })
+    fireEvent.change(screen.getAllByPlaceholderText(/z\. b\./i)[0], {
+      target: { value: 'Support' },
+    })
+    fireEvent.change(screen.getByPlaceholderText(/optional/i), {
+      target: { value: 'Premium Support' },
+    })
+    fireEvent.change(screen.getAllByDisplayValue('Unbekannt')[0], {
+      target: { value: 'shareholder' },
+    })
     fireEvent.change(screen.getByLabelText('Gültig ab'), { target: { value: '2026-05-01' } })
     fireEvent.change(screen.getByLabelText('Gültig bis'), { target: { value: '2026-10-31' } })
     fireEvent.click(screen.getByRole('button', { name: /leistung anlegen/i }))
 
     await waitFor(() => expect(screen.getByText('Support')).toBeInTheDocument())
-    expect(screen.queryByText(/ohne datumsangaben ist die leistung immer gültig/i)).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(/ohne datumsangaben ist die leistung immer gültig/i),
+    ).not.toBeInTheDocument()
     expect(screen.getByText('Gesellschafter')).toBeInTheDocument()
     expect(screen.getByText(/Leistung gespeichert/)).toBeInTheDocument()
 
@@ -255,7 +300,9 @@ describe('ServiceManagementPage', () => {
     await waitFor(() => expect(screen.getByText('Cloud Hosting')).toBeInTheDocument())
     expect(screen.getByText(/Leistung aktualisiert/)).toBeInTheDocument()
 
-    fireEvent.change(screen.getAllByPlaceholderText(/z\. b\. hosting oder \^aws/i)[0], { target: { value: '^AWS' } })
+    fireEvent.change(screen.getAllByPlaceholderText(/z\. b\. hosting oder \^aws/i)[0], {
+      target: { value: '^AWS' },
+    })
     fireEvent.change(screen.getAllByDisplayValue('String')[0], { target: { value: 'regex' } })
     fireEvent.click(screen.getAllByRole('button', { name: /matcher testen/i })[0])
     await waitFor(() => expect(screen.getByText(/Kein Treffer/)).toBeInTheDocument())
@@ -309,10 +356,15 @@ describe('ServiceManagementPage', () => {
     ]
 
     server.use(
-      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () => HttpResponse.json(partnerDetail)),
-      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () => HttpResponse.json(services)),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () =>
+        HttpResponse.json(partnerDetail),
+      ),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () =>
+        HttpResponse.json(services),
+      ),
       http.get(`/api/v1/mandants/${MANDANT_ID}/journal`, () =>
-        HttpResponse.json({ items: [], total: 0, page: 1, size: 10, pages: 1 })),
+        HttpResponse.json({ items: [], total: 0, page: 1, size: 10, pages: 1 }),
+      ),
     )
 
     await act(async () => {
@@ -354,12 +406,20 @@ describe('ServiceManagementPage', () => {
     ]
 
     server.use(
-      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () => HttpResponse.json(partnerDetail)),
-      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () => HttpResponse.json(services)),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () =>
+        HttpResponse.json(partnerDetail),
+      ),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () =>
+        HttpResponse.json(services),
+      ),
       http.get(`/api/v1/mandants/${MANDANT_ID}/journal`, () =>
-        HttpResponse.json({ items: [], total: 0, page: 1, size: 10, pages: 1 })),
+        HttpResponse.json({ items: [], total: 0, page: 1, size: 10, pages: 1 }),
+      ),
       http.post(`/api/v1/mandants/${MANDANT_ID}/services/service-hosting/matchers/preview`, () =>
-        HttpResponse.json({ detail: 'Invalid regex pattern: missing ), unterminated subpattern at position 0' }, { status: 422 }),
+        HttpResponse.json(
+          { detail: 'Invalid regex pattern: missing ), unterminated subpattern at position 0' },
+          { status: 422 },
+        ),
       ),
     )
 
@@ -371,7 +431,9 @@ describe('ServiceManagementPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /Hosting Details anzeigen/i }))
 
     expect(screen.getByRole('button', { name: /matcher anlegen/i })).toBeDisabled()
-    fireEvent.change(screen.getByPlaceholderText(/z\. b\. hosting oder \^aws/i), { target: { value: '(' } })
+    fireEvent.change(screen.getByPlaceholderText(/z\. b\. hosting oder \^aws/i), {
+      target: { value: '(' },
+    })
     fireEvent.change(screen.getByDisplayValue('String'), { target: { value: 'regex' } })
     fireEvent.click(screen.getByRole('button', { name: /matcher testen/i }))
 
@@ -403,10 +465,15 @@ describe('ServiceManagementPage', () => {
     ]
 
     server.use(
-      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () => HttpResponse.json(partnerDetail)),
-      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () => HttpResponse.json(services)),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () =>
+        HttpResponse.json(partnerDetail),
+      ),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () =>
+        HttpResponse.json(services),
+      ),
       http.get(`/api/v1/mandants/${MANDANT_ID}/journal`, () =>
-        HttpResponse.json({ items: [], total: 0, page: 1, size: 10, pages: 1 })),
+        HttpResponse.json({ items: [], total: 0, page: 1, size: 10, pages: 1 }),
+      ),
       http.patch(`/api/v1/mandants/${MANDANT_ID}/services/service-hosting`, async ({ request }) => {
         const body = (await request.json()) as Record<string, string | null>
         expect(body.valid_from).toBeNull()

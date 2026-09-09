@@ -15,10 +15,10 @@ const OPTIONS: { value: Scenario; label: string; title: string }[] = [
 ]
 
 const STRESS_HINT =
-  'Stresstest, keine Wahrscheinlichkeit: Die Bandbreite unterstellt, dass alle Regeln '
-  + 'gleichzeitig in dieselbe Richtung danebenliegen — je Regel 10 % bei hoher, 25 % bei '
-  + 'mittlerer und 50 % bei niedriger Confidence. In der Realität gleichen sich Fehler '
-  + 'über viele Leistungen teilweise aus.'
+  'Stresstest, keine Wahrscheinlichkeit: Die Bandbreite unterstellt, dass alle Regeln ' +
+  'gleichzeitig in dieselbe Richtung danebenliegen — je Regel 10 % bei hoher, 25 % bei ' +
+  'mittlerer und 50 % bei niedriger Confidence. In der Realität gleichen sich Fehler ' +
+  'über viele Leistungen teilweise aus.'
 
 /**
  * Die Bandbreite richtet sich nach der Confidence der jeweiligen Regel: eine sicher
@@ -53,9 +53,7 @@ export function ScenarioSelect({
           </button>
         ))}
       </div>
-      {value !== 'expected' && (
-        <p className="max-w-md text-xs text-amber-700">{STRESS_HINT}</p>
-      )}
+      {value !== 'expected' && <p className="max-w-md text-xs text-amber-700">{STRESS_HINT}</p>}
     </div>
   )
 }

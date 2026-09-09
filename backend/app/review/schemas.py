@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
@@ -44,14 +44,14 @@ class ReviewItemResponse(BaseModel):
     id: UUID
     mandant_id: UUID
     item_type: str
-    journal_line_id: Optional[UUID]
-    service_id: Optional[UUID]
+    journal_line_id: UUID | None
+    service_id: UUID | None
     context: Any
     status: str
     created_at: datetime
     updated_at: datetime
-    resolved_by: Optional[UUID]
-    resolved_at: Optional[datetime]
+    resolved_by: UUID | None
+    resolved_at: datetime | None
     journal_line: ReviewJournalLineSummary | None = None
     service: ReviewServiceSummary | None = None
     assigned_journal_lines: list[ReviewJournalLineSummary] = Field(default_factory=list)
@@ -83,7 +83,9 @@ class ServiceSplitEntry(BaseModel):
 class AdjustReviewRequest(BaseModel):
     service_id: UUID | None = None
     service_type: ServiceType | None = None
-    tax_rate: Decimal | None = Field(default=None, ge=Decimal("0.00"), le=Decimal("100.00"))
+    tax_rate: Decimal | None = Field(
+        default=None, ge=Decimal("0.00"), le=Decimal("100.00")
+    )
     erfolgsneutral: bool | None = None
     splits: list[ServiceSplitEntry] | None = None
 
@@ -94,13 +96,23 @@ class AdjustReviewRequest(BaseModel):
         has_splits = bool(self.splits)
 
         if has_splits and (has_service_id or has_service_type):
-            raise ValueError("splits cannot be combined with service_id or service_type")
+            raise ValueError(
+                "splits cannot be combined with service_id or service_type"
+            )
         if has_splits and len(self.splits) < 2:  # type: ignore[arg-type]
             raise ValueError("splits must contain at least 2 entries")
-        if has_service_id and (has_service_type or self.tax_rate is not None or self.erfolgsneutral is not None):
-            raise ValueError("service_id cannot be combined with service_type, tax_rate or erfolgsneutral")
+        if has_service_id and (
+            has_service_type
+            or self.tax_rate is not None
+            or self.erfolgsneutral is not None
+        ):
+            raise ValueError(
+                "service_id cannot be combined with service_type, tax_rate or erfolgsneutral"
+            )
         if not has_service_id and not has_service_type and not has_splits:
-            raise ValueError("either service_id, service_type, or splits must be provided")
+            raise ValueError(
+                "either service_id, service_type, or splits must be provided"
+            )
         return self
 
 

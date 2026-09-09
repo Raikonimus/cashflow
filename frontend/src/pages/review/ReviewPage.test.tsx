@@ -94,7 +94,14 @@ const SERVICE_ASSIGNMENT_ITEM = {
     id: 'line-2',
     partner_id: 'partner-1',
     partner_name: 'Amazon EU',
-    splits: [{ service_id: 'service-base', amount: '-49.00', assignment_mode: 'auto', amount_consistency_ok: false }],
+    splits: [
+      {
+        service_id: 'service-base',
+        amount: '-49.00',
+        assignment_mode: 'auto',
+        amount_consistency_ok: false,
+      },
+    ],
     valuta_date: '2025-03-01',
     booking_date: '2025-03-01',
     amount: '-49.00',
@@ -138,7 +145,14 @@ const SERVICE_TYPE_ITEM = {
     {
       id: 'line-a',
       partner_id: 'partner-2',
-      splits: [{ service_id: 'service-payroll', amount: '-1500.00', assignment_mode: 'auto', amount_consistency_ok: false }],
+      splits: [
+        {
+          service_id: 'service-payroll',
+          amount: '-1500.00',
+          assignment_mode: 'auto',
+          amount_consistency_ok: false,
+        },
+      ],
       valuta_date: '2025-03-31',
       booking_date: '2025-03-31',
       amount: '-1500.00',
@@ -160,9 +174,7 @@ describe('ReviewPage', () => {
     await act(async () => {
       renderPage()
     })
-    await waitFor(() =>
-      expect(screen.getByText(/queue ist leer/i)).toBeTruthy(),
-    )
+    await waitFor(() => expect(screen.getByText(/queue ist leer/i)).toBeTruthy())
   })
 
   it('renders open review items', async () => {
@@ -175,9 +187,7 @@ describe('ReviewPage', () => {
     await act(async () => {
       renderPage()
     })
-    await waitFor(() =>
-      expect(screen.getAllByText('Amazon EU').length).toBeGreaterThan(0),
-    )
+    await waitFor(() => expect(screen.getAllByText('Amazon EU').length).toBeGreaterThan(0))
     expect(screen.getByText('Amazon')).toBeTruthy()
     expect(screen.getByText('Namens-Treffer')).toBeTruthy()
   })
@@ -221,7 +231,13 @@ describe('ReviewPage', () => {
     setupUser()
     server.use(
       http.get(`/api/v1/mandants/${MANDANT_ID}/review`, () =>
-        HttpResponse.json({ items: [SERVICE_ASSIGNMENT_ITEM, SERVICE_TYPE_ITEM], total: 2, page: 1, size: 100, pages: 1 }),
+        HttpResponse.json({
+          items: [SERVICE_ASSIGNMENT_ITEM, SERVICE_TYPE_ITEM],
+          total: 2,
+          page: 1,
+          size: 100,
+          pages: 1,
+        }),
       ),
     )
     await act(async () => {
@@ -241,7 +257,13 @@ describe('ReviewPage', () => {
     setupUser()
     server.use(
       http.get(`/api/v1/mandants/${MANDANT_ID}/review`, () =>
-        HttpResponse.json({ items: [OPEN_ITEM, SERVICE_ASSIGNMENT_ITEM], total: 2, page: 1, size: 100, pages: 1 }),
+        HttpResponse.json({
+          items: [OPEN_ITEM, SERVICE_ASSIGNMENT_ITEM],
+          total: 2,
+          page: 1,
+          size: 100,
+          pages: 1,
+        }),
       ),
     )
     await act(async () => {
@@ -283,7 +305,14 @@ const MANUAL_SERVICE_ITEM = {
     partner_id: 'partner-msa',
     partner_name: 'Oesterreich Werbung',
     partner_name_raw: 'OEWT',
-    splits: [{ service_id: 'service-base-msa', amount: '-150.00', assignment_mode: 'auto', amount_consistency_ok: false }],
+    splits: [
+      {
+        service_id: 'service-base-msa',
+        amount: '-150.00',
+        assignment_mode: 'auto',
+        amount_consistency_ok: false,
+      },
+    ],
     valuta_date: '2026-04-01',
     booking_date: '2026-04-01',
     amount: '-150.00',
@@ -345,7 +374,9 @@ describe('ReviewPage – manual_service_assignment', () => {
         HttpResponse.json(PARTNER_MSA_SERVICES),
       ),
     )
-    await act(async () => { renderPage() })
+    await act(async () => {
+      renderPage()
+    })
     await waitFor(() => expect(screen.getByText('Manuelle Leistungszuordnung')).toBeTruthy())
     expect(screen.getAllByText('Oesterreich Werbung').length).toBeGreaterThan(0)
   })
@@ -360,7 +391,9 @@ describe('ReviewPage – manual_service_assignment', () => {
         HttpResponse.json(PARTNER_MSA_SERVICES),
       ),
     )
-    await act(async () => { renderPage() })
+    await act(async () => {
+      renderPage()
+    })
     await waitFor(() => expect(screen.getByText('Silber-Mitgliedschaft')).toBeTruthy())
     expect(screen.getByText('Gold-Mitgliedschaft')).toBeTruthy()
     // Base service must NOT appear in the grid
@@ -385,7 +418,9 @@ describe('ReviewPage – manual_service_assignment', () => {
         return HttpResponse.json({ ...MANUAL_SERVICE_ITEM, status: 'adjusted' })
       }),
     )
-    await act(async () => { renderPage() })
+    await act(async () => {
+      renderPage()
+    })
     await waitFor(() => expect(screen.getByText('Silber-Mitgliedschaft')).toBeTruthy())
     await act(async () => {
       fireEvent.click(screen.getByText('Silber-Mitgliedschaft'))

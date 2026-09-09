@@ -1,8 +1,9 @@
 """Shared fixtures for partner merge and import tests."""
+
 # pylint: disable=redefined-outer-name
 import io
 from collections.abc import AsyncGenerator
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from uuid import UUID
 
 import pytest_asyncio
@@ -20,7 +21,9 @@ from app.tenants.models import Account, ColumnMappingConfig, Mandant
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 test_engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-TestSessionLocal = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+TestSessionLocal = async_sessionmaker(
+    test_engine, class_=AsyncSession, expire_on_commit=False
+)
 
 
 @pytest_asyncio.fixture(autouse=True, scope="function")
@@ -46,13 +49,15 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
         yield db_session
 
     app.dependency_overrides[get_session] = override_get_session
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
         yield ac
     app.dependency_overrides.clear()
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 async def create_user(
@@ -123,7 +128,12 @@ async def create_partner_db(
         pi = PartnerIban(partner_id=partner.id, iban=iban, created_at=now)
         session.add(pi)
     if account_number:
-        pa = PartnerAccount(partner_id=partner.id, account_number=account_number, blz=blz, created_at=now)
+        pa = PartnerAccount(
+            partner_id=partner.id,
+            account_number=account_number,
+            blz=blz,
+            created_at=now,
+        )
         session.add(pa)
     await session.commit()
     await session.refresh(partner)

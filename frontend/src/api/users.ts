@@ -106,13 +106,13 @@ export async function executeMandantCleanup(
   mandantId: string,
   data: ExecuteMandantCleanupPayload,
 ): Promise<ExecuteMandantCleanupResult> {
-  const resp = await apiClient.post<ExecuteMandantCleanupResult>(`/mandants/${mandantId}/cleanup`, data)
+  const resp = await apiClient.post<ExecuteMandantCleanupResult>(
+    `/mandants/${mandantId}/cleanup`,
+    data,
+  )
   return resp.data
 }
 
-export async function assignUserToMandant(
-  mandantId: string,
-  userId: string,
-): Promise<void> {
+export async function assignUserToMandant(mandantId: string, userId: string): Promise<void> {
   await apiClient.post(`/mandants/${mandantId}/users`, { user_id: userId })
 }

@@ -13,9 +13,7 @@ export function parseAmountInput(raw: string): string | null {
   const cleaned = raw.replace(/\s/g, '')
   if (cleaned === '') return '0.00'
 
-  const normalized = cleaned.includes(',')
-    ? cleaned.replace(/\./g, '').replace(',', '.')
-    : cleaned
+  const normalized = cleaned.includes(',') ? cleaned.replace(/\./g, '').replace(',', '.') : cleaned
   if (!DECIMAL_PATTERN.test(normalized)) return null
 
   return Number.parseFloat(normalized).toFixed(2)

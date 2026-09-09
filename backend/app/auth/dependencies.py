@@ -1,4 +1,3 @@
-from typing import Optional
 from uuid import UUID
 
 import structlog
@@ -40,7 +39,7 @@ async def get_current_user(
     payload: dict = Depends(get_jwt_payload),
     session: AsyncSession = Depends(get_session),
 ) -> User:
-    user_id_str: Optional[str] = payload.get("sub")
+    user_id_str: str | None = payload.get("sub")
     if not user_id_str:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

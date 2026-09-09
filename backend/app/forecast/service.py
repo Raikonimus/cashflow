@@ -4,8 +4,9 @@ Prognosewerte werden bewusst nicht persistiert: Mit jedem Import ändert sich di
 gespeicherte Werte wären sofort veraltet. Die Berechnung ist billig genug, um bei jedem
 Aufruf zu laufen.
 """
+
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
@@ -15,16 +16,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
 from app.forecast.backtest import BacktestReport, applied_profile, run_backtest
-from app.forecast.models import ForecastPlannedItem, ForecastSnapshot, ServiceForecastRule
+from app.forecast.models import (
+    ForecastMode,
+    ForecastPlannedItem,
+    ForecastSnapshot,
+    ServiceForecastRule,
+)
 from app.forecast.profiler import (
     ForecastProfile,
     build_profile,
+    index_to_year_month,
+    median,
     month_index,
 )
 from app.forecast.rules import EffectiveRule, Scenario, projected_value, resolve_rule
-from app.imports.models import JournalLine, JournalLineSplit
-from app.journal.schemas import LiquidityResponse
-from app.partners.models import Partner
 from app.forecast.schemas import (
     BacktestCandidateResponse,
     BacktestResponse,
@@ -42,8 +47,9 @@ from app.forecast.schemas import (
     UpdateForecastRuleRequest,
     UpdatePlannedItemRequest,
 )
-from app.forecast.models import ForecastMode
-from app.forecast.profiler import index_to_year_month, median
+from app.imports.models import JournalLine, JournalLineSplit
+from app.journal.schemas import LiquidityResponse
+from app.partners.models import Partner
 from app.services.models import Service, section_for_service
 from app.tenants.models import Account
 
@@ -76,7 +82,9 @@ def backtest_response(report: BacktestReport, window_end: int) -> BacktestRespon
         reason=report.reason,
         holdout_months=report.holdout_months,
         holdout_from=(
-            _period_of(report.train_end_index + 1) if report.train_end_index is not None else None
+            _period_of(report.train_end_index + 1)
+            if report.train_end_index is not None
+            else None
         ),
         holdout_to=_period_of(window_end) if report.ran else None,
         actual_volume=_money(report.actual_volume),
@@ -246,16 +254,22 @@ class ForecastService:
     async def load_overrides(self, mandant_id: UUID) -> dict[UUID, ServiceForecastRule]:
         rows = (
             await self._session.exec(
-                select(ServiceForecastRule).where(ServiceForecastRule.mandant_id == mandant_id)
+                select(ServiceForecastRule).where(
+                    ServiceForecastRule.mandant_id == mandant_id
+                )
             )
         ).all()
         return {row.service_id: row for row in rows}
 
-    async def load_planned_items(self, mandant_id: UUID) -> dict[UUID, dict[int, Decimal]]:
+    async def load_planned_items(
+        self, mandant_id: UUID
+    ) -> dict[UUID, dict[int, Decimal]]:
         """Planposten je Leistung und Monat. Mehrere Posten im selben Monat summieren sich."""
         rows = (
             await self._session.exec(
-                select(ForecastPlannedItem).where(ForecastPlannedItem.mandant_id == mandant_id)
+                select(ForecastPlannedItem).where(
+                    ForecastPlannedItem.mandant_id == mandant_id
+                )
             )
         ).all()
         planned: dict[UUID, dict[int, Decimal]] = {}
@@ -323,7 +337,6 @@ class ForecastService:
         uncovered = Decimal(str(total_all or 0)) - Decimal(str(total_covered or 0))
         return uncovered / Decimal(window)
 
-
     # ─── Verwaltung: Regeln je Leistung ──────────────────────────────────────
 
     PREVIEW_MONTHS = 12
@@ -331,7 +344,9 @@ class ForecastService:
     def _period(self, index: int) -> str:
         return _period_of(index)
 
-    def _preview(self, context: ForecastContext, service_id: UUID) -> list[ForecastPreviewMonth]:
+    def _preview(
+        self, context: ForecastContext, service_id: UUID
+    ) -> list[ForecastPreviewMonth]:
         planned = context.planned.get(service_id, {})
         return [
             ForecastPreviewMonth(
@@ -367,7 +382,9 @@ class ForecastService:
             )
         return service
 
-    async def get_rule(self, mandant_id: UUID, service_id: UUID) -> ForecastRuleResponse:
+    async def get_rule(
+        self, mandant_id: UUID, service_id: UUID
+    ) -> ForecastRuleResponse:
         context = await self.build_context(mandant_id)
         service = self._require_service(context, service_id)
         override = (await self.load_overrides(mandant_id)).get(service_id)
@@ -384,7 +401,11 @@ class ForecastService:
             partner_name=partner_names.get(service.partner_id),
             mode=effective.mode,
             rule_type=override.rule_type if override else None,
-            params=override.params if override and isinstance(override.params, dict) else None,
+            params=(
+                override.params
+                if override and isinstance(override.params, dict)
+                else None
+            ),
             adjustment_pct=effective.adjustment_pct,
             shift_months=effective.shift_months,
             detected_cadence=profile.cadence.value,
@@ -415,17 +436,21 @@ class ForecastService:
             self._session.add(existing)
 
         existing.mode = data.mode.value
-        existing.rule_type = data.rule_type if data.mode is ForecastMode.manual else None
+        existing.rule_type = (
+            data.rule_type if data.mode is ForecastMode.manual else None
+        )
         existing.params = data.params if data.mode is ForecastMode.manual else None
         existing.adjustment_pct = data.adjustment_pct
         existing.shift_months = data.shift_months
         existing.updated_by = actor_id
-        existing.updated_at = datetime.now(timezone.utc)
+        existing.updated_at = datetime.now(UTC)
         await self._session.commit()
 
         return await self.get_rule(mandant_id, service_id)
 
-    async def delete_rule(self, mandant_id: UUID, service_id: UUID) -> ForecastRuleResponse:
+    async def delete_rule(
+        self, mandant_id: UUID, service_id: UUID
+    ) -> ForecastRuleResponse:
         """Setzt die Leistung auf den automatischen Vorschlag zurück."""
         override = (await self.load_overrides(mandant_id)).get(service_id)
         if override is not None:
@@ -508,7 +533,9 @@ class ForecastService:
                     mode=effective.mode,
                     effective_rule_type=effective.rule.rule_type.value,
                     effective_reason=effective.reason,
-                    confidence=effective.rule.confidence.value if effective.is_active else None,
+                    confidence=(
+                        effective.rule.confidence.value if effective.is_active else None
+                    ),
                     detected_cadence=profile.cadence.value,
                     occurrence_count=profile.occurrence_count,
                     last_booking_period=(
@@ -537,12 +564,16 @@ class ForecastService:
             replaced_by_backtest=replaced,
             stopped_by_backtest=stopped,
             weak_forecasts=weak,
-            median_relative_error=_ratio(median(relative_errors)) if relative_errors else None,
+            median_relative_error=(
+                _ratio(median(relative_errors)) if relative_errors else None
+            ),
         )
 
     # ─── Verwaltung: Planposten ──────────────────────────────────────────────
 
-    async def _planned_item(self, mandant_id: UUID, item_id: UUID) -> ForecastPlannedItem:
+    async def _planned_item(
+        self, mandant_id: UUID, item_id: UUID
+    ) -> ForecastPlannedItem:
         item = await self._session.get(ForecastPlannedItem, item_id)
         if item is None or item.mandant_id != mandant_id:
             raise HTTPException(
@@ -560,7 +591,9 @@ class ForecastService:
         service = services.get(item.service_id)
         response = PlannedItemResponse.model_validate(item)
         response.service_name = service.name if service else None
-        response.partner_name = partner_names.get(service.partner_id) if service else None
+        response.partner_name = (
+            partner_names.get(service.partner_id) if service else None
+        )
         if states is None:
             states = await self._planned_states([item])
         status, remaining = states.get(
@@ -638,10 +671,14 @@ class ForecastService:
         mandant_id: UUID,
         service_id: UUID | None = None,
     ) -> list[PlannedItemResponse]:
-        query = select(ForecastPlannedItem).where(ForecastPlannedItem.mandant_id == mandant_id)
+        query = select(ForecastPlannedItem).where(
+            ForecastPlannedItem.mandant_id == mandant_id
+        )
         if service_id is not None:
             query = query.where(ForecastPlannedItem.service_id == service_id)
-        rows = list((await self._session.exec(query.order_by(ForecastPlannedItem.period))).all())
+        rows = list(
+            (await self._session.exec(query.order_by(ForecastPlannedItem.period))).all()
+        )
 
         services = await self._load_forecastable_services(mandant_id)
         partner_names = await self._partner_names(mandant_id)
@@ -700,7 +737,7 @@ class ForecastService:
             item.amount = data.amount
         if data.note is not None:
             item.note = data.note or None
-        item.updated_at = datetime.now(timezone.utc)
+        item.updated_at = datetime.now(UTC)
         await self._session.commit()
         await self._session.refresh(item)
         return await self._to_planned_response(
@@ -854,10 +891,14 @@ class ForecastService:
             created_at=snapshot.created_at,
             month_count=len(stored),
             elapsed_months=elapsed,
-            latest_deviation=_money(latest_deviation) if latest_deviation is not None else None,
+            latest_deviation=(
+                _money(latest_deviation) if latest_deviation is not None else None
+            ),
             months=months if with_months else [],
             mean_absolute_deviation=(
-                _money(sum(deviations, _ZERO) / Decimal(len(deviations))) if deviations else None
+                _money(sum(deviations, _ZERO) / Decimal(len(deviations)))
+                if deviations
+                else None
             ),
         )
 
@@ -901,7 +942,9 @@ class ForecastService:
         )
         return set(result.all())
 
-    async def _load_forecastable_services(self, mandant_id: UUID) -> dict[UUID, Service]:
+    async def _load_forecastable_services(
+        self, mandant_id: UUID
+    ) -> dict[UUID, Service]:
         rows = (
             await self._session.exec(
                 select(Service)
@@ -910,7 +953,9 @@ class ForecastService:
             )
         ).all()
         return {
-            service.id: service for service in rows if section_for_service(service) is not None
+            service.id: service
+            for service in rows
+            if section_for_service(service) is not None
         }
 
     async def _load_monthly_series(

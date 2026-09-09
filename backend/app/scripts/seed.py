@@ -26,7 +26,10 @@ async def _seed() -> None:
 
     # Guard: refuse in production (ADR-005)
     if settings.env == "production":
-        print("ERROR: Seed script refused to run in production environment.", file=sys.stderr)
+        print(
+            "ERROR: Seed script refused to run in production environment.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     if not settings.seed_admin_email:

@@ -1,5 +1,3 @@
-from typing import Optional
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,14 +24,14 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_from_email: str = ""
     smtp_from_name: str = ""
-    smtp_reply_to: Optional[str] = None
+    smtp_reply_to: str | None = None
 
     # Invitation
     invitation_expire_days: int = 7
 
     # Dev Seed (never set in production)
-    seed_admin_email: Optional[str] = None
-    seed_admin_password: Optional[str] = None
+    seed_admin_email: str | None = None
+    seed_admin_password: str | None = None
 
 
 settings = Settings()

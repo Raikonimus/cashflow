@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import require_mandant_access, require_role
 from app.auth.models import User
 from app.core.database import get_session
+from app.forecast.rules import Scenario
 from app.forecast.schemas import (
     CreatePlannedItemRequest,
     CreateSnapshotRequest,
@@ -17,7 +18,6 @@ from app.forecast.schemas import (
     UpdateForecastRuleRequest,
     UpdatePlannedItemRequest,
 )
-from app.forecast.rules import Scenario
 from app.forecast.service import ForecastService
 from app.journal.service import JournalService
 

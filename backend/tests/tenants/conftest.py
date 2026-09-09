@@ -1,6 +1,7 @@
 """Shared fixtures for tenant and account tests."""
+
 from collections.abc import AsyncGenerator
-from uuid import UUID
+from datetime import UTC
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -10,14 +11,15 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth.models import MandantUser, User, UserRole
 from app.auth.security import hash_password
-from app.core.config import settings
 from app.main import app
-from app.tenants.models import Account, ColumnMappingConfig, Mandant
+from app.tenants.models import Mandant
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 test_engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-TestSessionLocal = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+TestSessionLocal = async_sessionmaker(
+    test_engine, class_=AsyncSession, expire_on_commit=False
+)
 
 
 @pytest_asyncio.fixture(autouse=True, scope="function")
@@ -43,7 +45,9 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
         yield db_session
 
     app.dependency_overrides[get_session] = override_get_session
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
         yield ac
     app.dependency_overrides.clear()
 
@@ -66,8 +70,9 @@ async def create_user(
 
 
 async def create_mandant(session: AsyncSession, name: str = "Test GmbH") -> Mandant:
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc)
+    from datetime import datetime
+
+    now = datetime.now(UTC)
     mandant = Mandant(name=name, created_at=now, updated_at=now)
     session.add(mandant)
     await session.commit()

@@ -30,7 +30,11 @@ export function MandantsPage() {
   const navigate = useNavigate()
   const { selectMandant: storeSelect } = useAuthStore()
 
-  const { data: mandants = [], isLoading, isError } = useQuery({
+  const {
+    data: mandants = [],
+    isLoading,
+    isError,
+  } = useQuery({
     queryKey: ['mandants'],
     queryFn: listMandants,
   })
@@ -62,8 +66,15 @@ export function MandantsPage() {
   })
 
   const cleanupMutation = useMutation({
-    mutationFn: ({ mandantId, mode, scopes }: { mandantId: string; mode: 'delete_mandant' | 'delete_data' | 'selected'; scopes?: CleanupScope[] }) =>
-      executeMandantCleanup(mandantId, { mode, scopes }),
+    mutationFn: ({
+      mandantId,
+      mode,
+      scopes,
+    }: {
+      mandantId: string
+      mode: 'delete_mandant' | 'delete_data' | 'selected'
+      scopes?: CleanupScope[]
+    }) => executeMandantCleanup(mandantId, { mode, scopes }),
     onSuccess: (result, variables) => {
       queryClient.invalidateQueries({ queryKey: ['mandants'] })
       queryClient.invalidateQueries({ queryKey: ['mandant-cleanup-preview', variables.mandantId] })
@@ -119,7 +130,9 @@ export function MandantsPage() {
       </div>
 
       {notice ? (
-        <div className={`mb-4 rounded-xl px-4 py-3 text-sm ${notice.tone === 'success' ? 'border border-emerald-200 bg-emerald-50 text-emerald-700' : 'border border-red-200 bg-red-50 text-red-700'}`}>
+        <div
+          className={`mb-4 rounded-xl px-4 py-3 text-sm ${notice.tone === 'success' ? 'border border-emerald-200 bg-emerald-50 text-emerald-700' : 'border border-red-200 bg-red-50 text-red-700'}`}
+        >
           {notice.message}
         </div>
       ) : null}
@@ -136,7 +149,9 @@ export function MandantsPage() {
                 placeholder="Mandantenname"
                 className="w-full rounded border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              {errors.name ? <p className="mt-1 text-xs text-red-500">{errors.name.message}</p> : null}
+              {errors.name ? (
+                <p className="mt-1 text-xs text-red-500">{errors.name.message}</p>
+              ) : null}
             </div>
             <button
               type="submit"
@@ -146,7 +161,9 @@ export function MandantsPage() {
               Anlegen
             </button>
           </div>
-          {mutation.isError ? <p className="mt-2 text-sm text-red-500">Fehler beim Anlegen.</p> : null}
+          {mutation.isError ? (
+            <p className="mt-2 text-sm text-red-500">Fehler beim Anlegen.</p>
+          ) : null}
         </form>
       )}
 
@@ -183,22 +200,43 @@ export function MandantsPage() {
                   setConfigMandantId((current) => (current === mandant.id ? null : mandant.id))
                 }}
                 onScopeToggle={(scope, checked) => {
-                  setSelectedScopes((current) => checked ? [...current, scope] : current.filter((item) => item !== scope))
+                  setSelectedScopes((current) =>
+                    checked ? [...current, scope] : current.filter((item) => item !== scope),
+                  )
                 }}
                 onDeleteMandant={() => {
                   if (!cleanupPreview) return
-                  if (!globalThis.confirm(`Mandant ${cleanupPreview.mandant_name} inklusive aller Daten wirklich löschen?`)) return
+                  if (
+                    !globalThis.confirm(
+                      `Mandant ${cleanupPreview.mandant_name} inklusive aller Daten wirklich löschen?`,
+                    )
+                  )
+                    return
                   cleanupMutation.mutate({ mandantId: mandant.id, mode: 'delete_mandant' })
                 }}
                 onDeleteData={() => {
                   if (!cleanupPreview) return
-                  if (!globalThis.confirm(`Alle Daten von ${cleanupPreview.mandant_name} löschen und den Mandanten behalten?`)) return
+                  if (
+                    !globalThis.confirm(
+                      `Alle Daten von ${cleanupPreview.mandant_name} löschen und den Mandanten behalten?`,
+                    )
+                  )
+                    return
                   cleanupMutation.mutate({ mandantId: mandant.id, mode: 'delete_data' })
                 }}
                 onDeleteSelected={() => {
                   if (!cleanupPreview) return
-                  if (!globalThis.confirm(`Die ausgewählten Datenblöcke von ${cleanupPreview.mandant_name} wirklich löschen?`)) return
-                  cleanupMutation.mutate({ mandantId: mandant.id, mode: 'selected', scopes: selectedScopes })
+                  if (
+                    !globalThis.confirm(
+                      `Die ausgewählten Datenblöcke von ${cleanupPreview.mandant_name} wirklich löschen?`,
+                    )
+                  )
+                    return
+                  cleanupMutation.mutate({
+                    mandantId: mandant.id,
+                    mode: 'selected',
+                    scopes: selectedScopes,
+                  })
                 }}
                 onEnter={() => enterMandant.mutate(mandant.id)}
                 enterDisabled={enterMandant.isPending}
@@ -248,12 +286,16 @@ function MandantRow({
       <tr className="hover:bg-gray-50">
         <td className="px-4 py-3 font-medium text-gray-900">{mandant.name}</td>
         <td className="px-4 py-3">
-          <span className={`rounded px-2 py-1 text-xs font-medium ${mandant.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+          <span
+            className={`rounded px-2 py-1 text-xs font-medium ${mandant.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}
+          >
             {mandant.is_active ? 'Aktiv' : 'Inaktiv'}
           </span>
         </td>
         <td className="px-4 py-3 text-gray-400">
-          {new Date(mandant.created_at + 'Z').toLocaleDateString('de-DE', { timeZone: 'Europe/Vienna' })}
+          {new Date(mandant.created_at + 'Z').toLocaleDateString('de-DE', {
+            timeZone: 'Europe/Vienna',
+          })}
         </td>
         <td className="px-4 py-3">
           <button
@@ -279,8 +321,13 @@ function MandantRow({
             {cleanupPreview ? (
               <div className="space-y-5 rounded-xl border border-red-100 bg-white p-5 shadow-sm">
                 <div>
-                  <h2 className="text-lg font-semibold text-gray-900">Mandantendetail-Konfiguration</h2>
-                  <p className="mt-1 text-sm text-gray-600">Vor jeder Aktion wird konkret aufgelistet, welche Datensätze dieses Mandanten gelöscht werden.</p>
+                  <h2 className="text-lg font-semibold text-gray-900">
+                    Mandantendetail-Konfiguration
+                  </h2>
+                  <p className="mt-1 text-sm text-gray-600">
+                    Vor jeder Aktion wird konkret aufgelistet, welche Datensätze dieses Mandanten
+                    gelöscht werden.
+                  </p>
                 </div>
 
                 <CleanupCard
@@ -300,14 +347,21 @@ function MandantRow({
                 />
 
                 <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-                  <h3 className="text-base font-semibold text-amber-900">Ausgewählte Daten löschen</h3>
-                  <p className="mt-1 text-sm text-amber-800">Diese Aktion löscht nur die ausgewählten Datenblöcke dieses Mandanten.</p>
+                  <h3 className="text-base font-semibold text-amber-900">
+                    Ausgewählte Daten löschen
+                  </h3>
+                  <p className="mt-1 text-sm text-amber-800">
+                    Diese Aktion löscht nur die ausgewählten Datenblöcke dieses Mandanten.
+                  </p>
                   <div className="mt-4 space-y-4">
                     {cleanupPreview.selectable_sections.map((section) => {
                       const scope = section.key as CleanupScope
                       const checked = selectedScopes.includes(scope)
                       return (
-                        <label key={section.key} className="block rounded-lg border border-amber-200 bg-white p-3">
+                        <label
+                          key={section.key}
+                          className="block rounded-lg border border-amber-200 bg-white p-3"
+                        >
                           <div className="flex items-start gap-3">
                             <input
                               type="checkbox"
@@ -316,8 +370,12 @@ function MandantRow({
                               className="mt-1 h-4 w-4 rounded border-amber-300"
                             />
                             <div className="flex-1">
-                              <div className="text-sm font-semibold text-gray-900">{section.label}</div>
-                              <div className="mt-1 text-sm text-gray-600">{section.description}</div>
+                              <div className="text-sm font-semibold text-gray-900">
+                                {section.label}
+                              </div>
+                              <div className="mt-1 text-sm text-gray-600">
+                                {section.description}
+                              </div>
                               <CleanupItemList items={section.items} />
                             </div>
                           </div>
@@ -373,12 +431,20 @@ function CleanupCard({
   )
 }
 
-function CleanupItemList({ items }: Readonly<{ items: Array<{ key: string; label: string; count: number }> }>) {
+function CleanupItemList({
+  items,
+}: Readonly<{ items: Array<{ key: string; label: string; count: number }> }>) {
   return (
     <ul className="mt-3 space-y-1 text-sm text-gray-700">
-      {items.length === 0
-        ? <li>Keine Datensätze betroffen.</li>
-        : items.map((item) => <li key={item.key}>{item.label}: {item.count}</li>)}
+      {items.length === 0 ? (
+        <li>Keine Datensätze betroffen.</li>
+      ) : (
+        items.map((item) => (
+          <li key={item.key}>
+            {item.label}: {item.count}
+          </li>
+        ))
+      )}
     </ul>
   )
 }

@@ -3,14 +3,28 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { useAuthStore } from '@/store/auth-store'
 import { UnidentifiedGroupsPanel } from './UnidentifiedGroupsPanel'
-import { adjustReviewItem, confirmReviewItem, listReviewItems, newPartnerReviewItem, rejectReviewItem, reassignReviewItem } from '@/api/review'
+import {
+  adjustReviewItem,
+  confirmReviewItem,
+  listReviewItems,
+  newPartnerReviewItem,
+  rejectReviewItem,
+  reassignReviewItem,
+} from '@/api/review'
 import type { NoPartnerDiagnosis, ReviewItem } from '@/api/review'
 import { extractErrorMessage } from '@/api/errors'
 import { listPartners } from '@/api/partners'
 import type { PartnerListItem } from '@/api/partners'
 import { listPartnerServices } from '@/api/services'
 import type { ServiceListItem } from '@/api/services'
-import { EmptyReviewState, formatCurrency, formatReviewReason, InlineNotice, reviewTypeLabels, serviceTypeLabels } from './reviewShared'
+import {
+  EmptyReviewState,
+  formatCurrency,
+  formatReviewReason,
+  InlineNotice,
+  reviewTypeLabels,
+  serviceTypeLabels,
+} from './reviewShared'
 
 const outcomeLabels: Record<string, string> = {
   iban_match: 'IBAN-Treffer',
@@ -18,14 +32,25 @@ const outcomeLabels: Record<string, string> = {
   new_partner: 'Neuer Partner',
 }
 
-type ReviewTab = 'all' | 'no_partner' | 'new_partner' | 'iban' | 'service' | 'service_type' | 'manual_service'
+type ReviewTab =
+  | 'all'
+  | 'no_partner'
+  | 'new_partner'
+  | 'iban'
+  | 'service'
+  | 'service_type'
+  | 'manual_service'
 
 const TAB_CONFIG: { id: ReviewTab; label: string; types: string[] | null }[] = [
   { id: 'all', label: 'Alle', types: null },
   { id: 'no_partner', label: 'Kein Partner', types: ['no_partner_identified'] },
   { id: 'new_partner', label: 'Neuer Partner', types: ['new_partner'] },
   { id: 'iban', label: 'IBAN-Abweichung', types: ['name_match_with_iban'] },
-  { id: 'service', label: 'Leistung unklar', types: ['service_assignment', 'service_matcher_ambiguous'] },
+  {
+    id: 'service',
+    label: 'Leistung unklar',
+    types: ['service_assignment', 'service_matcher_ambiguous'],
+  },
   { id: 'service_type', label: 'Leistungstyp', types: ['service_type_review'] },
   { id: 'manual_service', label: 'Manuelle Leistung', types: ['manual_service_assignment'] },
 ]
@@ -69,11 +94,19 @@ export function ReviewPage() {
       <div className="mb-4">
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Review</p>
         <div className="mt-2 flex items-start justify-between gap-4">
-          <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Offene Entscheidungen</h1>
-          <Link to="/review/archive" className="shrink-0 rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">Archiv</Link>
+          <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
+            Offene Entscheidungen
+          </h1>
+          <Link
+            to="/review/archive"
+            className="shrink-0 rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+          >
+            Archiv
+          </Link>
         </div>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-          Partner-Zuordnungen, Leistungsvorschläge und automatisch gesetzte Leistungstypen an einer Stelle prüfen und sauber auflösen.
+          Partner-Zuordnungen, Leistungsvorschläge und automatisch gesetzte Leistungstypen an einer
+          Stelle prüfen und sauber auflösen.
         </p>
       </div>
 
@@ -155,31 +188,40 @@ function ReviewCard({
   onResolved: (message: string) => void | Promise<void>
   onError: (message: string) => void
 }) {
-  const [mode, setMode] = useState<'idle' | 'reassign' | 'new-partner' | 'service-select' | 'type-adjust' | 'service-split'>('idle')
+  const [mode, setMode] = useState<
+    'idle' | 'reassign' | 'new-partner' | 'service-select' | 'type-adjust' | 'service-split'
+  >('idle')
   const [partnerQuery, setPartnerQuery] = useState('')
   const [partnerResults, setPartnerResults] = useState<PartnerListItem[]>([])
   const [newPartnerName, setNewPartnerName] = useState('')
   const [serviceTypeDraft, setServiceTypeDraft] = useState(
-    item.context.auto_assigned_type ?? item.service?.service_type ?? 'unknown'
+    item.context.auto_assigned_type ?? item.service?.service_type ?? 'unknown',
   )
   const [taxRateDraft, setTaxRateDraft] = useState(item.service?.tax_rate ?? '')
-  const [erfolgsneutralDraft, setErfolgsneutralDraft] = useState(Boolean(item.service?.erfolgsneutral))
+  const [erfolgsneutralDraft, setErfolgsneutralDraft] = useState(
+    Boolean(item.service?.erfolgsneutral),
+  )
   const [splitAmounts, setSplitAmounts] = useState<Record<string, string>>({})
 
   const confirmMutation = useMutation({
     mutationFn: () => confirmReviewItem(mandantId, item.id),
-    onSuccess: async () => onResolved(
-      item.item_type === 'service_assignment' ? 'Leistungsvorschlag wurde übernommen.' :
-      item.item_type === 'service_type_review' ? 'Leistungstyp wurde freigegeben.' :
-      'Review-Item wurde bestätigt.'
-    ),
-    onError: (error) => onError(extractErrorMessage(error, 'Aktion konnte nicht gespeichert werden.')),
+    onSuccess: async () =>
+      onResolved(
+        item.item_type === 'service_assignment'
+          ? 'Leistungsvorschlag wurde übernommen.'
+          : item.item_type === 'service_type_review'
+            ? 'Leistungstyp wurde freigegeben.'
+            : 'Review-Item wurde bestätigt.',
+      ),
+    onError: (error) =>
+      onError(extractErrorMessage(error, 'Aktion konnte nicht gespeichert werden.')),
   })
 
   const rejectMutation = useMutation({
     mutationFn: () => rejectReviewItem(mandantId, item.id),
     onSuccess: async () => onResolved('Review-Item wurde abgelehnt.'),
-    onError: (error) => onError(extractErrorMessage(error, 'Ablehnung konnte nicht gespeichert werden.')),
+    onError: (error) =>
+      onError(extractErrorMessage(error, 'Ablehnung konnte nicht gespeichert werden.')),
   })
 
   const reassignMutation = useMutation({
@@ -191,29 +233,36 @@ function ReviewCard({
   const newPartnerMutation = useMutation({
     mutationFn: () => newPartnerReviewItem(mandantId, item.id, newPartnerName.trim()),
     onSuccess: async () => onResolved('Neuer Partner wurde angelegt und zugewiesen.'),
-    onError: (error) => onError(extractErrorMessage(error, 'Neuer Partner konnte nicht angelegt werden.')),
+    onError: (error) =>
+      onError(extractErrorMessage(error, 'Neuer Partner konnte nicht angelegt werden.')),
   })
 
   const adjustServiceMutation = useMutation({
-    mutationFn: (serviceId: string) => adjustReviewItem(mandantId, item.id, { service_id: serviceId }),
+    mutationFn: (serviceId: string) =>
+      adjustReviewItem(mandantId, item.id, { service_id: serviceId }),
     onSuccess: async () => onResolved('Leistungs-Zuordnung wurde korrigiert.'),
-    onError: (error) => onError(extractErrorMessage(error, 'Leistung konnte nicht gesetzt werden.')),
+    onError: (error) =>
+      onError(extractErrorMessage(error, 'Leistung konnte nicht gesetzt werden.')),
   })
 
   const adjustTypeMutation = useMutation({
-    mutationFn: () => adjustReviewItem(mandantId, item.id, {
-      service_type: serviceTypeDraft,
-      tax_rate: taxRateDraft || undefined,
-      erfolgsneutral: erfolgsneutralDraft,
-    }),
+    mutationFn: () =>
+      adjustReviewItem(mandantId, item.id, {
+        service_type: serviceTypeDraft,
+        tax_rate: taxRateDraft || undefined,
+        erfolgsneutral: erfolgsneutralDraft,
+      }),
     onSuccess: async () => onResolved('Leistungstyp wurde korrigiert.'),
-    onError: (error) => onError(extractErrorMessage(error, 'Korrektur konnte nicht gespeichert werden.')),
+    onError: (error) =>
+      onError(extractErrorMessage(error, 'Korrektur konnte nicht gespeichert werden.')),
   })
 
   const { data: services = [] } = useQuery({
     queryKey: ['partner-services', mandantId, item.journal_line?.partner_id],
     queryFn: () => listPartnerServices(mandantId, item.journal_line!.partner_id!),
-    enabled: (mode === 'service-select' || item.item_type === 'manual_service_assignment') && !!item.journal_line?.partner_id,
+    enabled:
+      (mode === 'service-select' || item.item_type === 'manual_service_assignment') &&
+      !!item.journal_line?.partner_id,
   })
 
   const nonBaseServices = services.filter((s) => !s.is_base_service)
@@ -226,11 +275,13 @@ function ReviewCard({
   const isSplitValid = splitEntries.length >= 2 && Math.abs(splitSum - lineAmount) < 0.005
 
   const adjustSplitsMutation = useMutation({
-    mutationFn: () => adjustReviewItem(mandantId, item.id, {
-      splits: splitEntries.map((e) => ({ service_id: e.serviceId, amount: e.amount.toFixed(2) })),
-    }),
+    mutationFn: () =>
+      adjustReviewItem(mandantId, item.id, {
+        splits: splitEntries.map((e) => ({ service_id: e.serviceId, amount: e.amount.toFixed(2) })),
+      }),
     onSuccess: async () => onResolved('Buchung wurde auf mehrere Leistungen aufgeteilt.'),
-    onError: (error) => onError(extractErrorMessage(error, 'Aufteilung konnte nicht gespeichert werden.')),
+    onError: (error) =>
+      onError(extractErrorMessage(error, 'Aufteilung konnte nicht gespeichert werden.')),
   })
 
   async function searchPartners(q: string) {
@@ -252,7 +303,9 @@ function ReviewCard({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">{reviewTypeLabels[item.item_type] ?? item.item_type}</span>
+            <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">
+              {reviewTypeLabels[item.item_type] ?? item.item_type}
+            </span>
             {isServiceTypeReview && (
               <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
                 {lineCount} Buchungszeile{lineCount !== 1 ? 'n' : ''}
@@ -268,7 +321,9 @@ function ReviewCard({
         </div>
         {item.journal_line ? (
           <div className="rounded-2xl bg-slate-50 px-4 py-3 text-right text-sm text-slate-600">
-            <p className="font-semibold text-slate-900">{formatCurrency(item.journal_line.amount, item.journal_line.currency)}</p>
+            <p className="font-semibold text-slate-900">
+              {formatCurrency(item.journal_line.amount, item.journal_line.currency)}
+            </p>
             <p className="mt-1">{item.journal_line.booking_date}</p>
           </div>
         ) : null}
@@ -280,32 +335,60 @@ function ReviewCard({
         ) : isManualServiceAssignment ? (
           <InfoTile
             title="Partner"
-            body={item.journal_line?.partner_name ?? item.journal_line?.partner_name_raw ?? 'Unbekannt'}
-            footer={item.journal_line?.partner_id
-              ? <Link to={`/partners/${item.journal_line.partner_id}`} className="text-blue-600 hover:underline text-xs">Zur Partnerseite →</Link>
-              : undefined
+            body={
+              item.journal_line?.partner_name ?? item.journal_line?.partner_name_raw ?? 'Unbekannt'
+            }
+            footer={
+              item.journal_line?.partner_id ? (
+                <Link
+                  to={`/partners/${item.journal_line.partner_id}`}
+                  className="text-blue-600 hover:underline text-xs"
+                >
+                  Zur Partnerseite →
+                </Link>
+              ) : undefined
             }
           />
         ) : (
-          <InfoTile title="Buchung" body={item.journal_line?.text ?? item.context.text ?? 'Kein Buchungstext vorhanden'} footer={item.journal_line?.partner_name_raw ?? item.context.partner_name_raw ?? 'Ohne Partnername'} />
+          <InfoTile
+            title="Buchung"
+            body={item.journal_line?.text ?? item.context.text ?? 'Kein Buchungstext vorhanden'}
+            footer={
+              item.journal_line?.partner_name_raw ??
+              item.context.partner_name_raw ??
+              'Ohne Partnername'
+            }
+          />
         )}
-        <InfoTile title="Aktuell" body={resolveCurrentState(item)} footer={item.journal_line?.splits?.[0]?.assignment_mode ? `Modus: ${item.journal_line.splits[0].assignment_mode}` : undefined} />
+        <InfoTile
+          title="Aktuell"
+          body={resolveCurrentState(item)}
+          footer={
+            item.journal_line?.splits?.[0]?.assignment_mode
+              ? `Modus: ${item.journal_line.splits[0].assignment_mode}`
+              : undefined
+          }
+        />
         <InfoTile
           title="Vorschlag"
           body={resolveSuggestedState(item)}
-          footer={isServiceTypeReview ? `Kriterium: ${resolveCriterionLabel(item.context.reason)}` : undefined}
+          footer={
+            isServiceTypeReview
+              ? `Kriterium: ${resolveCriterionLabel(item.context.reason)}`
+              : undefined
+          }
         />
       </div>
 
       {item.item_type === 'no_partner_identified' ? (
-        item.context.diagnosis
-          ? <NoPartnerDiagnosisPanel diagnosis={item.context.diagnosis} />
-          : <NoPartnerRawDataPanel context={item.context} />
+        item.context.diagnosis ? (
+          <NoPartnerDiagnosisPanel diagnosis={item.context.diagnosis} />
+        ) : (
+          <NoPartnerRawDataPanel context={item.context} />
+        )
       ) : null}
 
-      {item.item_type === 'name_match_with_iban' ? (
-        <IbanDeviationPanel item={item} />
-      ) : null}
+      {item.item_type === 'name_match_with_iban' ? <IbanDeviationPanel item={item} /> : null}
 
       {isServiceTypeReview && lineCount > 0 ? (
         <div className="mt-4">
@@ -314,10 +397,17 @@ function ReviewCard({
           </p>
           <div className="space-y-1">
             {item.assigned_journal_lines.map((line) => (
-              <div key={line.id} className="flex items-center gap-3 rounded-lg bg-slate-50 px-3 py-1.5 text-xs text-slate-700">
+              <div
+                key={line.id}
+                className="flex items-center gap-3 rounded-lg bg-slate-50 px-3 py-1.5 text-xs text-slate-700"
+              >
                 <span className="w-20 shrink-0 text-slate-400">{line.booking_date}</span>
-                <span className="shrink-0 w-20 text-right font-mono font-semibold text-slate-900">{formatCurrency(line.amount, line.currency)}</span>
-                <span className="w-32 shrink-0 truncate text-slate-600 font-medium">{line.partner_name ?? line.partner_name_raw ?? '—'}</span>
+                <span className="shrink-0 w-20 text-right font-mono font-semibold text-slate-900">
+                  {formatCurrency(line.amount, line.currency)}
+                </span>
+                <span className="w-32 shrink-0 truncate text-slate-600 font-medium">
+                  {line.partner_name ?? line.partner_name_raw ?? '—'}
+                </span>
                 <span className="truncate text-slate-500">{line.text ?? '—'}</span>
               </div>
             ))}
@@ -329,7 +419,9 @@ function ReviewCard({
         <div className="mt-5 flex flex-wrap gap-2">
           {isManualServiceAssignment ? (
             <div className="w-full">
-              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Leistung auswählen</p>
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Leistung auswählen
+              </p>
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                 {nonBaseServices.map((service) => (
                   <button
@@ -339,50 +431,101 @@ function ReviewCard({
                     className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left hover:bg-slate-100 disabled:opacity-50"
                   >
                     <p className="text-sm font-semibold text-slate-900">{service.name}</p>
-                    <p className="mt-1 text-xs text-slate-500">{serviceTypeLabels[service.service_type]} · {service.tax_rate}%</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {serviceTypeLabels[service.service_type]} · {service.tax_rate}%
+                    </p>
                   </button>
                 ))}
                 {nonBaseServices.length === 0 && (
-                  <p className="text-sm text-slate-400 col-span-3">Keine weiteren Leistungen vorhanden. Bitte zuerst im <Link to={`/partners/${item.journal_line?.partner_id}/services`} className="text-blue-600 hover:underline">Partner-Service-Manager</Link> anlegen.</p>
+                  <p className="text-sm text-slate-400 col-span-3">
+                    Keine weiteren Leistungen vorhanden. Bitte zuerst im{' '}
+                    <Link
+                      to={`/partners/${item.journal_line?.partner_id}/services`}
+                      className="text-blue-600 hover:underline"
+                    >
+                      Partner-Service-Manager
+                    </Link>{' '}
+                    anlegen.
+                  </p>
                 )}
               </div>
               {nonBaseServices.length > 1 && (
                 <div className="mt-3">
                   <button
-                    onClick={() => { setSplitAmounts({}); setMode('service-split') }}
+                    onClick={() => {
+                      setSplitAmounts({})
+                      setMode('service-split')
+                    }}
                     className="text-sm text-blue-600 hover:underline"
                   >
-                    <i className="fa-solid fa-scissors mr-1" />Buchung auf mehrere Leistungen aufteilen
+                    <i className="fa-solid fa-scissors mr-1" />
+                    Buchung auf mehrere Leistungen aufteilen
                   </button>
                 </div>
               )}
             </div>
           ) : isServiceTypeReview ? (
             <>
-              <button onClick={() => confirmMutation.mutate()} disabled={confirmMutation.isPending} className="rounded-xl bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50">
+              <button
+                onClick={() => confirmMutation.mutate()}
+                disabled={confirmMutation.isPending}
+                className="rounded-xl bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
+              >
                 Freigeben
               </button>
-              <button onClick={() => setMode('type-adjust')} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100">
+              <button
+                onClick={() => setMode('type-adjust')}
+                className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+              >
                 Typ korrigieren
               </button>
             </>
           ) : (
             <>
-              <button onClick={() => confirmMutation.mutate()} disabled={confirmMutation.isPending} className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
-                {item.item_type === 'service_assignment' ? 'Vorschlag übernehmen' : item.item_type === 'new_partner' ? 'Partner ist korrekt' : 'Bestätigen'}
+              <button
+                onClick={() => confirmMutation.mutate()}
+                disabled={confirmMutation.isPending}
+                className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {item.item_type === 'service_assignment'
+                  ? 'Vorschlag übernehmen'
+                  : item.item_type === 'new_partner'
+                    ? 'Partner ist korrekt'
+                    : 'Bestätigen'}
               </button>
               {item.item_type === 'service_assignment' ? (
                 <>
-                  <button onClick={() => setMode('service-select')} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100">Andere Leistung</button>
-                  <button onClick={() => rejectMutation.mutate()} disabled={rejectMutation.isPending} className="rounded-xl border border-rose-300 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50">Ablehnen</button>
+                  <button
+                    onClick={() => setMode('service-select')}
+                    className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                  >
+                    Andere Leistung
+                  </button>
+                  <button
+                    onClick={() => rejectMutation.mutate()}
+                    disabled={rejectMutation.isPending}
+                    className="rounded-xl border border-rose-300 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                  >
+                    Ablehnen
+                  </button>
                 </>
               ) : (
                 <>
-                  <button onClick={() => setMode('reassign')} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100">
-                    {item.item_type === 'new_partner' ? 'Anderen Partner zuweisen' : 'Anderer Partner'}
+                  <button
+                    onClick={() => setMode('reassign')}
+                    className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                  >
+                    {item.item_type === 'new_partner'
+                      ? 'Anderen Partner zuweisen'
+                      : 'Anderer Partner'}
                   </button>
                   {item.item_type !== 'new_partner' && (
-                    <button onClick={() => setMode('new-partner')} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100">Neuer Partner</button>
+                    <button
+                      onClick={() => setMode('new-partner')}
+                      className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                    >
+                      Neuer Partner
+                    </button>
                   )}
                 </>
               )}
@@ -394,19 +537,35 @@ function ReviewCard({
       {mode === 'type-adjust' ? (
         <div className="mt-4 flex flex-wrap items-end gap-3 rounded-2xl bg-slate-50 p-4">
           <label className="flex flex-col gap-1">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Typ</span>
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Typ
+            </span>
             <select
               value={serviceTypeDraft}
               onChange={(e) => setServiceTypeDraft(e.target.value)}
               className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
             >
-              {(['customer', 'supplier', 'employee', 'shareholder', 'authority', 'internal_transfer', 'unknown'] as const).map((t) => (
-                <option key={t} value={t}>{serviceTypeLabels[t]}</option>
+              {(
+                [
+                  'customer',
+                  'supplier',
+                  'employee',
+                  'shareholder',
+                  'authority',
+                  'internal_transfer',
+                  'unknown',
+                ] as const
+              ).map((t) => (
+                <option key={t} value={t}>
+                  {serviceTypeLabels[t]}
+                </option>
               ))}
             </select>
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Steuersatz (opt.)</span>
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Steuersatz (opt.)
+            </span>
             <input
               value={taxRateDraft}
               onChange={(e) => setTaxRateDraft(e.target.value)}
@@ -423,30 +582,71 @@ function ReviewCard({
             />
             Erfolgsneutral
           </label>
-          <button onClick={() => adjustTypeMutation.mutate()} disabled={adjustTypeMutation.isPending} className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50">
+          <button
+            onClick={() => adjustTypeMutation.mutate()}
+            disabled={adjustTypeMutation.isPending}
+            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+          >
             Speichern
           </button>
-          <button onClick={() => setMode('idle')} className="text-xs font-semibold uppercase tracking-wide text-slate-400">Abbrechen</button>
+          <button
+            onClick={() => setMode('idle')}
+            className="text-xs font-semibold uppercase tracking-wide text-slate-400"
+          >
+            Abbrechen
+          </button>
         </div>
       ) : null}
 
       {mode === 'reassign' ? (
         <div className="mt-4 rounded-2xl bg-slate-50 p-4">
-          <input value={partnerQuery} onChange={(event) => searchPartners(event.target.value)} placeholder="Partner suchen…" className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+          <input
+            value={partnerQuery}
+            onChange={(event) => searchPartners(event.target.value)}
+            placeholder="Partner suchen…"
+            className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+          />
           <div className="mt-3 space-y-2">
             {partnerResults.map((partner) => (
-              <button key={partner.id} onClick={() => reassignMutation.mutate(partner.id)} className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100">{partner.name}</button>
+              <button
+                key={partner.id}
+                onClick={() => reassignMutation.mutate(partner.id)}
+                className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100"
+              >
+                {partner.name}
+              </button>
             ))}
           </div>
-          <button onClick={() => setMode('idle')} className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Abbrechen</button>
+          <button
+            onClick={() => setMode('idle')}
+            className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-400"
+          >
+            Abbrechen
+          </button>
         </div>
       ) : null}
 
       {mode === 'new-partner' ? (
         <div className="mt-4 flex flex-wrap gap-3 rounded-2xl bg-slate-50 p-4">
-          <input value={newPartnerName} onChange={(event) => setNewPartnerName(event.target.value)} placeholder="Neuer Partnername" className="min-w-[16rem] flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm" />
-          <button onClick={() => newPartnerMutation.mutate()} disabled={!newPartnerName.trim() || newPartnerMutation.isPending} className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50">Anlegen & zuweisen</button>
-          <button onClick={() => setMode('idle')} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-white">Abbrechen</button>
+          <input
+            value={newPartnerName}
+            onChange={(event) => setNewPartnerName(event.target.value)}
+            placeholder="Neuer Partnername"
+            className="min-w-[16rem] flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm"
+          />
+          <button
+            onClick={() => newPartnerMutation.mutate()}
+            disabled={!newPartnerName.trim() || newPartnerMutation.isPending}
+            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+          >
+            Anlegen & zuweisen
+          </button>
+          <button
+            onClick={() => setMode('idle')}
+            className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-white"
+          >
+            Abbrechen
+          </button>
         </div>
       ) : null}
 
@@ -454,31 +654,51 @@ function ReviewCard({
         <div className="mt-4 rounded-2xl bg-slate-50 p-4">
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             {(services as ServiceListItem[]).map((service) => (
-              <button key={service.id} onClick={() => adjustServiceMutation.mutate(service.id)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left hover:bg-slate-100">
+              <button
+                key={service.id}
+                onClick={() => adjustServiceMutation.mutate(service.id)}
+                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left hover:bg-slate-100"
+              >
                 <p className="text-sm font-semibold text-slate-900">{service.name}</p>
-                <p className="mt-1 text-xs text-slate-500">{serviceTypeLabels[service.service_type]} · {service.tax_rate}%</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {serviceTypeLabels[service.service_type]} · {service.tax_rate}%
+                </p>
               </button>
             ))}
           </div>
-          <button onClick={() => setMode('idle')} className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Abbrechen</button>
+          <button
+            onClick={() => setMode('idle')}
+            className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-400"
+          >
+            Abbrechen
+          </button>
         </div>
       ) : null}
 
       {mode === 'service-split' ? (
         <div className="mt-4 rounded-2xl bg-slate-50 p-4">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Buchung aufteilen</p>
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Buchung aufteilen
+          </p>
           <div className="space-y-2">
             {nonBaseServices.map((service) => (
-              <div key={service.id} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
+              <div
+                key={service.id}
+                className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3"
+              >
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-slate-900 truncate">{service.name}</p>
-                  <p className="text-xs text-slate-500">{serviceTypeLabels[service.service_type]} · {service.tax_rate}%</p>
+                  <p className="text-xs text-slate-500">
+                    {serviceTypeLabels[service.service_type]} · {service.tax_rate}%
+                  </p>
                 </div>
                 <input
                   type="number"
                   step="0.01"
                   value={splitAmounts[service.id] ?? ''}
-                  onChange={(e) => setSplitAmounts((prev) => ({ ...prev, [service.id]: e.target.value }))}
+                  onChange={(e) =>
+                    setSplitAmounts((prev) => ({ ...prev, [service.id]: e.target.value }))
+                  }
                   placeholder="0.00"
                   className="w-28 rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-right focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
                 />
@@ -487,8 +707,21 @@ function ReviewCard({
           </div>
           <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
             <p className="text-xs text-slate-500">
-              Summe: <span className={Math.abs(splitSum - lineAmount) < 0.005 && splitEntries.length > 0 ? 'font-semibold text-emerald-600' : 'font-semibold text-slate-700'}>{formatCurrency(splitSum.toFixed(2), item.journal_line?.currency ?? 'EUR')}</span>
-              {' '}/ {formatCurrency(item.journal_line?.amount ?? '0', item.journal_line?.currency ?? 'EUR')}
+              Summe:{' '}
+              <span
+                className={
+                  Math.abs(splitSum - lineAmount) < 0.005 && splitEntries.length > 0
+                    ? 'font-semibold text-emerald-600'
+                    : 'font-semibold text-slate-700'
+                }
+              >
+                {formatCurrency(splitSum.toFixed(2), item.journal_line?.currency ?? 'EUR')}
+              </span>{' '}
+              /{' '}
+              {formatCurrency(
+                item.journal_line?.amount ?? '0',
+                item.journal_line?.currency ?? 'EUR',
+              )}
             </p>
             <div className="flex gap-2">
               <button
@@ -498,7 +731,12 @@ function ReviewCard({
               >
                 Zuordnen
               </button>
-              <button onClick={() => setMode('idle')} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-white">Abbrechen</button>
+              <button
+                onClick={() => setMode('idle')}
+                className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-white"
+              >
+                Abbrechen
+              </button>
             </div>
           </div>
         </div>
@@ -517,7 +755,11 @@ function resolveCriterionLabel(reason?: string) {
 
 function resolveHeadline(item: ReviewItem) {
   if (item.item_type === 'service_assignment') {
-    return item.journal_line?.partner_name ?? item.journal_line?.partner_name_raw ?? 'Leistungs-Zuordnung prüfen'
+    return (
+      item.journal_line?.partner_name ??
+      item.journal_line?.partner_name_raw ??
+      'Leistungs-Zuordnung prüfen'
+    )
   }
   if (item.item_type === 'service_type_review') {
     return item.service?.name ?? 'Leistungstyp prüfen'
@@ -526,9 +768,17 @@ function resolveHeadline(item: ReviewItem) {
     return item.context.partner_name_raw ?? 'Neuen Partner prüfen'
   }
   if (item.item_type === 'manual_service_assignment') {
-    return item.journal_line?.partner_name ?? item.journal_line?.partner_name_raw ?? 'Leistung manuell zuordnen'
+    return (
+      item.journal_line?.partner_name ??
+      item.journal_line?.partner_name_raw ??
+      'Leistung manuell zuordnen'
+    )
   }
-  return item.context.partner_name_raw ?? item.journal_line?.partner_name_raw ?? 'Partner-Zuordnung prüfen'
+  return (
+    item.context.partner_name_raw ??
+    item.journal_line?.partner_name_raw ??
+    'Partner-Zuordnung prüfen'
+  )
 }
 
 function resolveCurrentState(item: ReviewItem) {
@@ -563,14 +813,22 @@ function resolveSuggestedState(item: ReviewItem) {
   if (item.item_type === 'service_type_review') {
     const typeLabel = serviceTypeLabels[item.context.auto_assigned_type ?? 'unknown']
     const taxRate = item.context.auto_assigned_tax_rate ?? item.service?.tax_rate
-    const erfolgsneutralLabel = item.service?.erfolgsneutral ? 'erfolgsneutral' : 'nicht erfolgsneutral'
-    return taxRate != null ? `${typeLabel} · ${taxRate} % MwSt. · ${erfolgsneutralLabel}` : `${typeLabel} · ${erfolgsneutralLabel}`
+    const erfolgsneutralLabel = item.service?.erfolgsneutral
+      ? 'erfolgsneutral'
+      : 'nicht erfolgsneutral'
+    return taxRate != null
+      ? `${typeLabel} · ${taxRate} % MwSt. · ${erfolgsneutralLabel}`
+      : `${typeLabel} · ${erfolgsneutralLabel}`
   }
   if (item.item_type === 'new_partner') {
     return 'Prüfen – evtl. existiert dieser Partner bereits'
   }
   if (item.item_type === 'name_match_with_iban') {
-    return item.journal_line?.partner_name ?? item.context.suggested_partner_name ?? 'Zuordnung manuell prüfen'
+    return (
+      item.journal_line?.partner_name ??
+      item.context.suggested_partner_name ??
+      'Zuordnung manuell prüfen'
+    )
   }
   if (item.item_type === 'manual_service_assignment') {
     return 'Leistung manuell auswählen'
@@ -581,8 +839,11 @@ function resolveSuggestedState(item: ReviewItem) {
 function IbanDeviationPanel({ item }: { item: ReviewItem }) {
   const diagnosis = item.context.diagnosis
   const ibanDiag = diagnosis?.iban
-  const importRawIban = item.context.raw_iban ?? item.journal_line?.partner_iban_raw ?? item.context.partner_iban_raw
-  const normalizedIban = ibanDiag?.normalized ?? (importRawIban ? importRawIban.replaceAll(' ', '').toUpperCase() : undefined)
+  const importRawIban =
+    item.context.raw_iban ?? item.journal_line?.partner_iban_raw ?? item.context.partner_iban_raw
+  const normalizedIban =
+    ibanDiag?.normalized ??
+    (importRawIban ? importRawIban.replaceAll(' ', '').toUpperCase() : undefined)
   const knownIbans = item.context.matched_partner_ibans ?? []
 
   let statusDetail = 'Keine IBAN im Import vorhanden'
@@ -598,7 +859,9 @@ function IbanDeviationPanel({ item }: { item: ReviewItem }) {
 
   return (
     <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">IBAN-Abweichung analysiert</p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+        IBAN-Abweichung analysiert
+      </p>
       <div className="mt-3 grid gap-3 md:grid-cols-2">
         <InfoTile
           title="Import-IBAN"
@@ -608,12 +871,18 @@ function IbanDeviationPanel({ item }: { item: ReviewItem }) {
         <InfoTile
           title="IBAN-Prüfstatus"
           body={statusDetail}
-          footer={knownIbans.length > 0 ? `${knownIbans.length} bekannte Partner-IBAN(s)` : 'Keine Partner-IBAN hinterlegt'}
+          footer={
+            knownIbans.length > 0
+              ? `${knownIbans.length} bekannte Partner-IBAN(s)`
+              : 'Keine Partner-IBAN hinterlegt'
+          }
         />
       </div>
       {knownIbans.length > 0 ? (
         <div className="mt-3 rounded-xl bg-white/80 p-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Bekannte Partner-IBANs</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Bekannte Partner-IBANs
+          </p>
           <ul className="mt-2 space-y-1 text-sm text-slate-700">
             {knownIbans.map((iban) => (
               <li key={iban} className="font-mono">
@@ -627,7 +896,15 @@ function IbanDeviationPanel({ item }: { item: ReviewItem }) {
   )
 }
 
-function InfoTile({ title, body, footer }: { title: string; body: string; footer?: React.ReactNode }) {
+function InfoTile({
+  title,
+  body,
+  footer,
+}: {
+  title: string
+  body: string
+  footer?: React.ReactNode
+}) {
   return (
     <div className="rounded-2xl bg-slate-50 p-4">
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</p>
@@ -645,7 +922,9 @@ function NoPartnerRawDataPanel({ context }: { context: ReviewItem['context'] }) 
   if (entries.length === 0) return null
   return (
     <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Verfügbare Daten – kein Treffer</p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+        Verfügbare Daten – kein Treffer
+      </p>
       <ul className="mt-2 space-y-1">
         {entries.map((e) => (
           <li key={e.label} className="flex items-start gap-2 text-sm">
@@ -724,7 +1003,9 @@ function NoPartnerDiagnosisPanel({ diagnosis }: { diagnosis: NoPartnerDiagnosis 
 
   return (
     <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Geprüft – kein Treffer</p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+        Geprüft – kein Treffer
+      </p>
       <ul className="mt-2 space-y-1">
         {steps.map((step) => (
           <li key={step.label} className="flex items-start gap-2 text-sm">

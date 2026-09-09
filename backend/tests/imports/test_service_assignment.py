@@ -2,8 +2,8 @@ from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
-from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 
 from app.auth.models import UserRole
 from app.imports.models import JournalLine, JournalLineSplit, ReviewItem, utcnow
@@ -12,8 +12,8 @@ from app.services.service import ensure_base_service
 from tests.imports import (
     assign_user_to_mandant,
     create_account_db,
-    create_mapping_db,
     create_mandant,
+    create_mapping_db,
     create_partner_db,
     create_user,
     get_auth_token,
@@ -69,7 +69,9 @@ class TestImportServiceAssignment:
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         account = await create_account_db(db_session, mandant.id)
-        await create_mapping_db(db_session, account.id, description_col="Verwendungszweck")
+        await create_mapping_db(
+            db_session, account.id, description_col="Verwendungszweck"
+        )
         token = await get_auth_token(client, user, mandant)
 
         partner = await create_partner_db(
@@ -79,18 +81,22 @@ class TestImportServiceAssignment:
             iban="DE89370400440532013000",
         )
         await ensure_base_service(db_session, partner.id)
-        service = await _create_service(db_session, partner.id, "Hosting", pattern="hosting")
+        service = await _create_service(
+            db_session, partner.id, "Hosting", pattern="hosting"
+        )
 
-        csv_bytes = make_csv([
-            {
-                "Valuta": "2026-01-15",
-                "Buchungsdatum": "2026-01-15",
-                "Betrag": "123.45",
-                "Auftraggeber": "Amazon EU",
-                "IBAN": "DE89370400440532013000",
-                "Verwendungszweck": "Hosting April",
-            }
-        ])
+        csv_bytes = make_csv(
+            [
+                {
+                    "Valuta": "2026-01-15",
+                    "Buchungsdatum": "2026-01-15",
+                    "Betrag": "123.45",
+                    "Auftraggeber": "Amazon EU",
+                    "IBAN": "DE89370400440532013000",
+                    "Verwendungszweck": "Hosting April",
+                }
+            ]
+        )
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/accounts/{account.id}/imports",
             files=[("files", ("test.csv", csv_bytes, "text/csv"))],
@@ -100,9 +106,13 @@ class TestImportServiceAssignment:
 
         line = (await db_session.exec(select(JournalLine))).first()
         assert line is not None
-        split = (await db_session.exec(
-            select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
-        )).first()
+        split = (
+            await db_session.exec(
+                select(JournalLineSplit).where(
+                    JournalLineSplit.journal_line_id == line.id
+                )
+            )
+        ).first()
         assert split is not None
         assert split.service_id == service.id
         assert split.assignment_mode == "auto"
@@ -116,7 +126,9 @@ class TestImportServiceAssignment:
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         account = await create_account_db(db_session, mandant.id)
-        await create_mapping_db(db_session, account.id, description_col="Verwendungszweck")
+        await create_mapping_db(
+            db_session, account.id, description_col="Verwendungszweck"
+        )
         token = await get_auth_token(client, user, mandant)
 
         partner = await create_partner_db(
@@ -129,16 +141,18 @@ class TestImportServiceAssignment:
         await _create_service(db_session, partner.id, "Hosting", pattern="hosting")
         await _create_service(db_session, partner.id, "April Service", pattern="april")
 
-        csv_bytes = make_csv([
-            {
-                "Valuta": "2026-01-15",
-                "Buchungsdatum": "2026-01-15",
-                "Betrag": "123.45",
-                "Auftraggeber": "Amazon EU",
-                "IBAN": "DE89370400440532013000",
-                "Verwendungszweck": "Hosting April",
-            }
-        ])
+        csv_bytes = make_csv(
+            [
+                {
+                    "Valuta": "2026-01-15",
+                    "Buchungsdatum": "2026-01-15",
+                    "Betrag": "123.45",
+                    "Auftraggeber": "Amazon EU",
+                    "IBAN": "DE89370400440532013000",
+                    "Verwendungszweck": "Hosting April",
+                }
+            ]
+        )
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/accounts/{account.id}/imports",
             files=[("files", ("test.csv", csv_bytes, "text/csv"))],
@@ -148,9 +162,13 @@ class TestImportServiceAssignment:
 
         line = (await db_session.exec(select(JournalLine))).first()
         assert line is not None
-        split = (await db_session.exec(
-            select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
-        )).first()
+        split = (
+            await db_session.exec(
+                select(JournalLineSplit).where(
+                    JournalLineSplit.journal_line_id == line.id
+                )
+            )
+        ).first()
         assert split is not None
         assert split.service_id == base_service.id
         assert split.assignment_mode == "auto"
@@ -173,7 +191,9 @@ class TestImportServiceAssignment:
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         account = await create_account_db(db_session, mandant.id)
-        await create_mapping_db(db_session, account.id, description_col="Verwendungszweck")
+        await create_mapping_db(
+            db_session, account.id, description_col="Verwendungszweck"
+        )
         token = await get_auth_token(client, user, mandant)
 
         partner = await create_partner_db(
@@ -183,18 +203,22 @@ class TestImportServiceAssignment:
             iban="DE12500105170648489890",
         )
         await ensure_base_service(db_session, partner.id)
-        service = await _create_service(db_session, partner.id, "Lohnlauf", pattern="lohn")
+        service = await _create_service(
+            db_session, partner.id, "Lohnlauf", pattern="lohn"
+        )
 
-        csv_bytes = make_csv([
-            {
-                "Valuta": "2026-01-31",
-                "Buchungsdatum": "2026-01-31",
-                "Betrag": "-1500.00",
-                "Auftraggeber": "Payroll GmbH",
-                "IBAN": "DE12500105170648489890",
-                "Verwendungszweck": "Lohn Januar",
-            }
-        ])
+        csv_bytes = make_csv(
+            [
+                {
+                    "Valuta": "2026-01-31",
+                    "Buchungsdatum": "2026-01-31",
+                    "Betrag": "-1500.00",
+                    "Auftraggeber": "Payroll GmbH",
+                    "IBAN": "DE12500105170648489890",
+                    "Verwendungszweck": "Lohn Januar",
+                }
+            ]
+        )
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/accounts/{account.id}/imports",
             files=[("files", ("test.csv", csv_bytes, "text/csv"))],
@@ -222,11 +246,15 @@ class TestImportServiceAssignment:
         client: AsyncClient,
         db_session: AsyncSession,
     ):
-        user = await create_user(db_session, "svc-shareholder@test.com", UserRole.accountant)
+        user = await create_user(
+            db_session, "svc-shareholder@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         account = await create_account_db(db_session, mandant.id)
-        await create_mapping_db(db_session, account.id, description_col="Verwendungszweck")
+        await create_mapping_db(
+            db_session, account.id, description_col="Verwendungszweck"
+        )
         token = await get_auth_token(client, user, mandant)
 
         partner = await create_partner_db(
@@ -236,18 +264,22 @@ class TestImportServiceAssignment:
             iban="DE44500105175407324931",
         )
         await ensure_base_service(db_session, partner.id)
-        service = await _create_service(db_session, partner.id, "Privatentnahme", pattern="entnahme")
+        service = await _create_service(
+            db_session, partner.id, "Privatentnahme", pattern="entnahme"
+        )
 
-        csv_bytes = make_csv([
-            {
-                "Valuta": "2026-02-05",
-                "Buchungsdatum": "2026-02-05",
-                "Betrag": "-500.00",
-                "Auftraggeber": "Gesellschafterkonto",
-                "IBAN": "DE44500105175407324931",
-                "Verwendungszweck": "Private Entnahme Februar",
-            }
-        ])
+        csv_bytes = make_csv(
+            [
+                {
+                    "Valuta": "2026-02-05",
+                    "Buchungsdatum": "2026-02-05",
+                    "Betrag": "-500.00",
+                    "Auftraggeber": "Gesellschafterkonto",
+                    "IBAN": "DE44500105175407324931",
+                    "Verwendungszweck": "Private Entnahme Februar",
+                }
+            ]
+        )
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/accounts/{account.id}/imports",
             files=[("files", ("test.csv", csv_bytes, "text/csv"))],

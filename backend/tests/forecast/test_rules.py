@@ -1,4 +1,5 @@
 """Übersteuerung, Modifikatoren und Szenarien — die Schichten über dem Profiler."""
+
 from decimal import Decimal
 
 from app.forecast.models import ForecastMode, ServiceForecastRule
@@ -40,11 +41,15 @@ AUTO_PROFILE = profile_with(
 def override(**kwargs) -> ServiceForecastRule:
     from uuid import uuid4
 
-    defaults = dict(mandant_id=uuid4(), service_id=uuid4(), mode=ForecastMode.auto.value)
+    defaults = dict(
+        mandant_id=uuid4(), service_id=uuid4(), mode=ForecastMode.auto.value
+    )
     return ServiceForecastRule(**{**defaults, **kwargs})
 
 
-def value(effective, year: int, month: int, history=None, scenario=Scenario.expected) -> Decimal:
+def value(
+    effective, year: int, month: int, history=None, scenario=Scenario.expected
+) -> Decimal:
     return projected_value(
         effective, month_index(year, month), history=history or {}, scenario=scenario
     )
@@ -77,7 +82,9 @@ class TestModus:
     def test_haendische_regel_schlaegt_den_vorschlag(self):
         effective = resolve_rule(
             AUTO_PROFILE,
-            override(mode="manual", rule_type="fixed_recurring", params={"amount": "-4500"}),
+            override(
+                mode="manual", rule_type="fixed_recurring", params={"amount": "-4500"}
+            ),
             history={},
             window_end=WINDOW_END,
         )
@@ -132,7 +139,9 @@ class TestHaendischeRegeltypen:
         history = {WINDOW_END - offset: Decimal("-600") for offset in range(3)}
         effective = resolve_rule(
             AUTO_PROFILE,
-            override(mode="manual", rule_type="rolling_average", params={"window_months": 6}),
+            override(
+                mode="manual", rule_type="rolling_average", params={"window_months": 6}
+            ),
             history=history,
             window_end=WINDOW_END,
         )
@@ -279,12 +288,20 @@ class TestSzenarien:
         assert value(effective, 2027, 3, scenario=Scenario.low) == Decimal("-1250.00")
 
     def test_optimistisch_dreht_beide_richtungen_um(self):
-        assert value(self._income(Confidence.medium), 2027, 3, scenario=Scenario.high) == Decimal("1250.00")
-        assert value(self._expense(Confidence.medium), 2027, 3, scenario=Scenario.high) == Decimal("-750.00")
+        assert value(
+            self._income(Confidence.medium), 2027, 3, scenario=Scenario.high
+        ) == Decimal("1250.00")
+        assert value(
+            self._expense(Confidence.medium), 2027, 3, scenario=Scenario.high
+        ) == Decimal("-750.00")
 
     def test_bandbreite_haengt_an_der_confidence(self):
-        assert value(self._income(Confidence.high), 2027, 3, scenario=Scenario.low) == Decimal("900.00")
-        assert value(self._income(Confidence.low), 2027, 3, scenario=Scenario.low) == Decimal("500.00")
+        assert value(
+            self._income(Confidence.high), 2027, 3, scenario=Scenario.low
+        ) == Decimal("900.00")
+        assert value(
+            self._income(Confidence.low), 2027, 3, scenario=Scenario.low
+        ) == Decimal("500.00")
 
     def test_erwartungswert_bleibt_unveraendert(self):
         assert value(self._income(Confidence.low), 2027, 3) == Decimal("1000")

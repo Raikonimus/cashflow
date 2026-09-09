@@ -1,8 +1,8 @@
 """
 Unit tests – app/scripts/seed.py  (Story 007-dev-seed)
 """
-import sys
-from unittest.mock import AsyncMock, MagicMock, patch
+
+from unittest.mock import patch
 
 import pytest
 
@@ -16,8 +16,10 @@ class TestSeedProductionGuard:
             mock_settings.seed_admin_password = "password123"
 
             with pytest.raises(SystemExit) as exc_info:
-                from app.scripts import seed as seed_module
                 import importlib
+
+                from app.scripts import seed as seed_module
+
                 importlib.reload(seed_module)
                 await seed_module._seed()
 
@@ -30,8 +32,10 @@ class TestSeedProductionGuard:
             mock_settings.seed_admin_password = "password123"
 
             with pytest.raises(SystemExit) as exc_info:
-                from app.scripts import seed as seed_module
                 import importlib
+
+                from app.scripts import seed as seed_module
+
                 importlib.reload(seed_module)
                 await seed_module._seed()
 
@@ -44,8 +48,10 @@ class TestSeedProductionGuard:
             mock_settings.seed_admin_password = None
 
             with pytest.raises(SystemExit) as exc_info:
-                from app.scripts import seed as seed_module
                 import importlib
+
+                from app.scripts import seed as seed_module
+
                 importlib.reload(seed_module)
                 await seed_module._seed()
 
@@ -58,8 +64,10 @@ class TestSeedProductionGuard:
             mock_settings.seed_admin_password = "short"
 
             with pytest.raises(SystemExit) as exc_info:
-                from app.scripts import seed as seed_module
                 import importlib
+
+                from app.scripts import seed as seed_module
+
                 importlib.reload(seed_module)
                 await seed_module._seed()
 
@@ -69,10 +77,8 @@ class TestSeedProductionGuard:
 class TestSeedIntegration:
     async def test_seed_creates_admin_user(self, client, db_session):
         """Full integration: seed via DB session, then login succeeds."""
-        from sqlmodel import select
         from app.auth.models import User, UserRole
         from app.auth.security import hash_password
-        from app.core.config import settings
 
         # Directly simulate what seed does (bypasses invitation - ADR-005)
         admin = User(
@@ -95,6 +101,7 @@ class TestSeedIntegration:
     async def test_seed_is_idempotent(self, client, db_session):
         """Running seed twice must not create duplicate users."""
         from sqlmodel import select
+
         from app.auth.models import User, UserRole
         from app.auth.security import hash_password
 

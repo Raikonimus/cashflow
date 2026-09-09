@@ -13,6 +13,7 @@ Matching order (first match wins):
   Falls ≥2 Leistungs-Matcher auf verschiedene Partner zeigen:
      → ReviewItem "service_matcher_ambiguous" statt Zuweisung.
 """
+
 from __future__ import annotations
 
 import re
@@ -40,17 +41,19 @@ def _normalize_account(raw: str) -> str:
 
 class MatchOutcome(StrEnum):
     iban_match = "iban_match"
-    account_match = "account_match"            # BLZ + Kontonummer
+    account_match = "account_match"  # BLZ + Kontonummer
     name_match = "name_match"
-    service_matcher_match = "service_matcher_match"        # eindeutiger Leistungs-Matcher-Treffer
+    service_matcher_match = (
+        "service_matcher_match"  # eindeutiger Leistungs-Matcher-Treffer
+    )
     service_matcher_ambiguous = "service_matcher_ambiguous"  # mehrere Partner getroffen
-    no_partner_identified = "no_partner_identified"          # kein Treffer, kein Name
+    no_partner_identified = "no_partner_identified"  # kein Treffer, kein Name
     new_partner = "new_partner"
 
 
 @dataclass
 class PartnerMatchResult:
-    partner_id: UUID | None   # None bei ambiguous / no_partner_identified
+    partner_id: UUID | None  # None bei ambiguous / no_partner_identified
     outcome: MatchOutcome
     review_context: dict | None = field(default=None)
 
@@ -101,7 +104,11 @@ class PartnerMatchingService:
         if iban_raw:
             normalized = _normalize_iban(iban_raw)
             if normalized in excluded_ibans:
-                _diag["iban"] = {"provided": True, "excluded": True, "normalized": normalized}
+                _diag["iban"] = {
+                    "provided": True,
+                    "excluded": True,
+                    "normalized": normalized,
+                }
             else:
                 row = (
                     await self._session.exec(
@@ -124,8 +131,15 @@ class PartnerMatchingService:
                         bic_raw,
                         excluded_accounts=excluded_accounts | no_enrich_accounts,
                     )
-                    return PartnerMatchResult(partner_id=partner_id, outcome=MatchOutcome.iban_match)
-                _diag["iban"] = {"provided": True, "excluded": False, "found": False, "normalized": normalized}
+                    return PartnerMatchResult(
+                        partner_id=partner_id, outcome=MatchOutcome.iban_match
+                    )
+                _diag["iban"] = {
+                    "provided": True,
+                    "excluded": False,
+                    "found": False,
+                    "normalized": normalized,
+                }
         else:
             _diag["iban"] = {"provided": False}
 
@@ -133,7 +147,11 @@ class PartnerMatchingService:
         if account_raw:
             normalized_acct = _normalize_account(account_raw)
             if normalized_acct in excluded_accounts:
-                _diag["account"] = {"provided": True, "excluded": True, "normalized": normalized_acct}
+                _diag["account"] = {
+                    "provided": True,
+                    "excluded": True,
+                    "normalized": normalized_acct,
+                }
             else:
                 acct_row = (
                     await self._session.exec(
@@ -150,11 +168,20 @@ class PartnerMatchingService:
                     partner_id = acct_row.partner_id
                     # Auto-Anreicherung: IBAN + BIC ergänzen wenn noch nicht bekannt
                     await self._maybe_add_iban(
-                        partner_id, iban_raw, excluded_ibans=excluded_ibans | no_enrich_ibans
+                        partner_id,
+                        iban_raw,
+                        excluded_ibans=excluded_ibans | no_enrich_ibans,
                     )
                     await self._maybe_update_bic(acct_row, bic_raw)
-                    return PartnerMatchResult(partner_id=partner_id, outcome=MatchOutcome.account_match)
-                _diag["account"] = {"provided": True, "excluded": False, "found": False, "normalized": normalized_acct}
+                    return PartnerMatchResult(
+                        partner_id=partner_id, outcome=MatchOutcome.account_match
+                    )
+                _diag["account"] = {
+                    "provided": True,
+                    "excluded": False,
+                    "found": False,
+                    "normalized": normalized_acct,
+                }
         else:
             _diag["account"] = {"provided": False}
 
@@ -166,7 +193,8 @@ class PartnerMatchingService:
                     select(Partner)
                     .join(PartnerName, PartnerName.partner_id == Partner.id)  # type: ignore[arg-type]
                     .where(
-                        sa.func.lower(sa.literal_column('"partner_names"."name"')) == name_raw.lower(),
+                        sa.func.lower(sa.literal_column('"partner_names"."name"'))
+                        == name_raw.lower(),
                         Partner.mandant_id == mandant_id,
                         Partner.is_active == True,  # noqa: E712
                     )
@@ -176,8 +204,7 @@ class PartnerMatchingService:
             if row_name is None:
                 row_name = (
                     await self._session.exec(
-                        select(Partner)
-                        .where(
+                        select(Partner).where(
                             sa.func.lower(Partner.name) == name_raw.lower(),
                             Partner.mandant_id == mandant_id,
                             Partner.is_active == True,  # noqa: E712
@@ -188,7 +215,9 @@ class PartnerMatchingService:
                 assert row_name.id is not None
                 partner_id = row_name.id
                 await self._maybe_add_iban(
-                    partner_id, iban_raw, excluded_ibans=excluded_ibans | no_enrich_ibans
+                    partner_id,
+                    iban_raw,
+                    excluded_ibans=excluded_ibans | no_enrich_ibans,
                 )
                 await self._maybe_add_account(
                     partner_id,
@@ -198,7 +227,11 @@ class PartnerMatchingService:
                     excluded_accounts=excluded_accounts | no_enrich_accounts,
                 )
                 name_diag = {"provided": True, "found": True, "value": name_raw}
-                iban_diag = _diag.get("iban") if isinstance(_diag.get("iban"), dict) else {"provided": bool(iban_raw)}
+                iban_diag = (
+                    _diag.get("iban")
+                    if isinstance(_diag.get("iban"), dict)
+                    else {"provided": bool(iban_raw)}
+                )
                 return PartnerMatchResult(
                     partner_id=partner_id,
                     outcome=MatchOutcome.name_match,
@@ -322,11 +355,15 @@ class PartnerMatchingService:
         normalized = _normalize_iban(iban_raw)
         if normalized in excluded_ibans:
             return
-        existing = (await self._session.exec(
-            select(PartnerIban).where(PartnerIban.iban == normalized)
-        )).first()
+        existing = (
+            await self._session.exec(
+                select(PartnerIban).where(PartnerIban.iban == normalized)
+            )
+        ).first()
         if existing is None:
-            self._session.add(PartnerIban(partner_id=partner_id, iban=normalized, created_at=utcnow()))
+            self._session.add(
+                PartnerIban(partner_id=partner_id, iban=normalized, created_at=utcnow())
+            )
 
     async def _maybe_add_account(
         self,
@@ -344,20 +381,24 @@ class PartnerMatchingService:
             return
         normalized_blz = blz_raw.strip() if blz_raw else None
         normalized_bic = bic_raw.strip().upper() if bic_raw else None
-        existing = (await self._session.exec(
-            select(PartnerAccount).where(
-                PartnerAccount.account_number == normalized_acct,
-                PartnerAccount.blz == normalized_blz,
+        existing = (
+            await self._session.exec(
+                select(PartnerAccount).where(
+                    PartnerAccount.account_number == normalized_acct,
+                    PartnerAccount.blz == normalized_blz,
+                )
             )
-        )).first()
+        ).first()
         if existing is None:
-            self._session.add(PartnerAccount(
-                partner_id=partner_id,
-                blz=normalized_blz,
-                account_number=normalized_acct,
-                bic=normalized_bic,
-                created_at=utcnow(),
-            ))
+            self._session.add(
+                PartnerAccount(
+                    partner_id=partner_id,
+                    blz=normalized_blz,
+                    account_number=normalized_acct,
+                    bic=normalized_bic,
+                    created_at=utcnow(),
+                )
+            )
 
     async def _find_partners_by_service_matcher(
         self,
@@ -388,7 +429,12 @@ class PartnerMatchingService:
             )
         ).all()
         if not partners:
-            return [], {"skipped": False, "total_matchers": 0, "matched": 0, "reason": "no_active_partners"}
+            return [], {
+                "skipped": False,
+                "total_matchers": 0,
+                "matched": 0,
+                "reason": "no_active_partners",
+            }
         partner_names: dict[UUID, str] = {p.id: p.name for p in partners}  # type: ignore[misc]
 
         # Nicht-Basis-Leistungen aktiver Partner laden
@@ -398,13 +444,18 @@ class PartnerMatchingService:
                 .join(Partner, Partner.id == Service.partner_id)  # type: ignore[arg-type]
                 .where(
                     Partner.mandant_id == mandant_id,
-                    Partner.is_active == True,   # noqa: E712
+                    Partner.is_active == True,  # noqa: E712
                     Service.is_base_service == False,  # noqa: E712
                 )
             )
         ).all()
         if not services:
-            return [], {"skipped": False, "total_matchers": 0, "matched": 0, "reason": "no_services_configured"}
+            return [], {
+                "skipped": False,
+                "total_matchers": 0,
+                "matched": 0,
+                "reason": "no_services_configured",
+            }
         svc_to_partner: dict[UUID, UUID] = {s.id: s.partner_id for s in services}  # type: ignore[misc]
 
         # Leistungs-Matcher über dieselben JOINs laden (kein IN-Operator nötig).
@@ -419,14 +470,19 @@ class PartnerMatchingService:
                 .join(Partner, Partner.id == Service.partner_id)  # type: ignore[arg-type]
                 .where(
                     Partner.mandant_id == mandant_id,
-                    Partner.is_active == True,    # noqa: E712
+                    Partner.is_active == True,  # noqa: E712
                     Service.is_base_service == False,  # noqa: E712
                     ServiceMatcher.internal_only == False,  # noqa: E712
                 )
             )
         ).all()
         if not all_matchers:
-            return [], {"skipped": False, "total_matchers": 0, "matched": 0, "reason": "no_matchers_configured"}
+            return [], {
+                "skipped": False,
+                "total_matchers": 0,
+                "matched": 0,
+                "reason": "no_matchers_configured",
+            }
 
         # Matcher gruppiert nach Partner
         matchers_by_partner: dict[UUID, list[ServiceMatcher]] = {}
@@ -441,9 +497,15 @@ class PartnerMatchingService:
             if _any_matcher_hits(matchers, searchable, searchable_lower):
                 matched.append((pid, partner_names.get(pid, "")))
 
-        return matched, {"skipped": False, "total_matchers": len(all_matchers), "matched": len(matched)}
+        return matched, {
+            "skipped": False,
+            "total_matchers": len(all_matchers),
+            "matched": len(matched),
+        }
 
-    async def _maybe_update_bic(self, account: PartnerAccount, bic_raw: str | None) -> None:
+    async def _maybe_update_bic(
+        self, account: PartnerAccount, bic_raw: str | None
+    ) -> None:
         """Trägt BIC nach, wenn der Account noch keinen hat."""
         if not bic_raw or account.bic:
             return

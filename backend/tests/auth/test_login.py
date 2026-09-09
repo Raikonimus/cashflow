@@ -1,17 +1,17 @@
 """
 Integration tests – POST /api/v1/auth/login  (Story 001-login-jwt)
 """
-import pytest
 
-from tests.auth.conftest import assign_user_to_mandant, create_mandant, create_user
 from app.auth.models import UserRole
+from tests.auth.conftest import assign_user_to_mandant, create_mandant, create_user
 
 
 class TestLoginSuccess:
     async def test_admin_login_no_mandant(self, client, db_session):
         await create_user(db_session, role=UserRole.admin)
         resp = await client.post(
-            "/api/v1/auth/login", json={"email": "test@example.com", "password": "secret123"}
+            "/api/v1/auth/login",
+            json={"email": "test@example.com", "password": "secret123"},
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -25,7 +25,8 @@ class TestLoginSuccess:
         await assign_user_to_mandant(db_session, user, mandant)
 
         resp = await client.post(
-            "/api/v1/auth/login", json={"email": "test@example.com", "password": "secret123"}
+            "/api/v1/auth/login",
+            json={"email": "test@example.com", "password": "secret123"},
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -34,6 +35,7 @@ class TestLoginSuccess:
 
         # mandant_id must be embedded in JWT
         from app.auth.security import decode_access_token
+
         payload = decode_access_token(data["access_token"])
         assert payload["mandant_id"] == str(mandant.id)
 
@@ -45,7 +47,8 @@ class TestLoginSuccess:
         await assign_user_to_mandant(db_session, user, m2)
 
         resp = await client.post(
-            "/api/v1/auth/login", json={"email": "test@example.com", "password": "secret123"}
+            "/api/v1/auth/login",
+            json={"email": "test@example.com", "password": "secret123"},
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -57,21 +60,24 @@ class TestLoginFailures:
     async def test_wrong_password_returns_401(self, client, db_session):
         await create_user(db_session)
         resp = await client.post(
-            "/api/v1/auth/login", json={"email": "test@example.com", "password": "wrongpass"}
+            "/api/v1/auth/login",
+            json={"email": "test@example.com", "password": "wrongpass"},
         )
         assert resp.status_code == 401
         assert "Invalid credentials" in resp.json()["detail"]
 
     async def test_unknown_email_returns_401(self, client, db_session):
         resp = await client.post(
-            "/api/v1/auth/login", json={"email": "nobody@example.com", "password": "anypass"}
+            "/api/v1/auth/login",
+            json={"email": "nobody@example.com", "password": "anypass"},
         )
         assert resp.status_code == 401
 
     async def test_inactive_user_returns_401(self, client, db_session):
         await create_user(db_session, is_active=False)
         resp = await client.post(
-            "/api/v1/auth/login", json={"email": "test@example.com", "password": "secret123"}
+            "/api/v1/auth/login",
+            json={"email": "test@example.com", "password": "secret123"},
         )
         assert resp.status_code == 401
 
@@ -79,7 +85,8 @@ class TestLoginFailures:
         """User without password_hash (invitation not yet accepted)."""
         await create_user(db_session, password=None)
         resp = await client.post(
-            "/api/v1/auth/login", json={"email": "test@example.com", "password": "anything"}
+            "/api/v1/auth/login",
+            json={"email": "test@example.com", "password": "anything"},
         )
         assert resp.status_code == 401
         assert "Invitation" in resp.json()["detail"]
@@ -92,7 +99,8 @@ class TestSelectMandant:
         await assign_user_to_mandant(db_session, user, mandant)
 
         login = await client.post(
-            "/api/v1/auth/login", json={"email": "test@example.com", "password": "secret123"}
+            "/api/v1/auth/login",
+            json={"email": "test@example.com", "password": "secret123"},
         )
         token = login.json()["access_token"]
 
@@ -109,7 +117,8 @@ class TestSelectMandant:
         other_mandant = await create_mandant(db_session, "Other GmbH")
 
         login = await client.post(
-            "/api/v1/auth/login", json={"email": "test@example.com", "password": "secret123"}
+            "/api/v1/auth/login",
+            json={"email": "test@example.com", "password": "secret123"},
         )
         token = login.json()["access_token"]
 
@@ -125,11 +134,14 @@ class TestGetMe:
     async def test_me_returns_user_info(self, client, db_session):
         user = await create_user(db_session, role=UserRole.accountant)
         login = await client.post(
-            "/api/v1/auth/login", json={"email": "test@example.com", "password": "secret123"}
+            "/api/v1/auth/login",
+            json={"email": "test@example.com", "password": "secret123"},
         )
         token = login.json()["access_token"]
 
-        resp = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+        resp = await client.get(
+            "/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["email"] == "test@example.com"

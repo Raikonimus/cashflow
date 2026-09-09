@@ -20,9 +20,11 @@ export function MandantRequiredRoute() {
   }
   if (!user?.mandant_id) {
     if (user?.role === 'admin') {
-      return mandants.length > 0
-        ? <Navigate to="/login/select-mandant" replace />
-        : <Navigate to="/admin/mandants" replace />
+      return mandants.length > 0 ? (
+        <Navigate to="/login/select-mandant" replace />
+      ) : (
+        <Navigate to="/admin/mandants" replace />
+      )
     }
     return <Navigate to="/login/select-mandant" replace />
   }

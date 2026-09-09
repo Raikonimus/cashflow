@@ -1,11 +1,9 @@
 """
 Shared fixtures for all auth tests.
 """
-import asyncio
-from collections.abc import AsyncGenerator
-from typing import Any
 
-import pytest
+from collections.abc import AsyncGenerator
+
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -14,14 +12,15 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth.models import Mandant, MandantUser, User, UserRole
 from app.auth.security import hash_password
-from app.core.config import settings
 from app.main import app
 
 # Use an in-memory SQLite DB for tests (no external infra needed)
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 test_engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-TestSessionLocal = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+TestSessionLocal = async_sessionmaker(
+    test_engine, class_=AsyncSession, expire_on_commit=False
+)
 
 
 @pytest_asyncio.fixture(autouse=True, scope="function")
@@ -47,7 +46,9 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
         yield db_session
 
     app.dependency_overrides[get_session] = override_get_session
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
         yield ac
     app.dependency_overrides.clear()
 
@@ -55,6 +56,7 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 async def create_user(
     session: AsyncSession,

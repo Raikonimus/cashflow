@@ -1,6 +1,5 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
-from typing import Optional
 from uuid import UUID, uuid4
 
 from sqlmodel import Field, SQLModel
@@ -11,7 +10,7 @@ from app.tenants.models import Mandant as Mandant  # noqa: F401
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class UserRole(str, Enum):
@@ -24,10 +23,10 @@ class UserRole(str, Enum):
 class User(SQLModel, table=True):
     __tablename__ = "users"
 
-    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
+    id: UUID | None = Field(default_factory=uuid4, primary_key=True)
     email: str = Field(unique=True, index=True, max_length=254)
     # Nullable until invitation is accepted (story 006-user-invitation)
-    password_hash: Optional[str] = Field(default=None)
+    password_hash: str | None = Field(default=None)
     # Stored as VARCHAR – enum validation in schemas layer
     role: str = Field(default=UserRole.viewer.value, max_length=50)
     is_active: bool = Field(default=True)
@@ -46,22 +45,22 @@ class MandantUser(SQLModel, table=True):
 class PasswordResetToken(SQLModel, table=True):
     __tablename__ = "password_reset_tokens"
 
-    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
+    id: UUID | None = Field(default_factory=uuid4, primary_key=True)
     user_id: UUID = Field(foreign_key="users.id", index=True)
     # SHA-256 hash of the raw token – never store raw token (ADR-003)
     token_hash: str = Field(index=True, max_length=64)
     expires_at: datetime
-    used_at: Optional[datetime] = Field(default=None)
+    used_at: datetime | None = Field(default=None)
     created_at: datetime = Field(default_factory=utcnow)
 
 
 class UserInvitation(SQLModel, table=True):
     __tablename__ = "user_invitations"
 
-    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
+    id: UUID | None = Field(default_factory=uuid4, primary_key=True)
     user_id: UUID = Field(foreign_key="users.id", index=True)
     # SHA-256 hash of the raw token – never store raw token (ADR-003)
     token_hash: str = Field(index=True, max_length=64)
     expires_at: datetime
-    accepted_at: Optional[datetime] = Field(default=None)
+    accepted_at: datetime | None = Field(default=None)
     created_at: datetime = Field(default_factory=utcnow)

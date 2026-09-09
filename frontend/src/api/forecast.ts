@@ -173,22 +173,16 @@ export async function getForecastOverview(
   mandantId: string,
   options: { onlyWithoutRule?: boolean; search?: string } = {},
 ): Promise<ForecastOverview> {
-  const resp = await apiClient.get<ForecastOverview>(
-    `/mandants/${mandantId}/forecast/services`,
-    {
-      params: {
-        only_without_rule: options.onlyWithoutRule ? true : undefined,
-        search: options.search || undefined,
-      },
+  const resp = await apiClient.get<ForecastOverview>(`/mandants/${mandantId}/forecast/services`, {
+    params: {
+      only_without_rule: options.onlyWithoutRule ? true : undefined,
+      search: options.search || undefined,
     },
-  )
+  })
   return resp.data
 }
 
-export async function getForecastRule(
-  mandantId: string,
-  serviceId: string,
-): Promise<ForecastRule> {
+export async function getForecastRule(mandantId: string, serviceId: string): Promise<ForecastRule> {
   const resp = await apiClient.get<ForecastRule>(
     `/mandants/${mandantId}/services/${serviceId}/forecast-rule`,
   )
@@ -221,10 +215,9 @@ export async function listPlannedItems(
   mandantId: string,
   serviceId?: string,
 ): Promise<PlannedItem[]> {
-  const resp = await apiClient.get<PlannedItem[]>(
-    `/mandants/${mandantId}/forecast/planned-items`,
-    { params: serviceId ? { service_id: serviceId } : {} },
-  )
+  const resp = await apiClient.get<PlannedItem[]>(`/mandants/${mandantId}/forecast/planned-items`, {
+    params: serviceId ? { service_id: serviceId } : {},
+  })
   return resp.data
 }
 
@@ -246,16 +239,11 @@ export async function deletePlannedItem(mandantId: string, itemId: string): Prom
 // ─── Plan-Ist-Snapshots ───────────────────────────────────────────────────────
 
 export async function listSnapshots(mandantId: string): Promise<SnapshotSummary[]> {
-  const resp = await apiClient.get<SnapshotSummary[]>(
-    `/mandants/${mandantId}/forecast/snapshots`,
-  )
+  const resp = await apiClient.get<SnapshotSummary[]>(`/mandants/${mandantId}/forecast/snapshots`)
   return resp.data
 }
 
-export async function getSnapshot(
-  mandantId: string,
-  snapshotId: string,
-): Promise<SnapshotDetail> {
+export async function getSnapshot(mandantId: string, snapshotId: string): Promise<SnapshotDetail> {
   const resp = await apiClient.get<SnapshotDetail>(
     `/mandants/${mandantId}/forecast/snapshots/${snapshotId}`,
   )

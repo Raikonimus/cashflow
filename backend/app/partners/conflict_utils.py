@@ -2,8 +2,8 @@ import re
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 
 from app.imports.models import JournalLine
 from app.partners.models import Partner, PartnerAccount, PartnerIban, PartnerName
@@ -31,10 +31,30 @@ async def load_partner_assignment_criteria(
     session: AsyncSession,
     partner_id: UUID,
 ) -> PartnerAssignmentCriteria:
-    ibans = set((await session.exec(select(PartnerIban.iban).where(PartnerIban.partner_id == partner_id))).all())
-    accounts = set((await session.exec(select(PartnerAccount.account_number).where(PartnerAccount.partner_id == partner_id))).all())
+    ibans = set(
+        (
+            await session.exec(
+                select(PartnerIban.iban).where(PartnerIban.partner_id == partner_id)
+            )
+        ).all()
+    )
+    accounts = set(
+        (
+            await session.exec(
+                select(PartnerAccount.account_number).where(
+                    PartnerAccount.partner_id == partner_id
+                )
+            )
+        ).all()
+    )
 
-    names = set((await session.exec(select(PartnerName.name).where(PartnerName.partner_id == partner_id))).all())
+    names = set(
+        (
+            await session.exec(
+                select(PartnerName.name).where(PartnerName.partner_id == partner_id)
+            )
+        ).all()
+    )
     partner = await session.get(Partner, partner_id)
     if partner is not None:
         names.add(partner.name)
@@ -43,7 +63,9 @@ async def load_partner_assignment_criteria(
         await session.exec(
             select(ServiceMatcher)
             .join(Service, Service.id == ServiceMatcher.service_id)
-            .where(Service.partner_id == partner_id, Service.is_base_service == False)  # noqa: E712
+            .where(
+                Service.partner_id == partner_id, Service.is_base_service == False
+            )  # noqa: E712
         )
     ).all()
 
@@ -55,7 +77,9 @@ async def load_partner_assignment_criteria(
     )
 
 
-def detect_conflicting_criteria(criteria: PartnerAssignmentCriteria, line: JournalLine) -> list[str]:
+def detect_conflicting_criteria(
+    criteria: PartnerAssignmentCriteria, line: JournalLine
+) -> list[str]:
     reasons: list[str] = []
 
     if line.partner_iban_raw:
@@ -73,13 +97,17 @@ def detect_conflicting_criteria(criteria: PartnerAssignmentCriteria, line: Journ
 
     searchable = "\n".join(filter(None, [line.text or "", line.partner_name_raw or ""]))
     searchable_lower = searchable.lower()
-    if searchable and _service_matchers_hit(criteria.service_matchers, searchable, searchable_lower):
+    if searchable and _service_matchers_hit(
+        criteria.service_matchers, searchable, searchable_lower
+    ):
         reasons.append("service_matcher")
 
     return reasons
 
 
-def _service_matchers_hit(matchers: list[ServiceMatcher], searchable: str, searchable_lower: str) -> bool:
+def _service_matchers_hit(
+    matchers: list[ServiceMatcher], searchable: str, searchable_lower: str
+) -> bool:
     for matcher in matchers:
         if matcher.pattern_type == ServiceMatcherType.string.value:
             if matcher.pattern.lower() in searchable_lower:

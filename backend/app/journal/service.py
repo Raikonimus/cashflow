@@ -1,6 +1,6 @@
 import math
-from datetime import date, datetime, timezone
-from decimal import Decimal, ROUND_HALF_UP
+from datetime import UTC, date, datetime
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from uuid import UUID
 
@@ -15,39 +15,56 @@ from app.forecast.profiler import index_to_year_month, month_index
 from app.forecast.rules import Scenario
 from app.forecast.service import ForecastService, horizon_end_index
 from app.imports.models import JournalLine, JournalLineSplit
-from app.partners.models import AuditLog, Partner
-from app.services.models import Service
-from app.services.models import ServiceGroupAssignment, ServiceGroupSection, section_for_service
-from app.services.service import ServiceManagementService
-from app.tenants.models import Account
 from app.journal.schemas import (
     AccountBalanceRow,
-    AccountBalanceTotal,
     AccountBalancesResponse,
+    AccountBalanceTotal,
     BulkAssignResponse,
     IncomeExpenseGroupRow,
     IncomeExpenseMatrixResponse,
     IncomeExpenseSection,
     IncomeExpenseServiceRow,
-    JournalYearsResponse,
     JournalLineResponse,
+    JournalYearsResponse,
     LiquidityMonth,
     LiquidityResponse,
     MatrixCell,
     MatrixCells,
     PaginatedJournalResponse,
 )
+from app.partners.models import AuditLog, Partner
+from app.services.models import (
+    Service,
+    ServiceGroupAssignment,
+    ServiceGroupSection,
+    section_for_service,
+)
+from app.services.service import ServiceManagementService
+from app.tenants.models import Account
 
 log = structlog.get_logger()
 
 INTERNAL_UNMAPPED_DATA_KEYS = {"_cashflow_source_values"}
-MONTH_KEYS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+MONTH_KEYS = [
+    "jan",
+    "feb",
+    "mar",
+    "apr",
+    "may",
+    "jun",
+    "jul",
+    "aug",
+    "sep",
+    "oct",
+    "nov",
+    "dec",
+]
 
 _ZERO = Decimal("0.00")
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _sanitize_unmapped_data(unmapped_data: Any) -> Any:
@@ -187,22 +204,32 @@ class JournalService:
 
         if year is not None and month is not None:
             prefix = f"{year:04d}-{month:02d}-"
-            query = query.where(text("journal_lines.valuta_date LIKE :valuta_prefix").bindparams(valuta_prefix=f"{prefix}%"))
+            query = query.where(
+                text("journal_lines.valuta_date LIKE :valuta_prefix").bindparams(
+                    valuta_prefix=f"{prefix}%"
+                )
+            )
         elif year is not None:
-            query = query.where(text("journal_lines.valuta_date LIKE :valuta_year").bindparams(valuta_year=f"{year:04d}-%"))
+            query = query.where(
+                text("journal_lines.valuta_date LIKE :valuta_year").bindparams(
+                    valuta_year=f"{year:04d}-%"
+                )
+            )
 
         if search:
             # Always JOIN partners for search (avoid duplicate join if also sorting by partner_name)
             term = f"%{search.lower()}%"
-            query = (
-                query
-                .outerjoin(Partner, Partner.id == JournalLine.partner_id)  # type: ignore[arg-type]
-                .where(
-                    or_(
-                        func.lower(func.coalesce(JournalLine.text, "")).like(term),
-                        func.lower(func.coalesce(JournalLine.partner_name_raw, "")).like(term),
-                        func.lower(func.coalesce(Partner.display_name, Partner.name, "")).like(term),
-                    )
+            query = query.outerjoin(
+                Partner, Partner.id == JournalLine.partner_id
+            ).where(  # type: ignore[arg-type]
+                or_(
+                    func.lower(func.coalesce(JournalLine.text, "")).like(term),
+                    func.lower(func.coalesce(JournalLine.partner_name_raw, "")).like(
+                        term
+                    ),
+                    func.lower(
+                        func.coalesce(Partner.display_name, Partner.name, "")
+                    ).like(term),
                 )
             )
 
@@ -223,7 +250,9 @@ class JournalService:
             query = query.outerjoin(
                 JournalLineSplit,
                 JournalLineSplit.journal_line_id == JournalLine.id,  # type: ignore[arg-type]
-            ).outerjoin(Service, Service.id == JournalLineSplit.service_id)  # type: ignore[arg-type]
+            ).outerjoin(
+                Service, Service.id == JournalLineSplit.service_id
+            )  # type: ignore[arg-type]
             order_expr = text(f"lower(coalesce(services.name, '')) {order_dir}")
         else:
             order_expr = text("valuta_date DESC")  # fallback
@@ -240,9 +269,7 @@ class JournalService:
         partner_ids = {ln.partner_id for ln in lines if ln.partner_id}
         partner_names: dict = {}
         if partner_ids:
-            p_res = await self._session.exec(
-                select(Partner)
-            )
+            p_res = await self._session.exec(select(Partner))
             partner_names = {
                 partner.id: partner.display_name or partner.name
                 for partner in p_res.all()
@@ -271,14 +298,15 @@ class JournalService:
                 select(Service.id, Service.name).where(col(Service.id).in_(service_ids))
             )
             service_names = {
-                service_id: service_name
-                for service_id, service_name in s_res.all()
+                service_id: service_name for service_id, service_name in s_res.all()
             }
 
         items = [
             JournalLineResponse(
                 **{
-                    **{k: v for k, v in ln.model_dump().items() if k != "unmapped_data"},
+                    **{
+                        k: v for k, v in ln.model_dump().items() if k != "unmapped_data"
+                    },
                     "unmapped_data": _sanitize_unmapped_data(ln.unmapped_data),
                 },
                 splits=[
@@ -291,7 +319,9 @@ class JournalService:
                     }
                     for sp in splits_by_line.get(ln.id, [])
                 ],
-                partner_name=partner_names.get(ln.partner_id) if ln.partner_id else None,
+                partner_name=(
+                    partner_names.get(ln.partner_id) if ln.partner_id else None
+                ),
             )
             for ln in lines
         ]
@@ -326,7 +356,9 @@ class JournalService:
             account_ids_filter = mandant_account_ids
 
         if not account_ids_filter:
-            return JournalYearsResponse(years=[], forecast_years=_forecast_years(self._today))
+            return JournalYearsResponse(
+                years=[], forecast_years=_forecast_years(self._today)
+            )
 
         years_query = (
             select(func.substr(JournalLine.valuta_date, 1, 4).label("year"))
@@ -342,7 +374,9 @@ class JournalService:
                 years.append(int(str(row)))
             except (TypeError, ValueError):
                 continue
-        return JournalYearsResponse(years=years, forecast_years=_forecast_years(self._today))
+        return JournalYearsResponse(
+            years=years, forecast_years=_forecast_years(self._today)
+        )
 
     # ─── Kontosalden ─────────────────────────────────────────────────────────
 
@@ -354,7 +388,9 @@ class JournalService:
         """
         accounts = (
             await self._session.exec(
-                select(Account).where(Account.mandant_id == mandant_id).order_by(Account.name)
+                select(Account)
+                .where(Account.mandant_id == mandant_id)
+                .order_by(Account.name)
             )
         ).all()
         if not accounts:
@@ -369,7 +405,11 @@ class JournalService:
                     func.count(JournalLine.id),
                     func.max(JournalLine.valuta_date),
                 )
-                .where(col(JournalLine.account_id).in_([account.id for account in accounts]))
+                .where(
+                    col(JournalLine.account_id).in_(
+                        [account.id for account in accounts]
+                    )
+                )
                 .group_by(col(JournalLine.account_id), col(JournalLine.currency))
             )
         ).all()
@@ -389,7 +429,9 @@ class JournalService:
             per_currency = by_account.get(account.id, {})
             booked, line_count, last_date = per_currency.get(currency, (_ZERO, 0, None))
             foreign_count = sum(
-                count for other, (_, count, _) in per_currency.items() if other != currency
+                count
+                for other, (_, count, _) in per_currency.items()
+                if other != currency
             )
             opening = Decimal(str(account.opening_balance or 0))
             current = opening + booked
@@ -426,7 +468,9 @@ class JournalService:
                     account_count=int(total["account_count"]),
                     opening_balance=_as_money(Decimal(total["opening"])),
                     booked_amount=_as_money(Decimal(total["booked"])),
-                    current_balance=_as_money(Decimal(total["opening"]) + Decimal(total["booked"])),
+                    current_balance=_as_money(
+                        Decimal(total["opening"]) + Decimal(total["booked"])
+                    ),
                 )
                 for currency, total in sorted(totals.items())
             ],
@@ -448,7 +492,10 @@ class JournalService:
         base_currency = "EUR"
         balances = await self.get_account_balances(mandant_id)
 
-        total = next((entry for entry in balances.totals if entry.currency == base_currency), None)
+        total = next(
+            (entry for entry in balances.totals if entry.currency == base_currency),
+            None,
+        )
         start_balance = Decimal(total.current_balance) if total is not None else _ZERO
         booking_dates = [
             row.last_booking_date
@@ -499,12 +546,14 @@ class JournalService:
                 elif value < _ZERO:
                     outflow += value
                 # Planposten sind bekannte Beträge und tragen keine Unsicherheit.
-                if with_band and value != _ZERO and index not in context.planned.get(
-                    service_id, {}
+                if (
+                    with_band
+                    and value != _ZERO
+                    and index not in context.planned.get(service_id, {})
                 ):
-                    cumulative_abs[service_id] = cumulative_abs.get(service_id, _ZERO) + abs(
-                        value
-                    )
+                    cumulative_abs[service_id] = cumulative_abs.get(
+                        service_id, _ZERO
+                    ) + abs(value)
 
             opening = running
             net = inflow + outflow
@@ -590,10 +639,14 @@ class JournalService:
 
         assignments = (
             await self._session.exec(
-                select(ServiceGroupAssignment).where(ServiceGroupAssignment.mandant_id == mandant_id)
+                select(ServiceGroupAssignment).where(
+                    ServiceGroupAssignment.mandant_id == mandant_id
+                )
             )
         ).all()
-        assignment_by_service: dict[UUID, ServiceGroupAssignment] = {assignment.service_id: assignment for assignment in assignments}
+        assignment_by_service: dict[UUID, ServiceGroupAssignment] = {
+            assignment.service_id: assignment for assignment in assignments
+        }
 
         # Ensure one assignment for every included service and repair wrong-section defaults.
         changed_assignments = False
@@ -609,45 +662,69 @@ class JournalService:
             if assignment is not None and assignment is not existing_assignment:
                 assignment_by_service[service_id] = assignment
                 changed_assignments = True
-            elif existing_assignment is not None and assignment is not None and existing_assignment.service_group_id != assignment.service_group_id:
+            elif (
+                existing_assignment is not None
+                and assignment is not None
+                and existing_assignment.service_group_id != assignment.service_group_id
+            ):
                 assignment_by_service[service_id] = assignment
                 changed_assignments = True
         if changed_assignments:
             await self._session.commit()
             assignments = (
                 await self._session.exec(
-                    select(ServiceGroupAssignment).where(ServiceGroupAssignment.mandant_id == mandant_id)
+                    select(ServiceGroupAssignment).where(
+                        ServiceGroupAssignment.mandant_id == mandant_id
+                    )
                 )
             ).all()
-            assignment_by_service = {assignment.service_id: assignment for assignment in assignments}
+            assignment_by_service = {
+                assignment.service_id: assignment for assignment in assignments
+            }
 
         # Prognose nur laden, wenn das Jahr überhaupt in der Zukunft liegen kann.
         forecast_svc = ForecastService(self._session, today=self._today)
         today = self._today
         forecast_context = None
         first_forecast_month: int | None = None
-        if year >= today.year and year <= index_to_year_month(horizon_end_index(today))[0]:
-            forecast_context = await forecast_svc.build_context(mandant_id, scenario=scenario)
+        if (
+            year >= today.year
+            and year <= index_to_year_month(horizon_end_index(today))[0]
+        ):
+            forecast_context = await forecast_svc.build_context(
+                mandant_id, scenario=scenario
+            )
             first_forecast_month = today.month if year == today.year else 1
 
         # Aggregation: gross per service and month in base currency.
-        account_ids_res = await self._session.exec(select(Account.id).where(Account.mandant_id == mandant_id))
+        account_ids_res = await self._session.exec(
+            select(Account.id).where(Account.mandant_id == mandant_id)
+        )
         account_ids = set(account_ids_res.all())
         if account_ids:
             line_rows = (
                 await self._session.exec(
-                    select(JournalLineSplit.service_id, JournalLine.valuta_date, JournalLineSplit.amount)
+                    select(
+                        JournalLineSplit.service_id,
+                        JournalLine.valuta_date,
+                        JournalLineSplit.amount,
+                    )
                     .join(JournalLine, JournalLine.id == JournalLineSplit.journal_line_id)  # type: ignore[arg-type]
                     .where(
                         col(JournalLine.account_id).in_(account_ids),
-                        text("journal_lines.valuta_date LIKE :valuta_year").bindparams(valuta_year=f"{year:04d}-%"),
+                        text("journal_lines.valuta_date LIKE :valuta_year").bindparams(
+                            valuta_year=f"{year:04d}-%"
+                        ),
                         JournalLine.currency == base_currency,
                     )
                 )
             ).all()
             service_year_rows = (
                 await self._session.exec(
-                    select(JournalLineSplit.service_id, func.substr(JournalLine.valuta_date, 1, 4).label("year"))
+                    select(
+                        JournalLineSplit.service_id,
+                        func.substr(JournalLine.valuta_date, 1, 4).label("year"),
+                    )
                     .join(JournalLine, JournalLine.id == JournalLineSplit.journal_line_id)  # type: ignore[arg-type]
                     .where(col(JournalLine.account_id).in_(account_ids))
                 )
@@ -658,7 +735,9 @@ class JournalService:
                     .join(JournalLineSplit, JournalLineSplit.journal_line_id == JournalLine.id)  # type: ignore[arg-type]
                     .where(
                         col(JournalLine.account_id).in_(account_ids),
-                        text("journal_lines.valuta_date LIKE :valuta_year").bindparams(valuta_year=f"{year:04d}-%"),
+                        text("journal_lines.valuta_date LIKE :valuta_year").bindparams(
+                            valuta_year=f"{year:04d}-%"
+                        ),
                         JournalLine.currency != base_currency,
                     )
                 )
@@ -675,7 +754,9 @@ class JournalService:
             month_key = _month_key_from_valuta_date(valuta_date)
             if month_key is None:
                 continue
-            gross_by_service_month.setdefault(service_id, {}).setdefault(month_key, Decimal("0"))
+            gross_by_service_month.setdefault(service_id, {}).setdefault(
+                month_key, Decimal("0")
+            )
             gross_by_service_month[service_id][month_key] += Decimal(str(amount))
 
         active_years_by_service: dict[UUID, set[int]] = {}
@@ -705,7 +786,9 @@ class JournalService:
                     .join(JournalLine, JournalLine.id == JournalLineSplit.journal_line_id)  # type: ignore[arg-type]
                     .where(
                         col(JournalLine.account_id).in_(account_ids),
-                        text("journal_lines.valuta_date LIKE :valuta_year").bindparams(valuta_year=f"{year:04d}-%"),
+                        text("journal_lines.valuta_date LIKE :valuta_year").bindparams(
+                            valuta_year=f"{year:04d}-%"
+                        ),
                         JournalLine.currency != base_currency,
                     )
                 )
@@ -719,7 +802,11 @@ class JournalService:
 
         section_payload: dict[str, IncomeExpenseSection] = {}
 
-        for section in (ServiceGroupSection.income, ServiceGroupSection.expense, ServiceGroupSection.neutral):
+        for section in (
+            ServiceGroupSection.income,
+            ServiceGroupSection.expense,
+            ServiceGroupSection.neutral,
+        ):
             section_groups = groups_by_section[section]
             group_rows: list[IncomeExpenseGroupRow] = []
             section_totals = _empty_cells()
@@ -732,16 +819,22 @@ class JournalService:
                 assigned_service_ids = [
                     assignment.service_id
                     for assignment in assignment_by_service.values()
-                    if assignment.service_group_id == group.id and assignment.service_id in grouped_services
+                    if assignment.service_group_id == group.id
+                    and assignment.service_id in grouped_services
                 ]
                 active_years_in_group = sorted(
                     {
                         active_year
                         for service_id in assigned_service_ids
-                        for active_year in active_years_by_service.get(service_id, set())
+                        for active_year in active_years_by_service.get(
+                            service_id, set()
+                        )
                     }
                 )
-                for service_id in sorted(assigned_service_ids, key=lambda item: grouped_services[item].name.lower()):
+                for service_id in sorted(
+                    assigned_service_ids,
+                    key=lambda item: grouped_services[item].name.lower(),
+                ):
                     service = grouped_services[service_id]
                     if service_section[service_id] != section:
                         continue
@@ -753,33 +846,58 @@ class JournalService:
                         gross_value = monthly_gross.get(month_key, Decimal("0"))
                         if forecast_context is not None:
                             index = month_index(year, month_number)
-                            gross_value += forecast_context.forecast_value(service_id, index)
+                            gross_value += forecast_context.forecast_value(
+                                service_id, index
+                            )
                             # Künftige Monate sind immer Prognose — auch dann, wenn mangels
                             # Historie keine Zahl entsteht. Der laufende Monat nur insoweit,
                             # als noch etwas zum Gebuchten hinzukommt.
                             if index > forecast_context.first_forecast_index:
-                                service_flags[month_key] = index <= forecast_context.horizon_end_index
+                                service_flags[month_key] = (
+                                    index <= forecast_context.horizon_end_index
+                                )
                             elif index == forecast_context.first_forecast_index:
-                                service_flags[month_key] = gross_value != monthly_gross.get(month_key, Decimal("0"))
+                                service_flags[month_key] = (
+                                    gross_value
+                                    != monthly_gross.get(month_key, Decimal("0"))
+                                )
                         service_cells[month_key]["gross"] = gross_value
                         service_cells["year_total"]["gross"] += gross_value
-                        service_flags["year_total"] = service_flags["year_total"] or service_flags[month_key]
+                        service_flags["year_total"] = (
+                            service_flags["year_total"] or service_flags[month_key]
+                        )
 
                     tax_rate = Decimal(str(service.tax_rate))
                     divisor = Decimal("1") + (tax_rate / Decimal("100"))
                     for cell_key in ["year_total", *MONTH_KEYS]:
                         gross_value = service_cells[cell_key]["gross"]
-                        service_cells[cell_key]["net"] = (gross_value / divisor) if divisor != Decimal("0") else gross_value
+                        service_cells[cell_key]["net"] = (
+                            (gross_value / divisor)
+                            if divisor != Decimal("0")
+                            else gross_value
+                        )
 
                         subtotal[cell_key]["gross"] += service_cells[cell_key]["gross"]
                         subtotal[cell_key]["net"] += service_cells[cell_key]["net"]
-                        subtotal_flags[cell_key] = subtotal_flags[cell_key] or service_flags[cell_key]
+                        subtotal_flags[cell_key] = (
+                            subtotal_flags[cell_key] or service_flags[cell_key]
+                        )
 
-                        section_totals[cell_key]["gross"] += service_cells[cell_key]["gross"]
-                        section_totals[cell_key]["net"] += service_cells[cell_key]["net"]
-                        section_flags[cell_key] = section_flags[cell_key] or service_flags[cell_key]
+                        section_totals[cell_key]["gross"] += service_cells[cell_key][
+                            "gross"
+                        ]
+                        section_totals[cell_key]["net"] += service_cells[cell_key][
+                            "net"
+                        ]
+                        section_flags[cell_key] = (
+                            section_flags[cell_key] or service_flags[cell_key]
+                        )
 
-                    effective = forecast_context.rules.get(service_id) if forecast_context else None
+                    effective = (
+                        forecast_context.rules.get(service_id)
+                        if forecast_context
+                        else None
+                    )
                     services_in_group.append(
                         IncomeExpenseServiceRow(
                             service_id=service.id,
@@ -789,7 +907,9 @@ class JournalService:
                             service_type=service.service_type,
                             erfolgsneutral=service.erfolgsneutral,
                             cells=_to_cells_payload(service_cells, service_flags),
-                            forecast_rule=effective.rule.rule_type.value if effective else None,
+                            forecast_rule=(
+                                effective.rule.rule_type.value if effective else None
+                            ),
                             forecast_mode=effective.mode.value if effective else None,
                             forecast_confidence=(
                                 effective.rule.confidence.value
@@ -816,7 +936,9 @@ class JournalService:
             section_payload[section.value] = IncomeExpenseSection(
                 currency=base_currency,
                 excluded_currency_count=excluded_count_by_section[section],
-                excluded_currency_amount_gross=_as_money(excluded_amount_by_section[section]),
+                excluded_currency_amount_gross=_as_money(
+                    excluded_amount_by_section[section]
+                ),
                 groups=group_rows,
                 totals=_to_cells_payload(section_totals, section_flags),
             )
@@ -870,7 +992,9 @@ class JournalService:
             assigned += 1
 
         service_svc = ServiceManagementService(self._session)
-        await service_svc.prepare_lines_for_partner_change(mandant_id, changed_lines, partner_id)
+        await service_svc.prepare_lines_for_partner_change(
+            mandant_id, changed_lines, partner_id
+        )
 
         # Single audit log entry for the whole operation
         entry = AuditLog(
@@ -908,11 +1032,16 @@ class JournalService:
     ) -> JournalLineResponse:
         line = await self._session.get(JournalLine, line_id)
         if line is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found"
+            )
 
         account = await self._session.get(Account, line.account_id)
         if account is None or account.mandant_id != mandant_id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Journal line does not belong to this mandant")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Journal line does not belong to this mandant",
+            )
 
         service_svc = ServiceManagementService(self._session)
         await service_svc.manually_assign_journal_line(mandant_id, line, service_id)
@@ -937,20 +1066,30 @@ class JournalService:
             if partner is not None:
                 partner_name = partner.display_name or partner.name
 
-        splits = (await self._session.exec(
-            select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
-        )).all()
+        splits = (
+            await self._session.exec(
+                select(JournalLineSplit).where(
+                    JournalLineSplit.journal_line_id == line.id
+                )
+            )
+        ).all()
         split_svc_ids = {sp.service_id for sp in splits}
         service_names_map: dict = {}
         if split_svc_ids:
             s_res = await self._session.exec(
-                select(Service.id, Service.name).where(col(Service.id).in_(split_svc_ids))
+                select(Service.id, Service.name).where(
+                    col(Service.id).in_(split_svc_ids)
+                )
             )
             service_names_map = {sid: sname for sid, sname in s_res.all()}
 
         return JournalLineResponse(
             **{
-                **{key: value for key, value in line.model_dump().items() if key != "unmapped_data"},
+                **{
+                    key: value
+                    for key, value in line.model_dump().items()
+                    if key != "unmapped_data"
+                },
                 "unmapped_data": _sanitize_unmapped_data(line.unmapped_data),
             },
             splits=[

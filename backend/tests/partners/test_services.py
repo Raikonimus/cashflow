@@ -7,13 +7,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.auth.models import UserRole
-from app.imports.models import ImportRun, ImportStatus, JournalLine, JournalLineSplit, ReviewItem, utcnow
+from app.imports.models import (
+    ImportRun,
+    ImportStatus,
+    JournalLine,
+    JournalLineSplit,
+    ReviewItem,
+    utcnow,
+)
 from app.services.models import ServiceGroup, ServiceGroupAssignment
 from app.tenants.models import Account
-from tests.partners.conftest import assign_user_to_mandant, create_mandant, create_user, get_auth_token
+from tests.partners.conftest import (
+    assign_user_to_mandant,
+    create_mandant,
+    create_user,
+    get_auth_token,
+)
 
 
-async def create_partner(client: AsyncClient, token: str, mandant_id, name: str = "Amazon EU") -> dict:
+async def create_partner(
+    client: AsyncClient, token: str, mandant_id, name: str = "Amazon EU"
+) -> dict:
     resp = await client.post(
         f"/api/v1/mandants/{mandant_id}/partners",
         json={"name": name},
@@ -25,7 +39,9 @@ async def create_partner(client: AsyncClient, token: str, mandant_id, name: str 
 
 @pytest.mark.asyncio
 class TestServices:
-    async def test_partner_has_base_service_after_creation(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_partner_has_base_service_after_creation(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         user = await create_user(db_session, "acc@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
@@ -43,7 +59,9 @@ class TestServices:
         assert items[0]["name"] == "Basisleistung"
         assert items[0]["journal_line_count"] == 0
 
-    async def test_list_services_includes_current_journal_line_count(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_list_services_includes_current_journal_line_count(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         user = await create_user(db_session, "acc-count@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
@@ -99,13 +117,23 @@ class TestServices:
             )
         )
         await db_session.flush()
-        line1 = (await db_session.exec(select(JournalLine).where(JournalLine.text == "Hosting April"))).first()
+        line1 = (
+            await db_session.exec(
+                select(JournalLine).where(JournalLine.text == "Hosting April")
+            )
+        ).first()
         if line1:
-            db_session.add(JournalLineSplit(
-                journal_line_id=line1.id, service_id=service_id,
-                amount=Decimal("-50.00"), assignment_mode="auto",
-                amount_consistency_ok=False, created_at=utcnow(), updated_at=utcnow(),
-            ))
+            db_session.add(
+                JournalLineSplit(
+                    journal_line_id=line1.id,
+                    service_id=service_id,
+                    amount=Decimal("-50.00"),
+                    assignment_mode="auto",
+                    amount_consistency_ok=False,
+                    created_at=utcnow(),
+                    updated_at=utcnow(),
+                )
+            )
         db_session.add(
             JournalLine(
                 account_id=account.id,
@@ -121,13 +149,23 @@ class TestServices:
             )
         )
         await db_session.flush()
-        line2 = (await db_session.exec(select(JournalLine).where(JournalLine.text == "Hosting Mai"))).first()
+        line2 = (
+            await db_session.exec(
+                select(JournalLine).where(JournalLine.text == "Hosting Mai")
+            )
+        ).first()
         if line2:
-            db_session.add(JournalLineSplit(
-                journal_line_id=line2.id, service_id=service_id,
-                amount=Decimal("-75.00"), assignment_mode="auto",
-                amount_consistency_ok=False, created_at=utcnow(), updated_at=utcnow(),
-            ))
+            db_session.add(
+                JournalLineSplit(
+                    journal_line_id=line2.id,
+                    service_id=service_id,
+                    amount=Decimal("-75.00"),
+                    assignment_mode="auto",
+                    amount_consistency_ok=False,
+                    created_at=utcnow(),
+                    updated_at=utcnow(),
+                )
+            )
         await db_session.commit()
 
         resp = await client.get(
@@ -178,7 +216,9 @@ class TestServices:
         assert patch_resp.status_code == 200
         assert patch_resp.json()["erfolgsneutral"] is True
 
-    async def test_create_shareholder_service(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_create_shareholder_service(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         user = await create_user(db_session, "acc2b@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
@@ -187,7 +227,11 @@ class TestServices:
 
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
-            json={"name": "Gewinnausschüttung", "service_type": "shareholder", "tax_rate": "0.00"},
+            json={
+                "name": "Gewinnausschüttung",
+                "service_type": "shareholder",
+                "tax_rate": "0.00",
+            },
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 201
@@ -195,7 +239,9 @@ class TestServices:
         assert body["service_type"] == "shareholder"
         assert body["tax_rate"] == "0.00"
 
-    async def test_base_service_name_cannot_be_changed(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_base_service_name_cannot_be_changed(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         user = await create_user(db_session, "acc3@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
@@ -215,7 +261,9 @@ class TestServices:
         )
         assert resp.status_code == 422
 
-    async def test_base_service_cannot_be_deleted(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_base_service_cannot_be_deleted(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         user = await create_user(db_session, "acc4@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
@@ -234,7 +282,9 @@ class TestServices:
         )
         assert resp.status_code == 409
 
-    async def test_base_service_cannot_have_matcher(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_base_service_cannot_have_matcher(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         user = await create_user(db_session, "acc5@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
@@ -254,7 +304,9 @@ class TestServices:
         )
         assert resp.status_code == 422
 
-    async def test_invalid_regex_matcher_returns_422(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_invalid_regex_matcher_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         user = await create_user(db_session, "acc6@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
@@ -263,7 +315,11 @@ class TestServices:
 
         service_resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
-            json={"name": "Amazon Marketplace", "service_type": "customer", "tax_rate": "20.00"},
+            json={
+                "name": "Amazon Marketplace",
+                "service_type": "customer",
+                "tax_rate": "20.00",
+            },
             headers={"Authorization": f"Bearer {token}"},
         )
         service_id = service_resp.json()["id"]
@@ -275,7 +331,9 @@ class TestServices:
         )
         assert resp.status_code == 422
 
-    async def test_keyword_rules_can_be_created_and_listed(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_keyword_rules_can_be_created_and_listed(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         user = await create_user(db_session, "acc7@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
@@ -283,7 +341,11 @@ class TestServices:
 
         create_resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/settings/service-keywords",
-            json={"pattern": "Lohn", "pattern_type": "string", "target_service_type": "employee"},
+            json={
+                "pattern": "Lohn",
+                "pattern_type": "string",
+                "target_service_type": "employee",
+            },
             headers={"Authorization": f"Bearer {token}"},
         )
         assert create_resp.status_code == 201
@@ -297,11 +359,20 @@ class TestServices:
         assert len(payload["items"]) == 1
         assert payload["items"][0]["pattern"] == "Lohn"
         assert len(payload["system_defaults"]) >= 1
-        entnahme_rule = next((item for item in payload["system_defaults"] if item["pattern"] == "entnahme"), None)
+        entnahme_rule = next(
+            (
+                item
+                for item in payload["system_defaults"]
+                if item["pattern"] == "entnahme"
+            ),
+            None,
+        )
         assert entnahme_rule is not None
         assert entnahme_rule["target_service_type"] == "shareholder"
 
-    async def test_matcher_change_revalidates_existing_journal_lines(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_matcher_change_revalidates_existing_journal_lines(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         user = await create_user(db_session, "acc8@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
@@ -315,7 +386,9 @@ class TestServices:
         base_service_id = services_resp.json()[0]["id"]
 
         now = utcnow()
-        account = Account(mandant_id=mandant.id, name="Girokonto", created_at=now, updated_at=now)
+        account = Account(
+            mandant_id=mandant.id, name="Girokonto", created_at=now, updated_at=now
+        )
         db_session.add(account)
         await db_session.flush()
 
@@ -365,9 +438,13 @@ class TestServices:
         assert matcher_resp.json()["internal_only"] is False
 
         await db_session.refresh(line)
-        split = (await db_session.exec(
-            select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
-        )).first()
+        split = (
+            await db_session.exec(
+                select(JournalLineSplit).where(
+                    JournalLineSplit.journal_line_id == line.id
+                )
+            )
+        ).first()
         assert split is not None
         assert str(split.service_id) == service_id
         assert split.assignment_mode == "auto"
@@ -385,7 +462,9 @@ class TestServices:
     async def test_preview_matcher_excludes_lines_already_assigned_to_same_service(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        user = await create_user(db_session, "acc-preview@test.com", UserRole.accountant)
+        user = await create_user(
+            db_session, "acc-preview@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
@@ -400,7 +479,9 @@ class TestServices:
         service_id = create_service_resp.json()["id"]
 
         now = utcnow()
-        account = Account(mandant_id=mandant.id, name="Girokonto", created_at=now, updated_at=now)
+        account = Account(
+            mandant_id=mandant.id, name="Girokonto", created_at=now, updated_at=now
+        )
         db_session.add(account)
         await db_session.flush()
 
@@ -429,11 +510,17 @@ class TestServices:
         )
         db_session.add(line)
         await db_session.flush()
-        db_session.add(JournalLineSplit(
-            journal_line_id=line.id, service_id=UUID(service_id),
-            amount=Decimal("100.00"), assignment_mode="auto",
-            amount_consistency_ok=False, created_at=now, updated_at=now,
-        ))
+        db_session.add(
+            JournalLineSplit(
+                journal_line_id=line.id,
+                service_id=UUID(service_id),
+                amount=Decimal("100.00"),
+                assignment_mode="auto",
+                amount_consistency_ok=False,
+                created_at=now,
+                updated_at=now,
+            )
+        )
         await db_session.commit()
 
         preview_resp = await client.post(
@@ -446,7 +533,9 @@ class TestServices:
         assert payload["total"] == 0
         assert payload["matched_lines"] == []
 
-    async def test_matcher_change_keeps_review_only_for_ambiguous_assignments(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_matcher_change_keeps_review_only_for_ambiguous_assignments(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         user = await create_user(db_session, "acc9@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
@@ -460,7 +549,9 @@ class TestServices:
         base_service_id = services_resp.json()[0]["id"]
 
         now = utcnow()
-        account = Account(mandant_id=mandant.id, name="Girokonto", created_at=now, updated_at=now)
+        account = Account(
+            mandant_id=mandant.id, name="Girokonto", created_at=now, updated_at=now
+        )
         db_session.add(account)
         await db_session.flush()
 
@@ -491,11 +582,17 @@ class TestServices:
         await db_session.commit()
         await db_session.refresh(line)
 
-        db_session.add(JournalLineSplit(
-            journal_line_id=line.id, service_id=UUID(base_service_id),
-            amount=Decimal("100.00"), assignment_mode="auto",
-            amount_consistency_ok=False, created_at=now, updated_at=now,
-        ))
+        db_session.add(
+            JournalLineSplit(
+                journal_line_id=line.id,
+                service_id=UUID(base_service_id),
+                amount=Decimal("100.00"),
+                assignment_mode="auto",
+                amount_consistency_ok=False,
+                created_at=now,
+                updated_at=now,
+            )
+        )
         await db_session.commit()
 
         first_service_resp = await client.post(
@@ -508,7 +605,11 @@ class TestServices:
 
         second_service_resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
-            json={"name": "April Service", "service_type": "unknown", "tax_rate": "20.00"},
+            json={
+                "name": "April Service",
+                "service_type": "unknown",
+                "tax_rate": "20.00",
+            },
             headers={"Authorization": f"Bearer {token}"},
         )
         assert second_service_resp.status_code == 201
@@ -529,9 +630,13 @@ class TestServices:
         assert second_matcher_resp.status_code == 201
 
         await db_session.refresh(line)
-        split = (await db_session.exec(
-            select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
-        )).first()
+        split = (
+            await db_session.exec(
+                select(JournalLineSplit).where(
+                    JournalLineSplit.journal_line_id == line.id
+                )
+            )
+        ).first()
         assert split is not None
         assert str(split.service_id) == first_service_id
 
@@ -546,16 +651,25 @@ class TestServices:
         assert review is not None
         assert review.context["reason"] == "multiple_matches"
         assert review.context["current_service_id"] == first_service_id
-        assert set(review.context["matching_services"]) == {first_service_id, second_service_id}
+        assert set(review.context["matching_services"]) == {
+            first_service_id,
+            second_service_id,
+        }
 
-    async def test_internal_only_matcher_does_not_move_lines_from_other_partners(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_internal_only_matcher_does_not_move_lines_from_other_partners(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         user = await create_user(db_session, "acc10@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
 
-        target_partner = await create_partner(client, token, mandant.id, name="Target Partner")
-        source_partner = await create_partner(client, token, mandant.id, name="Source Partner")
+        target_partner = await create_partner(
+            client, token, mandant.id, name="Target Partner"
+        )
+        source_partner = await create_partner(
+            client, token, mandant.id, name="Source Partner"
+        )
 
         create_service_resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/{target_partner['id']}/services",
@@ -573,7 +687,9 @@ class TestServices:
         source_base_service_id = source_services_resp.json()[0]["id"]
 
         now = utcnow()
-        account = Account(mandant_id=mandant.id, name="Girokonto", created_at=now, updated_at=now)
+        account = Account(
+            mandant_id=mandant.id, name="Girokonto", created_at=now, updated_at=now
+        )
         db_session.add(account)
         await db_session.flush()
 
@@ -604,16 +720,26 @@ class TestServices:
         await db_session.commit()
         await db_session.refresh(foreign_line)
 
-        db_session.add(JournalLineSplit(
-            journal_line_id=foreign_line.id, service_id=UUID(source_base_service_id),
-            amount=Decimal("42.00"), assignment_mode="auto",
-            amount_consistency_ok=False, created_at=now, updated_at=now,
-        ))
+        db_session.add(
+            JournalLineSplit(
+                journal_line_id=foreign_line.id,
+                service_id=UUID(source_base_service_id),
+                amount=Decimal("42.00"),
+                assignment_mode="auto",
+                amount_consistency_ok=False,
+                created_at=now,
+                updated_at=now,
+            )
+        )
         await db_session.commit()
 
         matcher_resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/services/{service_id}/matchers",
-            json={"pattern": "hosting", "pattern_type": "string", "internal_only": True},
+            json={
+                "pattern": "hosting",
+                "pattern_type": "string",
+                "internal_only": True,
+            },
             headers={"Authorization": f"Bearer {token}"},
         )
         assert matcher_resp.status_code == 201
@@ -621,18 +747,26 @@ class TestServices:
 
         await db_session.refresh(foreign_line)
         assert str(foreign_line.partner_id) == source_partner["id"]
-        foreign_split = (await db_session.exec(
-            select(JournalLineSplit).where(JournalLineSplit.journal_line_id == foreign_line.id)
-        )).first()
+        foreign_split = (
+            await db_session.exec(
+                select(JournalLineSplit).where(
+                    JournalLineSplit.journal_line_id == foreign_line.id
+                )
+            )
+        ).first()
         assert foreign_split is not None
         assert str(foreign_split.service_id) == source_base_service_id
 
-    async def test_service_group_crud_and_assignment(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_service_group_crud_and_assignment(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         user = await create_user(db_session, "acc-groups@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
-        partner = await create_partner(client, token, mandant.id, name="Grouped Partner")
+        partner = await create_partner(
+            client, token, mandant.id, name="Grouped Partner"
+        )
 
         created_service = await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
@@ -666,7 +800,9 @@ class TestServices:
         assert assign_group.status_code == 200
         assert assign_group.json()["service_group_id"] == group_id
 
-    async def test_cross_section_group_assignment_returns_422(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_cross_section_group_assignment_returns_422(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         user = await create_user(db_session, "acc-cross@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
@@ -696,12 +832,18 @@ class TestServices:
         )
         assert assign_resp.status_code == 422
 
-    async def test_service_type_gets_matching_default_group_assignment(self, client: AsyncClient, db_session: AsyncSession):
-        user = await create_user(db_session, "acc-default-group@test.com", UserRole.accountant)
+    async def test_service_type_gets_matching_default_group_assignment(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        user = await create_user(
+            db_session, "acc-default-group@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
-        partner = await create_partner(client, token, mandant.id, name="Authority Partner")
+        partner = await create_partner(
+            client, token, mandant.id, name="Authority Partner"
+        )
 
         service_resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
@@ -721,8 +863,14 @@ class TestServices:
         assignments = (
             await db_session.exec(
                 select(ServiceGroupAssignment, ServiceGroup)
-                .join(ServiceGroup, ServiceGroup.id == ServiceGroupAssignment.service_group_id)
-                .where(ServiceGroupAssignment.mandant_id == mandant.id, ServiceGroupAssignment.service_id == UUID(service_id))
+                .join(
+                    ServiceGroup,
+                    ServiceGroup.id == ServiceGroupAssignment.service_group_id,
+                )
+                .where(
+                    ServiceGroupAssignment.mandant_id == mandant.id,
+                    ServiceGroupAssignment.service_id == UUID(service_id),
+                )
             )
         ).all()
         assert len(assignments) == 1
@@ -730,12 +878,18 @@ class TestServices:
         assert assigned_group.section == "expense"
         assert assigned_group.name == "Behörden"
 
-    async def test_default_group_assignment_updates_when_service_type_changes(self, client: AsyncClient, db_session: AsyncSession):
-        user = await create_user(db_session, "acc-default-update@test.com", UserRole.accountant)
+    async def test_default_group_assignment_updates_when_service_type_changes(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        user = await create_user(
+            db_session, "acc-default-update@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
-        partner = await create_partner(client, token, mandant.id, name="Expense Partner")
+        partner = await create_partner(
+            client, token, mandant.id, name="Expense Partner"
+        )
 
         service_resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
@@ -755,20 +909,32 @@ class TestServices:
         assignments = (
             await db_session.exec(
                 select(ServiceGroupAssignment, ServiceGroup)
-                .join(ServiceGroup, ServiceGroup.id == ServiceGroupAssignment.service_group_id)
-                .where(ServiceGroupAssignment.mandant_id == mandant.id, ServiceGroupAssignment.service_id == UUID(service_id))
+                .join(
+                    ServiceGroup,
+                    ServiceGroup.id == ServiceGroupAssignment.service_group_id,
+                )
+                .where(
+                    ServiceGroupAssignment.mandant_id == mandant.id,
+                    ServiceGroupAssignment.service_id == UUID(service_id),
+                )
             )
         ).all()
         assert len(assignments) == 1
         _, assigned_group = assignments[0]
         assert assigned_group.name == "Behörden"
 
-    async def test_manual_non_default_group_assignment_is_not_overwritten(self, client: AsyncClient, db_session: AsyncSession):
-        user = await create_user(db_session, "acc-manual-group@test.com", UserRole.accountant)
+    async def test_manual_non_default_group_assignment_is_not_overwritten(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        user = await create_user(
+            db_session, "acc-manual-group@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
-        partner = await create_partner(client, token, mandant.id, name="Manual Group Partner")
+        partner = await create_partner(
+            client, token, mandant.id, name="Manual Group Partner"
+        )
 
         service_resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
@@ -810,8 +976,14 @@ class TestServices:
         assignments = (
             await db_session.exec(
                 select(ServiceGroupAssignment, ServiceGroup)
-                .join(ServiceGroup, ServiceGroup.id == ServiceGroupAssignment.service_group_id)
-                .where(ServiceGroupAssignment.mandant_id == mandant.id, ServiceGroupAssignment.service_id == UUID(service_id))
+                .join(
+                    ServiceGroup,
+                    ServiceGroup.id == ServiceGroupAssignment.service_group_id,
+                )
+                .where(
+                    ServiceGroupAssignment.mandant_id == mandant.id,
+                    ServiceGroupAssignment.service_id == UUID(service_id),
+                )
             )
         ).all()
         assert len(assignments) == 1
@@ -819,18 +991,29 @@ class TestServices:
         assert assigned_group.name == "Sonderkosten"
         assert assigned_group.is_default is False
 
-    async def test_manual_assignment_to_other_default_group_survives_matrix_load(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_manual_assignment_to_other_default_group_survives_matrix_load(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         """Regressionstest: eine von Hand gewaehlte Standardgruppe ("Behörden" fuer einen
-        supplier) darf ein Matrix-Abruf nicht auf die bevorzugte Gruppe zurueckziehen."""
-        user = await create_user(db_session, "acc-manual-default-group@test.com", UserRole.accountant)
+        supplier) darf ein Matrix-Abruf nicht auf die bevorzugte Gruppe zurueckziehen.
+        """
+        user = await create_user(
+            db_session, "acc-manual-default-group@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
-        partner = await create_partner(client, token, mandant.id, name="Justizonline Partner")
+        partner = await create_partner(
+            client, token, mandant.id, name="Justizonline Partner"
+        )
 
         service_resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
-            json={"name": "Justizonline", "service_type": "supplier", "tax_rate": "20.00"},
+            json={
+                "name": "Justizonline",
+                "service_type": "supplier",
+                "tax_rate": "20.00",
+            },
             headers={"Authorization": f"Bearer {token}"},
         )
         assert service_resp.status_code == 201
@@ -850,7 +1033,9 @@ class TestServices:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert groups_resp.status_code == 200
-        behoerden_group = next((g for g in groups_resp.json() if g["name"] == "Behörden"), None)
+        behoerden_group = next(
+            (g for g in groups_resp.json() if g["name"] == "Behörden"), None
+        )
         assert behoerden_group is not None
         assert behoerden_group["is_default"] is True
 
@@ -871,19 +1056,30 @@ class TestServices:
         assignments = (
             await db_session.exec(
                 select(ServiceGroupAssignment, ServiceGroup)
-                .join(ServiceGroup, ServiceGroup.id == ServiceGroupAssignment.service_group_id)
-                .where(ServiceGroupAssignment.mandant_id == mandant.id, ServiceGroupAssignment.service_id == UUID(service_id))
+                .join(
+                    ServiceGroup,
+                    ServiceGroup.id == ServiceGroupAssignment.service_group_id,
+                )
+                .where(
+                    ServiceGroupAssignment.mandant_id == mandant.id,
+                    ServiceGroupAssignment.service_id == UUID(service_id),
+                )
             )
         ).all()
         assert len(assignments) == 1
         _, assigned_group = assignments[0]
         assert assigned_group.name == "Behörden"
 
-    async def test_service_in_default_group_not_overwritten_by_matrix_load(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_service_in_default_group_not_overwritten_by_matrix_load(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         """Regression test: wenn kein Gruppenname dem bevorzugten Standard entspricht,
         darf ensure_service_group_assignment eine bestehende Zuweisung in der richtigen
-        Sektion NICHT überschreiben – auch wenn die aktuelle Gruppe is_default=True hat."""
-        user = await create_user(db_session, "acc-snap-back@test.com", UserRole.accountant)
+        Sektion NICHT überschreiben – auch wenn die aktuelle Gruppe is_default=True hat.
+        """
+        user = await create_user(
+            db_session, "acc-snap-back@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
@@ -904,7 +1100,11 @@ class TestServices:
         # Service wird automatisch "Kunden" zugeordnet (preferred name trifft zu)
         service_resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
-            json={"name": "Habenzinsen", "service_type": "customer", "tax_rate": "0.00"},
+            json={
+                "name": "Habenzinsen",
+                "service_type": "customer",
+                "tax_rate": "0.00",
+            },
             headers={"Authorization": f"Bearer {token}"},
         )
         assert service_resp.status_code == 201
@@ -916,7 +1116,9 @@ class TestServices:
             params={"section": "income"},
             headers={"Authorization": f"Bearer {token}"},
         )
-        kunden_group = next((g for g in income_groups_resp.json() if g["name"] == "Kunden"), None)
+        kunden_group = next(
+            (g for g in income_groups_resp.json() if g["name"] == "Kunden"), None
+        )
         assert kunden_group is not None
         kunden_group_id = kunden_group["id"]
         await client.patch(
@@ -929,8 +1131,14 @@ class TestServices:
         rows_before = (
             await db_session.exec(
                 select(ServiceGroupAssignment, ServiceGroup)
-                .join(ServiceGroup, ServiceGroup.id == ServiceGroupAssignment.service_group_id)
-                .where(ServiceGroupAssignment.mandant_id == mandant.id, ServiceGroupAssignment.service_id == UUID(service_id))
+                .join(
+                    ServiceGroup,
+                    ServiceGroup.id == ServiceGroupAssignment.service_group_id,
+                )
+                .where(
+                    ServiceGroupAssignment.mandant_id == mandant.id,
+                    ServiceGroupAssignment.service_id == UUID(service_id),
+                )
             )
         ).all()
         assert len(rows_before) == 1
@@ -951,26 +1159,38 @@ class TestServices:
         rows_after = (
             await db_session.exec(
                 select(ServiceGroupAssignment, ServiceGroup)
-                .join(ServiceGroup, ServiceGroup.id == ServiceGroupAssignment.service_group_id)
-                .where(ServiceGroupAssignment.mandant_id == mandant.id, ServiceGroupAssignment.service_id == UUID(service_id))
+                .join(
+                    ServiceGroup,
+                    ServiceGroup.id == ServiceGroupAssignment.service_group_id,
+                )
+                .where(
+                    ServiceGroupAssignment.mandant_id == mandant.id,
+                    ServiceGroupAssignment.service_id == UUID(service_id),
+                )
             )
         ).all()
         assert len(rows_after) == 1
         _, group_after = rows_after[0]
-        assert group_after.name == "Zinserträge", (
-            f"Service-Zuweisung wurde fälschlicherweise von 'Zinserträge' nach '{group_after.name}' verschoben"
-        )
+        assert (
+            group_after.name == "Zinserträge"
+        ), f"Service-Zuweisung wurde fälschlicherweise von 'Zinserträge' nach '{group_after.name}' verschoben"
 
-    async def test_new_service_falls_back_to_default_group_not_first_group(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_new_service_falls_back_to_default_group_not_first_group(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         """Regression test: existiert die bevorzugte Standardgruppe nicht mehr (umbenannt),
         darf eine neue Leistung nicht in der Gruppe mit dem niedrigsten sort_order landen,
         sondern in der Standardgruppe der Sektion."""
-        user = await create_user(db_session, "acc-fallback@test.com", UserRole.accountant)
+        user = await create_user(
+            db_session, "acc-fallback@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
         headers = {"Authorization": f"Bearer {token}"}
-        partner = await create_partner(client, token, mandant.id, name="Wiener Tourismusverband")
+        partner = await create_partner(
+            client, token, mandant.id, name="Wiener Tourismusverband"
+        )
 
         # Erste Kundenleistung -> ensure_default_groups erzeugt "Kunden" (is_default=True)
         first_resp = await client.post(
@@ -989,12 +1209,16 @@ class TestServices:
         assert custom_resp.status_code == 201
 
         # "Kunden" umbenennen -> bevorzugter Standardname existiert nicht mehr
-        income_groups = (await client.get(
-            f"/api/v1/mandants/{mandant.id}/service-groups",
-            params={"section": "income"},
-            headers=headers,
-        )).json()
-        kunden_group = next(group for group in income_groups if group["name"] == "Kunden")
+        income_groups = (
+            await client.get(
+                f"/api/v1/mandants/{mandant.id}/service-groups",
+                params={"section": "income"},
+                headers=headers,
+            )
+        ).json()
+        kunden_group = next(
+            group for group in income_groups if group["name"] == "Kunden"
+        )
         rename_resp = await client.patch(
             f"/api/v1/mandants/{mandant.id}/service-groups/{kunden_group['id']}",
             json={"name": "Sonstige Einnahmen"},
@@ -1005,7 +1229,11 @@ class TestServices:
         # Neue Kundenleistung anlegen
         second_resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
-            json={"name": "Consulting", "service_type": "customer", "tax_rate": "20.00"},
+            json={
+                "name": "Consulting",
+                "service_type": "customer",
+                "tax_rate": "20.00",
+            },
             headers=headers,
         )
         assert second_resp.status_code == 201
@@ -1014,7 +1242,10 @@ class TestServices:
         rows = (
             await db_session.exec(
                 select(ServiceGroup.name, ServiceGroup.is_default)
-                .join(ServiceGroupAssignment, ServiceGroup.id == ServiceGroupAssignment.service_group_id)
+                .join(
+                    ServiceGroupAssignment,
+                    ServiceGroup.id == ServiceGroupAssignment.service_group_id,
+                )
                 .where(
                     ServiceGroupAssignment.mandant_id == mandant.id,
                     ServiceGroupAssignment.service_id == UUID(second_service_id),
@@ -1023,9 +1254,9 @@ class TestServices:
         ).all()
         assert len(rows) == 1
         group_name, group_is_default = rows[0]
-        assert group_name == "Sonstige Einnahmen", (
-            f"Neue Leistung landete in '{group_name}' statt in der Standardgruppe der Sektion"
-        )
+        assert (
+            group_name == "Sonstige Einnahmen"
+        ), f"Neue Leistung landete in '{group_name}' statt in der Standardgruppe der Sektion"
         assert group_is_default is True
 
     async def test_service_created_without_type_keeps_automatic_detection(
@@ -1037,12 +1268,16 @@ class TestServices:
         automatisch bleiben. Sonst greift detect_service_type_for_service nie, die Leistung
         bleibt ohne Sektion und damit ohne Gruppe.
         """
-        user = await create_user(db_session, "acc-auto-type@test.com", UserRole.accountant)
+        user = await create_user(
+            db_session, "acc-auto-type@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
         headers = {"Authorization": f"Bearer {token}"}
-        partner = await create_partner(client, token, mandant.id, name="Loomis Österreich GmbH")
+        partner = await create_partner(
+            client, token, mandant.id, name="Loomis Österreich GmbH"
+        )
 
         unknown_resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
@@ -1078,12 +1313,16 @@ class TestServices:
         """Regression: eine ohne Art angelegte Leistung darf nicht dauerhaft aus
         Einnahmen & Ausgaben herausfallen. Sobald sie Buchungen hat, bestimmt die
         Erkennung die Art, und die Matrix zieht die Gruppenzuordnung nach."""
-        user = await create_user(db_session, "acc-auto-group@test.com", UserRole.accountant)
+        user = await create_user(
+            db_session, "acc-auto-group@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         token = await get_auth_token(client, user, mandant)
         headers = {"Authorization": f"Bearer {token}"}
-        partner = await create_partner(client, token, mandant.id, name="Loomis Österreich GmbH")
+        partner = await create_partner(
+            client, token, mandant.id, name="Loomis Österreich GmbH"
+        )
 
         create_resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
@@ -1094,7 +1333,9 @@ class TestServices:
         service_id = create_resp.json()["id"]
 
         now = utcnow()
-        account = Account(mandant_id=mandant.id, name="Girokonto", created_at=now, updated_at=now)
+        account = Account(
+            mandant_id=mandant.id, name="Girokonto", created_at=now, updated_at=now
+        )
         db_session.add(account)
         await db_session.flush()
         run = ImportRun(
@@ -1121,11 +1362,17 @@ class TestServices:
         )
         db_session.add(line)
         await db_session.flush()
-        db_session.add(JournalLineSplit(
-            journal_line_id=line.id, service_id=UUID(service_id),
-            amount=Decimal("1000.00"), assignment_mode="auto",
-            amount_consistency_ok=True, created_at=now, updated_at=now,
-        ))
+        db_session.add(
+            JournalLineSplit(
+                journal_line_id=line.id,
+                service_id=UUID(service_id),
+                amount=Decimal("1000.00"),
+                assignment_mode="auto",
+                amount_consistency_ok=True,
+                created_at=now,
+                updated_at=now,
+            )
+        )
         await db_session.commit()
 
         # Harmlose Aenderung stoesst die Erkennung an.
@@ -1150,11 +1397,16 @@ class TestServices:
             for group in income["groups"]
             for service in group["services"]
         ]
-        assert ("Kunden", "Projekte") in placements, f"Leistung fehlt in der Matrix: {placements}"
+        assert (
+            "Kunden",
+            "Projekte",
+        ) in placements, f"Leistung fehlt in der Matrix: {placements}"
 
         assignment = (
             await db_session.exec(
-                select(ServiceGroupAssignment).where(ServiceGroupAssignment.service_id == UUID(service_id))
+                select(ServiceGroupAssignment).where(
+                    ServiceGroupAssignment.service_id == UUID(service_id)
+                )
             )
         ).first()
         assert assignment is not None

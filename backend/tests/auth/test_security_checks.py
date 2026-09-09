@@ -1,10 +1,6 @@
 """
 Security-focused tests – injection, timing, token tampering, enumeration.
 """
-import asyncio
-import time
-
-import pytest
 
 from tests.auth.conftest import create_user
 
@@ -48,7 +44,8 @@ class TestSqlInjection:
 class TestTokenTampering:
     async def test_modified_role_in_token_is_rejected(self, client, db_session):
         """A token with a modified payload must be rejected (signature mismatch)."""
-        import base64, json
+        import base64
+        import json
 
         await create_user(db_session)
         resp = await client.post(

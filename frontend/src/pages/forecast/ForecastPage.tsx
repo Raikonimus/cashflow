@@ -153,9 +153,7 @@ export function ForecastPage() {
             </dd>
           </div>
           <div className="bg-white px-4 py-3">
-            <dt className="text-xs uppercase tracking-wide text-gray-400">
-              Typischer Fehler
-            </dt>
+            <dt className="text-xs uppercase tracking-wide text-gray-400">Typischer Fehler</dt>
             <dd className="text-lg font-semibold tabular-nums text-gray-900">
               {formatAccuracy(data.median_relative_error) ?? '—'}
             </dd>
@@ -178,9 +176,9 @@ export function ForecastPage() {
       {data && data.weak_forecasts > 0 && (
         <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
           Bei {data.weak_forecasts}{' '}
-          {data.weak_forecasts === 1 ? 'Leistung trifft' : 'Leistungen trifft'} die Regel
-          schlechter als gar keine Prognose. Dort hilft ein Planposten oder das Abschalten
-          mehr als eine Schätzung.{' '}
+          {data.weak_forecasts === 1 ? 'Leistung trifft' : 'Leistungen trifft'} die Regel schlechter
+          als gar keine Prognose. Dort hilft ein Planposten oder das Abschalten mehr als eine
+          Schätzung.{' '}
           <button
             type="button"
             onClick={() => setFilter('weak')}

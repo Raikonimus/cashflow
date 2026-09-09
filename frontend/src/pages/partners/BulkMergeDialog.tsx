@@ -74,9 +74,7 @@ export function BulkMergeDialog({ sources, onClose, onSuccess }: BulkMergeDialog
             >
               {target?.id === s.id ? '✓ ' : '→ '}
               {s.display_name ?? s.name}
-              {target?.id === s.id && (
-                <span className="ml-1 text-xs text-green-600">(Ziel)</span>
-              )}
+              {target?.id === s.id && <span className="ml-1 text-xs text-green-600">(Ziel)</span>}
             </div>
           ))}
         </div>
@@ -105,9 +103,7 @@ export function BulkMergeDialog({ sources, onClose, onSuccess }: BulkMergeDialog
                 className="cursor-pointer px-3 py-2 text-sm hover:bg-blue-50"
               >
                 {p.display_name ?? p.name}
-                {p.display_name && (
-                  <span className="ml-2 text-xs text-gray-400">({p.name})</span>
-                )}
+                {p.display_name && <span className="ml-2 text-xs text-gray-400">({p.name})</span>}
                 {sourceIds.has(p.id) && (
                   <span className="ml-2 rounded bg-green-100 px-1 text-xs text-green-700">
                     aus Auswahl
@@ -120,9 +116,10 @@ export function BulkMergeDialog({ sources, onClose, onSuccess }: BulkMergeDialog
 
         {target && effectiveSources.length > 0 && (
           <div className="mt-3 rounded bg-orange-50 px-3 py-2 text-sm text-orange-800">
-            ⚠ <strong>{effectiveSources.length}</strong> Partner{effectiveSources.length > 1 ? ' werden' : ' wird'} in{' '}
-            <strong>{target.display_name ?? target.name}</strong> gemergt und deaktiviert.
-            Diese Aktion kann nicht rückgängig gemacht werden.
+            ⚠ <strong>{effectiveSources.length}</strong> Partner
+            {effectiveSources.length > 1 ? ' werden' : ' wird'} in{' '}
+            <strong>{target.display_name ?? target.name}</strong> gemergt und deaktiviert. Diese
+            Aktion kann nicht rückgängig gemacht werden.
           </div>
         )}
 

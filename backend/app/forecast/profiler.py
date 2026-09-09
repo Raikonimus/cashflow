@@ -6,6 +6,7 @@ erklärbar: Zu jeder Regel gehört ein `reason`, der in der Oberfläche angezeig
 
 Vorzeichen werden durchgereicht — Ausgaben sind negativ, Einnahmen positiv.
 """
+
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -91,7 +92,9 @@ class ForecastRule:
     #: Kalendermonat → Betrag, für `seasonal_profile`.
     monthly_amounts: dict[int, Decimal] = field(default_factory=dict)
 
-    def value_for(self, index: int, history: dict[int, Decimal] | None = None) -> Decimal:
+    def value_for(
+        self, index: int, history: dict[int, Decimal] | None = None
+    ) -> Decimal:
         """Prognostizierter Bruttobetrag für einen Monatsindex.
 
         `history` wird nur von `same_period_last_year` gebraucht.
@@ -183,7 +186,9 @@ def _detect_cadence(gaps: list[int]) -> tuple[Cadence, int]:
 
     median_gap = int(median([Decimal(gap) for gap in gaps]))
     # Unregelmäßig, sobald die Abstände stark schwanken.
-    deviation = _median_absolute_deviation([Decimal(gap) for gap in gaps], Decimal(median_gap))
+    deviation = _median_absolute_deviation(
+        [Decimal(gap) for gap in gaps], Decimal(median_gap)
+    )
     if deviation > Decimal("1"):
         return Cadence.irregular, 0
 
@@ -224,7 +229,9 @@ def _detect_special_months(
     return special
 
 
-def _rolling_average(points: dict[int, Decimal], window_end: int, window: int) -> Decimal:
+def _rolling_average(
+    points: dict[int, Decimal], window_end: int, window: int
+) -> Decimal:
     """Mittel über die letzten `window` Kalendermonate — Nullmonate zählen mit."""
     total = _ZERO
     for offset in range(window):
@@ -263,7 +270,9 @@ def build_profile(
         )
 
     if not active:
-        return _empty_profile(active, "Keine Buchungen im Beobachtungszeitraum — keine Prognose")
+        return _empty_profile(
+            active, "Keine Buchungen im Beobachtungszeitraum — keine Prognose"
+        )
 
     indices = sorted(active)
     first_index, last_index = indices[0], indices[-1]
@@ -285,7 +294,9 @@ def build_profile(
         interval = 0
 
     special_months = (
-        _detect_special_months(active, median_amount) if cadence is Cadence.monthly else {}
+        _detect_special_months(active, median_amount)
+        if cadence is Cadence.monthly
+        else {}
     )
 
     # Karteileichen: seit mehr als zwei erwarteten Perioden nichts mehr gebucht.
@@ -366,8 +377,12 @@ def _select_rule(
 ) -> ForecastRule:
     history_span = window_end - first_index + 1
     bounds = {
-        "valid_from_index": month_index(valid_from.year, valid_from.month) if valid_from else None,
-        "valid_to_index": month_index(valid_to.year, valid_to.month) if valid_to else None,
+        "valid_from_index": (
+            month_index(valid_from.year, valid_from.month) if valid_from else None
+        ),
+        "valid_to_index": (
+            month_index(valid_to.year, valid_to.month) if valid_to else None
+        ),
     }
 
     if cadence is Cadence.monthly:
@@ -411,7 +426,9 @@ def _select_rule(
 
     if cadence in (Cadence.quarterly, Cadence.annual):
         minimum = (
-            MIN_OCCURRENCES_ANNUAL if cadence is Cadence.annual else MIN_OCCURRENCES_QUARTERLY
+            MIN_OCCURRENCES_ANNUAL
+            if cadence is Cadence.annual
+            else MIN_OCCURRENCES_QUARTERLY
         )
         if occurrence_count < minimum:
             return ForecastRule(

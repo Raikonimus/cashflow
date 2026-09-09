@@ -45,7 +45,9 @@ async def send_email(to: str, subject: str, html_body: str, text_body: str) -> N
 
     loop = asyncio.get_running_loop()
     try:
-        await loop.run_in_executor(_executor, _send_sync, to, subject, html_body, text_body)
+        await loop.run_in_executor(
+            _executor, _send_sync, to, subject, html_body, text_body
+        )
     except Exception as exc:
         # Log and swallow – email failure must not break the calling flow
         log.error("smtp_send_failed", to=to, subject=subject, error=str(exc))

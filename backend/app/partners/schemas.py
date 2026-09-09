@@ -1,18 +1,17 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
 from app.services.models import ServiceType
 
-
 # ─── Partner ──────────────────────────────────────────────────────────────────
+
 
 class CreatePartnerRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    iban: Optional[str] = Field(default=None, max_length=34)
+    iban: str | None = Field(default=None, max_length=34)
     manual_assignment: bool = False
 
 
@@ -95,6 +94,7 @@ class PartnerNeighborsResponse(BaseModel):
 
 # ─── IBAN ─────────────────────────────────────────────────────────────────────
 
+
 class UpdatePartnerRequest(BaseModel):
     display_name: str | None = None  # leer/None löscht den Anzeigenamen
     manual_assignment: bool | None = None
@@ -105,6 +105,7 @@ class AddIbanRequest(BaseModel):
 
 
 # ─── Account (BLZ + Kontonummer) ──────────────────────────────────────────────
+
 
 class AddAccountRequest(BaseModel):
     account_number: str = Field(min_length=1, max_length=50)
@@ -134,11 +135,13 @@ class AccountPreviewResponse(BaseModel):
 
 # ─── Name ─────────────────────────────────────────────────────────────────────
 
+
 class AddNameRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
 
 
 # ─── Merge ────────────────────────────────────────────────────────────────────
+
 
 class MergeRequest(BaseModel):
     source_partner_id: UUID
@@ -152,6 +155,7 @@ class MergeResponse(BaseModel):
 
 
 # ─── Audit Log ────────────────────────────────────────────────────────────────
+
 
 class AuditLogEntryResponse(BaseModel):
     id: UUID

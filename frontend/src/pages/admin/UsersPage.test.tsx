@@ -35,22 +35,16 @@ function renderPage() {
 
 describe('UsersPage', () => {
   it('renders user list', async () => {
-    server.use(
-      http.get('/api/v1/users', () => HttpResponse.json(USERS)),
-    )
+    server.use(http.get('/api/v1/users', () => HttpResponse.json(USERS)))
     renderPage()
-    await waitFor(() =>
-      expect(screen.getByText('alice@test.com')).toBeInTheDocument(),
-    )
+    await waitFor(() => expect(screen.getByText('alice@test.com')).toBeInTheDocument())
     expect(screen.getByText('bob@test.com')).toBeInTheDocument()
   })
 
   it('shows "Keine Benutzer" when list is empty', async () => {
     server.use(http.get('/api/v1/users', () => HttpResponse.json([])))
     renderPage()
-    await waitFor(() =>
-      expect(screen.getByText(/keine benutzer/i)).toBeInTheDocument(),
-    )
+    await waitFor(() => expect(screen.getByText(/keine benutzer/i)).toBeInTheDocument())
   })
 
   it('shows error state on API failure', async () => {
@@ -60,9 +54,7 @@ describe('UsersPage', () => {
       ),
     )
     renderPage()
-    await waitFor(() =>
-      expect(screen.getByText(/fehler beim laden/i)).toBeInTheDocument(),
-    )
+    await waitFor(() => expect(screen.getByText(/fehler beim laden/i)).toBeInTheDocument())
   })
 
   it('opens UserDialog when clicking "+ Neuer Benutzer"', async () => {

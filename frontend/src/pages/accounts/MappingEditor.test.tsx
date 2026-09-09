@@ -20,13 +20,29 @@ vi.mock('@/api/accounts', () => ({
 const ACCOUNT_ID = 'account-1'
 
 // Kreditkarten-Export mit nur einem Datum - kein Valutadatum.
-const CARD_COLUMNS = ['Eigener Kontoname', 'Buchungsdatum', 'Partnername', 'Betrag', 'Buchungs-Details']
+const CARD_COLUMNS = [
+  'Eigener Kontoname',
+  'Buchungsdatum',
+  'Partnername',
+  'Betrag',
+  'Buchungs-Details',
+]
 
 // Der komplette Spaltensatz des Kreditkarten-Exports.
 const FULL_CARD_COLUMNS = [
-  'Eigener Kontoname', 'Eigene IBAN', 'Buchungsdatum', 'Partnername', 'Partner IBAN',
-  'BIC/SWIFT', 'Partner Kontonummer', 'Bankleitzahl', 'Betrag', 'Währung',
-  'Buchungs-Details', 'Empfänger-Überprüfung', 'Diese IBAN ist registriert auf',
+  'Eigener Kontoname',
+  'Eigene IBAN',
+  'Buchungsdatum',
+  'Partnername',
+  'Partner IBAN',
+  'BIC/SWIFT',
+  'Partner Kontonummer',
+  'Bankleitzahl',
+  'Betrag',
+  'Währung',
+  'Buchungs-Details',
+  'Empfänger-Überprüfung',
+  'Diese IBAN ist registriert auf',
 ]
 
 function suggestionFor(column: string): string {
@@ -116,7 +132,9 @@ describe('MappingEditor', () => {
     fireEvent.change(within(dateRow).getByLabelText('Zielfeld 2 für Buchungsdatum'), {
       target: { value: 'valuta_date' },
     })
-    await waitFor(() => expect(screen.queryByText(/Pflichtfeld ohne Spalte/)).not.toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.queryByText(/Pflichtfeld ohne Spalte/)).not.toBeInTheDocument(),
+    )
 
     // Mindestens eine Spalte muss fuer die Dublettenpruefung markiert sein.
     fireEvent.click(within(rowFor('Betrag')).getByRole('checkbox'))
@@ -136,12 +154,17 @@ describe('MappingEditor', () => {
     await waitFor(() => expect(saveMappingMock).toHaveBeenCalledTimes(1))
     const sent = sentAssignments()
     expect(
-      sent.filter((a) => a.source === 'Buchungsdatum').map((a) => a.target).sort(),
+      sent
+        .filter((a) => a.source === 'Buchungsdatum')
+        .map((a) => a.target)
+        .sort(),
     ).toEqual(['booking_date', 'valuta_date'])
     // sort_order laeuft fortlaufend ueber die flache Liste.
     expect(sent.map((a) => a.sort_order)).toEqual(sent.map((_, i) => i))
     // Ausgeschlossene Spalten bleiben als 'unused' in der Konfiguration.
-    expect(sent.filter((a) => a.source === 'Eigener Kontoname').map((a) => a.target)).toEqual(['unused'])
+    expect(sent.filter((a) => a.source === 'Eigener Kontoname').map((a) => a.target)).toEqual([
+      'unused',
+    ])
     // Jede CSV-Spalte ist vertreten.
     expect(new Set(sent.map((a) => a.source))).toEqual(new Set(CARD_COLUMNS))
   })
@@ -171,8 +194,12 @@ describe('MappingEditor', () => {
 
     // Die Spalte erscheint einmal, mit zwei Zielfeldern.
     expect(screen.getAllByText('Buchungsdatum')).toHaveLength(1)
-    expect(within(dateRow).getByLabelText('Zielfeld 1 für Buchungsdatum')).toHaveValue('booking_date')
-    expect(within(dateRow).getByLabelText('Zielfeld 2 für Buchungsdatum')).toHaveValue('valuta_date')
+    expect(within(dateRow).getByLabelText('Zielfeld 1 für Buchungsdatum')).toHaveValue(
+      'booking_date',
+    )
+    expect(within(dateRow).getByLabelText('Zielfeld 2 für Buchungsdatum')).toHaveValue(
+      'valuta_date',
+    )
     expect(screen.queryByText(/Pflichtfeld ohne Spalte/)).not.toBeInTheDocument()
   })
 
@@ -185,7 +212,9 @@ describe('MappingEditor', () => {
     fireEvent.change(within(dateRow).getByLabelText('Zielfeld 2 für Buchungsdatum'), {
       target: { value: 'valuta_date' },
     })
-    await waitFor(() => expect(screen.queryByText(/Pflichtfeld ohne Spalte/)).not.toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.queryByText(/Pflichtfeld ohne Spalte/)).not.toBeInTheDocument(),
+    )
 
     fireEvent.click(
       within(rowFor('Buchungsdatum')).getByRole('button', {
@@ -217,11 +246,16 @@ describe('MappingEditor', () => {
     fireEvent.change(within(dateRow).getByLabelText('Zielfeld 2 für Buchungsdatum'), {
       target: { value: 'valuta_date' },
     })
-    await waitFor(() => expect(screen.queryByText(/Pflichtfeld ohne Spalte/)).not.toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.queryByText(/Pflichtfeld ohne Spalte/)).not.toBeInTheDocument(),
+    )
 
-    fireEvent.change(within(rowFor('Buchungsdatum')).getByLabelText('Zielfeld 1 für Buchungsdatum'), {
-      target: { value: 'unused' },
-    })
+    fireEvent.change(
+      within(rowFor('Buchungsdatum')).getByLabelText('Zielfeld 1 für Buchungsdatum'),
+      {
+        target: { value: 'unused' },
+      },
+    )
 
     const updated = rowFor('Buchungsdatum')
     expect(within(updated).getByLabelText('Zielfeld 1 für Buchungsdatum')).toHaveValue('unused')

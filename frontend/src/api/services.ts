@@ -1,6 +1,13 @@
 import { apiClient } from './client'
 
-export type ServiceType = 'customer' | 'supplier' | 'employee' | 'shareholder' | 'authority' | 'internal_transfer' | 'unknown'
+export type ServiceType =
+  | 'customer'
+  | 'supplier'
+  | 'employee'
+  | 'shareholder'
+  | 'authority'
+  | 'internal_transfer'
+  | 'unknown'
 export type KeywordTargetType = 'employee' | 'shareholder' | 'authority'
 export type ServiceGroupSection = 'income' | 'expense' | 'neutral'
 
@@ -166,10 +173,7 @@ export async function updateService(
   return resp.data
 }
 
-export async function deleteService(
-  mandantId: string,
-  serviceId: string,
-): Promise<void> {
+export async function deleteService(mandantId: string, serviceId: string): Promise<void> {
   await apiClient.delete(`/mandants/${mandantId}/services/${serviceId}`)
 }
 
@@ -269,10 +273,7 @@ export async function updateServiceKeyword(
   return resp.data
 }
 
-export async function deleteServiceKeyword(
-  mandantId: string,
-  keywordId: string,
-): Promise<void> {
+export async function deleteServiceKeyword(mandantId: string, keywordId: string): Promise<void> {
   await apiClient.delete(`/mandants/${mandantId}/settings/service-keywords/${keywordId}`)
 }
 
@@ -280,10 +281,9 @@ export async function listServiceGroups(
   mandantId: string,
   section: ServiceGroupSection,
 ): Promise<ServiceGroupItem[]> {
-  const resp = await apiClient.get<ServiceGroupItem[]>(
-    `/mandants/${mandantId}/service-groups`,
-    { params: { section } },
-  )
+  const resp = await apiClient.get<ServiceGroupItem[]>(`/mandants/${mandantId}/service-groups`, {
+    params: { section },
+  })
   return resp.data
 }
 

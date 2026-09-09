@@ -1,4 +1,5 @@
 """Fixtures for forecast tests — teilt sich die Journal-Testbasis."""
+
 from tests.journal import (  # noqa: F401
     assign_user_to_mandant,
     client,

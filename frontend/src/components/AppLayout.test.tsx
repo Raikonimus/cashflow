@@ -52,7 +52,9 @@ describe('AppLayout', () => {
 
     renderLayout()
 
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Einstellungen' })).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Einstellungen' })).toBeInTheDocument(),
+    )
 
     expect(screen.queryByRole('link', { name: 'Konten' })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Service-Keywords' })).not.toBeInTheDocument()

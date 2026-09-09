@@ -40,9 +40,7 @@ from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.tenants.models import Account
 
-
-MATCH_WITH_TEXT_QUERY = text(
-    """
+MATCH_WITH_TEXT_QUERY = text("""
     SELECT jl.id
     FROM journal_lines jl
     WHERE jl.account_id = :account_id
@@ -57,26 +55,21 @@ MATCH_WITH_TEXT_QUERY = text(
       AND jl.partner_bic_raw IS :partner_bic_raw
       AND jl.text IS :text_value
     ORDER BY jl.created_at, jl.id
-    """
-)
+    """)
 
 
-SELECT_UNMAPPED_DATA_QUERY = text(
-    """
+SELECT_UNMAPPED_DATA_QUERY = text("""
     SELECT unmapped_data
     FROM journal_lines
     WHERE id = :journal_line_id
-    """
-)
+    """)
 
 
-UPDATE_UNMAPPED_DATA_QUERY = text(
-    """
+UPDATE_UNMAPPED_DATA_QUERY = text("""
     UPDATE journal_lines
     SET unmapped_data = :unmapped_data
     WHERE id = :journal_line_id
-    """
-)
+    """)
 
 
 @dataclass(slots=True)
@@ -191,31 +184,34 @@ async def _resolve_accounts_by_iban(rows: list[dict[str, str]]) -> dict[str, UUI
         result = await session.exec(select(Account).where(Account.iban.in_(own_ibans)))
         accounts = result.all()
 
-        journal_account_rows = (
-            await session.exec(
-                text(
-                    """
+        journal_account_rows = (await session.exec(text("""
                     SELECT DISTINCT account_id
                     FROM journal_lines
                     ORDER BY account_id
-                    """
-                )
-            )
-        ).all()
+                    """))).all()
 
-    found = {_normalize_iban(account.iban): account.id for account in accounts if account.id is not None}
+    found = {
+        _normalize_iban(account.iban): account.id
+        for account in accounts
+        if account.id is not None
+    }
     missing = [iban for iban in own_ibans if iban not in found]
     if missing:
-        journal_account_ids = [_coerce_uuid(account_id) for account_id in journal_account_rows]
+        journal_account_ids = [
+            _coerce_uuid(account_id) for account_id in journal_account_rows
+        ]
         if len(journal_account_ids) == 1:
             fallback_account_id = journal_account_ids[0]
             for iban in missing:
                 found[iban] = fallback_account_id
         else:
             raise RuntimeError(
-                "Kein Konto für folgende Eigene-IBAN-Werte gefunden: " + ", ".join(missing)
+                "Kein Konto für folgende Eigene-IBAN-Werte gefunden: "
+                + ", ".join(missing)
             )
-    return {iban: account_id for iban, account_id in found.items() if account_id is not None}
+    return {
+        iban: account_id for iban, account_id in found.items() if account_id is not None
+    }
 
 
 async def _match_row(
@@ -243,24 +239,37 @@ async def _match_row(
     strategies = []
     if (details := _normalize_text(row.get("Buchungs-Details"))) is not None:
         strategies.append(("booking-details", details))
-    elif (payment_reference := _normalize_text(row.get("Zahlungsreferenz"))) is not None:
+    elif (
+        payment_reference := _normalize_text(row.get("Zahlungsreferenz"))
+    ) is not None:
         strategies.append(("zahlungsreferenz", payment_reference))
 
     for strategy_name, text_value in strategies:
-        result = await session.execute(MATCH_WITH_TEXT_QUERY, {**params, "text_value": text_value})
+        result = await session.execute(
+            MATCH_WITH_TEXT_QUERY, {**params, "text_value": text_value}
+        )
         matches = result.fetchall()
         if len(matches) == 1:
             journal_line_id = _coerce_uuid(matches[0])
-            return MatchPlanRow(0, journal_line_id, booking_reference, strategy_name), None
+            return (
+                MatchPlanRow(0, journal_line_id, booking_reference, strategy_name),
+                None,
+            )
         if len(matches) > 1:
-            return None, MatchFailure(0, booking_reference, f"Mehrdeutiges Matching via {strategy_name}")
+            return None, MatchFailure(
+                0, booking_reference, f"Mehrdeutiges Matching via {strategy_name}"
+            )
 
-    return None, MatchFailure(0, booking_reference, "Kein eindeutiges Matching gefunden")
+    return None, MatchFailure(
+        0, booking_reference, "Kein eindeutiges Matching gefunden"
+    )
 
 
 async def run_backfill(csv_path: Path, apply: bool) -> int:
     if settings.env == "production":
-        print("ERROR: Script refused to run in production environment.", file=sys.stderr)
+        print(
+            "ERROR: Script refused to run in production environment.", file=sys.stderr
+        )
         return 1
 
     rows = _load_csv_rows(csv_path)
@@ -281,18 +290,24 @@ async def run_backfill(csv_path: Path, apply: bool) -> int:
                 failures.append(MatchFailure(line_number, "", "Eigene IBAN fehlt"))
                 continue
 
-            plan_row, failure = await _match_row(session, account_ids_by_iban[own_iban], row)
+            plan_row, failure = await _match_row(
+                session, account_ids_by_iban[own_iban], row
+            )
             if failure is not None:
                 failure.line_number = line_number
                 if not failure.booking_reference:
-                    failure.booking_reference = _normalize_text(row.get("Buchungsreferenz")) or ""
+                    failure.booking_reference = (
+                        _normalize_text(row.get("Buchungsreferenz")) or ""
+                    )
                 failures.append(failure)
                 continue
 
             assert plan_row is not None
             plan_row.line_number = line_number
 
-            previous_planned_reference = planned_references_by_line.get(plan_row.journal_line_id)
+            previous_planned_reference = planned_references_by_line.get(
+                plan_row.journal_line_id
+            )
             if previous_planned_reference is not None:
                 if previous_planned_reference != plan_row.booking_reference:
                     skipped_conflicts += 1
@@ -316,7 +331,10 @@ async def run_backfill(csv_path: Path, apply: bool) -> int:
 
             unmapped_data = _coerce_unmapped_data(current_unmapped_row[0])
             existing_reference = _normalize_text(unmapped_data.get("Buchungsreferenz"))
-            if existing_reference is not None and existing_reference != plan_row.booking_reference:
+            if (
+                existing_reference is not None
+                and existing_reference != plan_row.booking_reference
+            ):
                 failures.append(
                     MatchFailure(
                         line_number,
@@ -327,8 +345,12 @@ async def run_backfill(csv_path: Path, apply: bool) -> int:
                 continue
 
             plan_rows.append(plan_row)
-            planned_references_by_line[plan_row.journal_line_id] = plan_row.booking_reference
-            strategy_counts[plan_row.match_strategy] = strategy_counts.get(plan_row.match_strategy, 0) + 1
+            planned_references_by_line[plan_row.journal_line_id] = (
+                plan_row.booking_reference
+            )
+            strategy_counts[plan_row.match_strategy] = (
+                strategy_counts.get(plan_row.match_strategy, 0) + 1
+            )
 
             if existing_reference == plan_row.booking_reference:
                 already_set += 1
@@ -339,7 +361,9 @@ async def run_backfill(csv_path: Path, apply: bool) -> int:
                 UPDATE_UNMAPPED_DATA_QUERY,
                 {
                     "journal_line_id": plan_row.journal_line_id.hex,
-                    "unmapped_data": json.dumps(unmapped_data, ensure_ascii=True, sort_keys=True),
+                    "unmapped_data": json.dumps(
+                        unmapped_data, ensure_ascii=True, sort_keys=True
+                    ),
                 },
             )
             updated += 1
@@ -371,10 +395,18 @@ async def run_backfill(csv_path: Path, apply: bool) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Backfill Buchungsreferenz into journal_lines.")
-    parser.add_argument("--csv", required=True, help="Pfad zur CSV-Datei mit Buchungsreferenz")
-    parser.add_argument("--apply", action="store_true", help="Änderungen wirklich schreiben")
-    parser.add_argument("--dry-run", action="store_true", help="Nur prüfen, nichts schreiben")
+    parser = argparse.ArgumentParser(
+        description="Backfill Buchungsreferenz into journal_lines."
+    )
+    parser.add_argument(
+        "--csv", required=True, help="Pfad zur CSV-Datei mit Buchungsreferenz"
+    )
+    parser.add_argument(
+        "--apply", action="store_true", help="Änderungen wirklich schreiben"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Nur prüfen, nichts schreiben"
+    )
     args = parser.parse_args()
 
     apply = args.apply and not args.dry_run

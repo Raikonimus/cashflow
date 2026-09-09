@@ -39,7 +39,11 @@ export function AppLayout() {
   })
 
   async function handleLogout() {
-    try { await logoutUser() } catch { /* token bereits abgelaufen – ignorieren */ }
+    try {
+      await logoutUser()
+    } catch {
+      /* token bereits abgelaufen – ignorieren */
+    }
     logout()
     navigate('/login', { replace: true })
   }
@@ -59,7 +63,11 @@ export function AppLayout() {
       items = [...items, { to: '/admin/audit', label: 'Audit-Log' }]
     }
     if (hasRole(role, 'admin')) {
-      items = [...items, { to: '/admin/mandants', label: 'Mandanten' }, { to: '/admin/users', label: 'Benutzer' }]
+      items = [
+        ...items,
+        { to: '/admin/mandants', label: 'Mandanten' },
+        { to: '/admin/users', label: 'Benutzer' },
+      ]
     }
 
     return items
@@ -84,9 +92,7 @@ export function AppLayout() {
               <NavLink
                 to="/"
                 end
-                className={({ isActive }) =>
-                  `${linkBase} ${isActive ? linkActive : ''}`
-                }
+                className={({ isActive }) => `${linkBase} ${isActive ? linkActive : ''}`}
               >
                 Dashboard
               </NavLink>
@@ -94,9 +100,7 @@ export function AppLayout() {
               {hasRole(role, 'viewer') && mandantId && (
                 <NavLink
                   to="/cashflow/income-expense"
-                  className={({ isActive }) =>
-                    `${linkBase} ${isActive ? linkActive : ''}`
-                  }
+                  className={({ isActive }) => `${linkBase} ${isActive ? linkActive : ''}`}
                 >
                   Einnahmen & Ausgaben
                 </NavLink>
@@ -105,9 +109,7 @@ export function AppLayout() {
               {hasRole(role, 'viewer') && mandantId && (
                 <NavLink
                   to="/cashflow/forecast"
-                  className={({ isActive }) =>
-                    `${linkBase} ${isActive ? linkActive : ''}`
-                  }
+                  className={({ isActive }) => `${linkBase} ${isActive ? linkActive : ''}`}
                 >
                   Prognose
                 </NavLink>
@@ -117,9 +119,7 @@ export function AppLayout() {
                 <>
                   <NavLink
                     to="/review"
-                    className={({ isActive }) =>
-                      `${linkBase} ${isActive ? linkActive : ''}`
-                    }
+                    className={({ isActive }) => `${linkBase} ${isActive ? linkActive : ''}`}
                   >
                     Review
                     {(reviewBadge?.total ?? 0) > 0 ? (
@@ -130,24 +130,18 @@ export function AppLayout() {
                   </NavLink>
                   <NavLink
                     to="/journal"
-                    className={({ isActive }) =>
-                      `${linkBase} ${isActive ? linkActive : ''}`
-                    }
+                    className={({ isActive }) => `${linkBase} ${isActive ? linkActive : ''}`}
                   >
                     Journal
                   </NavLink>
                   <NavLink
                     to="/partners"
-                    className={({ isActive }) =>
-                      `${linkBase} ${isActive ? linkActive : ''}`
-                    }
+                    className={({ isActive }) => `${linkBase} ${isActive ? linkActive : ''}`}
                   >
                     Partner
                   </NavLink>
                 </>
               )}
-
-
             </div>
 
             {/* Rechts: Einstellungen + Mandant + Logout */}
@@ -172,7 +166,9 @@ export function AppLayout() {
                             key={item.to}
                             to={item.to}
                             onClick={() => setSettingsOpen(false)}
-                            className={({ isActive }) => `block px-4 py-2 text-sm ${isActive ? 'bg-gray-900 text-white' : 'text-gray-200 hover:bg-gray-700 hover:text-white'}`}
+                            className={({ isActive }) =>
+                              `block px-4 py-2 text-sm ${isActive ? 'bg-gray-900 text-white' : 'text-gray-200 hover:bg-gray-700 hover:text-white'}`
+                            }
                           >
                             {item.label}
                           </NavLink>
@@ -205,5 +201,3 @@ export function AppLayout() {
     </div>
   )
 }
-
-

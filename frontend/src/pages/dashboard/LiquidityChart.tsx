@@ -19,7 +19,6 @@ import type { ChartPoint } from './liquidity-chart-geometry'
 const POSITIVE = '#2563eb'
 const NEGATIVE = '#dc2626'
 
-
 export function LiquidityChart({ data }: { data: LiquidityResponse }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
   const [showTable, setShowTable] = useState(false)
@@ -74,9 +73,7 @@ export function LiquidityChart({ data }: { data: LiquidityResponse }) {
         </div>
         {hasBand ? (
           <div>
-            <p className="text-xs uppercase tracking-wide text-gray-400">
-              Ungünstiger Verlauf
-            </p>
+            <p className="text-xs uppercase tracking-wide text-gray-400">Ungünstiger Verlauf</p>
             <p
               className={`text-2xl font-semibold tabular-nums ${lowestLow < 0 ? 'text-red-600' : 'text-gray-900'}`}
             >
@@ -158,9 +155,7 @@ export function LiquidityChart({ data }: { data: LiquidityResponse }) {
             strokeWidth="1.5"
           />
 
-          {geometry.band ? (
-            <path d={geometry.band} fill="#94a3b8" opacity="0.22" />
-          ) : null}
+          {geometry.band ? <path d={geometry.band} fill="#94a3b8" opacity="0.22" /> : null}
 
           <path d={geometry.area} fill={POSITIVE} opacity="0.12" clipPath="url(#liquidity-above)" />
           <path d={geometry.area} fill={NEGATIVE} opacity="0.12" clipPath="url(#liquidity-below)" />
@@ -220,11 +215,7 @@ export function LiquidityChart({ data }: { data: LiquidityResponse }) {
         {hovered ? (
           <div
             className="pointer-events-none absolute top-2 z-10 w-64 rounded-lg border border-gray-200 bg-white p-2 text-xs shadow-lg"
-            style={
-              (geometry.x(hoverIndex ?? 0) / WIDTH) > 0.6
-                ? { left: '2%' }
-                : { right: '2%' }
-            }
+            style={geometry.x(hoverIndex ?? 0) / WIDTH > 0.6 ? { left: '2%' } : { right: '2%' }}
           >
             <p className="mb-1 font-semibold text-gray-900">
               {hovered.detail ? formatPeriod(hovered.detail.period) : 'Aktueller Stand'}
@@ -233,11 +224,15 @@ export function LiquidityChart({ data }: { data: LiquidityResponse }) {
               <dl className="space-y-0.5 text-gray-600">
                 <div className="flex justify-between gap-3">
                   <dt>Einzahlungen</dt>
-                  <dd className="tabular-nums">{formatMoney(parseAmount(hovered.detail.inflow), data.currency)}</dd>
+                  <dd className="tabular-nums">
+                    {formatMoney(parseAmount(hovered.detail.inflow), data.currency)}
+                  </dd>
                 </div>
                 <div className="flex justify-between gap-3">
                   <dt>Auszahlungen</dt>
-                  <dd className="tabular-nums">{formatMoney(parseAmount(hovered.detail.outflow), data.currency)}</dd>
+                  <dd className="tabular-nums">
+                    {formatMoney(parseAmount(hovered.detail.outflow), data.currency)}
+                  </dd>
                 </div>
               </dl>
             ) : null}
@@ -251,7 +246,8 @@ export function LiquidityChart({ data }: { data: LiquidityResponse }) {
               <p className="mt-0.5 flex justify-between gap-3 text-gray-500">
                 <span>Bandbreite</span>
                 <span className="tabular-nums">
-                  {formatMoney(hovered.low, data.currency)} … {formatMoney(hovered.high, data.currency)}
+                  {formatMoney(hovered.low, data.currency)} …{' '}
+                  {formatMoney(hovered.high, data.currency)}
                 </span>
               </p>
             ) : null}

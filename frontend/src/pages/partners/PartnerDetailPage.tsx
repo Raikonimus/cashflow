@@ -54,7 +54,11 @@ export function PartnerDetailPage() {
   const [deleteNotice, setDeleteNotice] = useState<string | null>(null)
   const [manualAssignmentChecked, setManualAssignmentChecked] = useState<boolean | null>(null)
 
-  const { data: partner, isLoading, isError } = useQuery({
+  const {
+    data: partner,
+    isLoading,
+    isError,
+  } = useQuery({
     queryKey: ['partner', mandantId, partnerId],
     queryFn: () => getPartner(mandantId, partnerId!),
     enabled: !!mandantId && !!partnerId,
@@ -75,7 +79,8 @@ export function PartnerDetailPage() {
   const isReadOnly = role === 'viewer'
 
   const addIbanMutation = useMutation({
-    mutationFn: (reassign: boolean) => addPartnerIban(mandantId, partnerId!, newIban.trim(), reassign),
+    mutationFn: (reassign: boolean) =>
+      addPartnerIban(mandantId, partnerId!, newIban.trim(), reassign),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['partner', mandantId, partnerId] })
       queryClient.invalidateQueries({ queryKey: ['partners', mandantId] })
@@ -96,11 +101,16 @@ export function PartnerDetailPage() {
 
   const addAccountMutation = useMutation({
     mutationFn: (reassign: boolean) =>
-      addPartnerAccount(mandantId, partnerId!, {
-        account_number: newAccountNumber.trim(),
-        blz: newBlz.trim() || undefined,
-        bic: newBic.trim() || undefined,
-      }, reassign),
+      addPartnerAccount(
+        mandantId,
+        partnerId!,
+        {
+          account_number: newAccountNumber.trim(),
+          blz: newBlz.trim() || undefined,
+          bic: newBic.trim() || undefined,
+        },
+        reassign,
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['partner', mandantId, partnerId] })
       queryClient.invalidateQueries({ queryKey: ['partners', mandantId] })
@@ -148,7 +158,8 @@ export function PartnerDetailPage() {
   })
 
   const updateManualAssignmentMutation = useMutation({
-    mutationFn: (value: boolean) => updatePartner(mandantId, partnerId!, { manual_assignment: value }),
+    mutationFn: (value: boolean) =>
+      updatePartner(mandantId, partnerId!, { manual_assignment: value }),
     onMutate: (value) => setManualAssignmentChecked(value),
     onSuccess: (updatedPartner) => {
       queryClient.setQueryData(['partner', mandantId, partnerId], updatedPartner)
@@ -167,7 +178,9 @@ export function PartnerDetailPage() {
     },
     onError: (error) => {
       if (axios.isAxiosError(error) && error.response?.status === 409) {
-        setDeleteNotice('Partner kann nicht gelöscht werden. Verschiebe zuerst alle Buchungen auf einen anderen Partner.')
+        setDeleteNotice(
+          'Partner kann nicht gelöscht werden. Verschiebe zuerst alle Buchungen auf einen anderen Partner.',
+        )
         return
       }
       setDeleteNotice('Partner konnte nicht gelöscht werden.')
@@ -193,7 +206,9 @@ export function PartnerDetailPage() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
       <div className="mb-2 flex items-center justify-between text-sm text-gray-400">
-        <Link to="/partners" className="hover:underline">Partner</Link>
+        <Link to="/partners" className="hover:underline">
+          Partner
+        </Link>
         {' / '}
         {partner.display_name ?? partner.name}
         <div className="flex gap-1">
@@ -224,12 +239,11 @@ export function PartnerDetailPage() {
           {partner.display_name && (
             <p className="mt-0.5 text-xs text-gray-400">Interner Name: {partner.name}</p>
           )}
-          {!partner.is_active && (
-            <span className="text-xs text-gray-400">(inaktiv — gemergt)</span>
-          )}
+          {!partner.is_active && <span className="text-xs text-gray-400">(inaktiv — gemergt)</span>}
           {/* Anzeigename bearbeiten */}
-          {!isReadOnly && partner.is_active && (
-            editingDisplayName ? (
+          {!isReadOnly &&
+            partner.is_active &&
+            (editingDisplayName ? (
               <div className="mt-2 flex items-center gap-2">
                 <input
                   autoFocus
@@ -263,13 +277,15 @@ export function PartnerDetailPage() {
               </div>
             ) : (
               <button
-                onClick={() => { setDisplayNameDraft(partner.display_name ?? ''); setEditingDisplayName(true) }}
+                onClick={() => {
+                  setDisplayNameDraft(partner.display_name ?? '')
+                  setEditingDisplayName(true)
+                }}
                 className="mt-1 text-xs text-gray-400 hover:text-gray-600 hover:underline"
               >
                 {partner.display_name ? 'Anzeigenamen ändern' : '+ Anzeigenamen vergeben'}
               </button>
-            )
-          )}
+            ))}
           {!isReadOnly && partner.is_active && (
             <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm text-gray-600 select-none">
               <input
@@ -293,7 +309,9 @@ export function PartnerDetailPage() {
             </button>
             <button
               onClick={() => {
-                const confirmed = window.confirm('Partner wirklich löschen? Das ist nur möglich, wenn keine Buchungen mehr zugeordnet sind.')
+                const confirmed = window.confirm(
+                  'Partner wirklich löschen? Das ist nur möglich, wenn keine Buchungen mehr zugeordnet sind.',
+                )
                 if (!confirmed) return
                 setDeleteNotice(null)
                 deletePartnerMutation.mutate()
@@ -316,11 +334,15 @@ export function PartnerDetailPage() {
       {/* Regeln zur Partnerzuordnung */}
       <div className="mb-6 rounded-xl border border-gray-200 bg-white shadow-sm">
         <div className="border-b border-gray-100 px-5 py-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Regeln zur Partnerzuordnung</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+            Regeln zur Partnerzuordnung
+          </h2>
         </div>
         <div className="divide-y divide-gray-100">
           <div className="px-5 py-4">
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">IBANs</h3>
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">
+              IBANs
+            </h3>
             {partner.ibans.length === 0 && (
               <p className="text-sm text-gray-400">Keine IBANs hinterlegt.</p>
             )}
@@ -341,7 +363,11 @@ export function PartnerDetailPage() {
                 onPreview={() => previewIbanMutation.mutate()}
                 previewLoading={previewIbanMutation.isPending}
                 previewLines={ibanPreview}
-                onSubmit={() => addIbanMutation.mutate(!!ibanPreview && ibanPreview.some((line) => !line.already_assigned))}
+                onSubmit={() =>
+                  addIbanMutation.mutate(
+                    !!ibanPreview && ibanPreview.some((line) => !line.already_assigned),
+                  )
+                }
                 loading={addIbanMutation.isPending}
                 error={addIbanMutation.isError ? 'IBAN bereits vergeben oder ungültig.' : undefined}
               />
@@ -349,7 +375,9 @@ export function PartnerDetailPage() {
           </div>
 
           <div className="px-5 py-4">
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Kontonummern</h3>
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">
+              Kontonummern
+            </h3>
             {partner.accounts.length === 0 ? (
               <p className="text-sm text-gray-400">Keine Kontonummern hinterlegt.</p>
             ) : (
@@ -372,21 +400,37 @@ export function PartnerDetailPage() {
                 accountNumber={newAccountNumber}
                 blz={newBlz}
                 bic={newBic}
-                onAccountNumberChange={(v) => { setNewAccountNumber(v); setAccountPreview(null) }}
-                onBlzChange={(v) => { setNewBlz(v); setAccountPreview(null) }}
+                onAccountNumberChange={(v) => {
+                  setNewAccountNumber(v)
+                  setAccountPreview(null)
+                }}
+                onBlzChange={(v) => {
+                  setNewBlz(v)
+                  setAccountPreview(null)
+                }}
                 onBicChange={setNewBic}
                 onPreview={() => previewAccountMutation.mutate()}
                 previewLoading={previewAccountMutation.isPending}
                 previewLines={accountPreview}
-                onSubmit={() => addAccountMutation.mutate(!!accountPreview && accountPreview.some((l) => !l.already_assigned))}
+                onSubmit={() =>
+                  addAccountMutation.mutate(
+                    !!accountPreview && accountPreview.some((l) => !l.already_assigned),
+                  )
+                }
                 loading={addAccountMutation.isPending}
-                error={addAccountMutation.isError ? 'Kontonummer bereits vergeben oder ungültig.' : undefined}
+                error={
+                  addAccountMutation.isError
+                    ? 'Kontonummer bereits vergeben oder ungültig.'
+                    : undefined
+                }
               />
             )}
           </div>
 
           <div className="px-5 py-4">
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Namensvarianten</h3>
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">
+              Namensvarianten
+            </h3>
             {partner.names.length === 0 && (
               <p className="text-sm text-gray-400">Keine Namensvarianten hinterlegt.</p>
             )}
@@ -484,13 +528,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
-function ItemRow({
-  label,
-  onDelete,
-}: {
-  label: React.ReactNode
-  onDelete?: () => void
-}) {
+function ItemRow({ label, onDelete }: { label: React.ReactNode; onDelete?: () => void }) {
   return (
     <div className="flex items-center justify-between py-1.5">
       <span className="text-gray-800">{label}</span>
@@ -605,59 +643,100 @@ function InlineAddIban({
                   <>
                     {foreign.length > 0 && (
                       <p className="mb-2 text-xs font-semibold text-gray-700">
-                        {foreign.length} Buchungszeile{foreign.length !== 1 ? 'n' : ''} anderer Partner passen -
-                        {' '}werden beim Hinzufügen diesem Partner zugeordnet:
+                        {foreign.length} Buchungszeile{foreign.length !== 1 ? 'n' : ''} anderer
+                        Partner passen - werden beim Hinzufügen diesem Partner zugeordnet:
                       </p>
                     )}
                     {own.length > 0 && (
                       <p className="mb-2 text-xs font-semibold text-gray-700">
-                        {own.length} Buchungszeile{own.length !== 1 ? 'n' : ''} bereits diesem Partner zugeordnet.
+                        {own.length} Buchungszeile{own.length !== 1 ? 'n' : ''} bereits diesem
+                        Partner zugeordnet.
                       </p>
                     )}
                     <div className="mt-2 overflow-x-auto rounded border border-gray-200 bg-white">
                       <table className="min-w-full text-xs">
                         <thead className="bg-gray-50">
                           <tr>
-                            <th className="px-3 py-2 text-left font-semibold text-gray-500">Hinweis</th>
-                            <th className="px-3 py-2 text-left font-semibold text-gray-500">Datum</th>
-                            <th className="px-3 py-2 text-right font-semibold text-gray-500">Betrag</th>
-                            <th className="px-3 py-2 text-left font-semibold text-gray-500">Text</th>
-                            <th className="px-3 py-2 text-left font-semibold text-gray-500">Leistung</th>
-                            <th className="px-3 py-2 text-left font-semibold text-gray-500">Aktueller Partner</th>
-                            <th className="px-3 py-2 text-left font-semibold text-gray-500">Buchungsname</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500">
+                              Hinweis
+                            </th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500">
+                              Datum
+                            </th>
+                            <th className="px-3 py-2 text-right font-semibold text-gray-500">
+                              Betrag
+                            </th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500">
+                              Text
+                            </th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500">
+                              Leistung
+                            </th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500">
+                              Aktueller Partner
+                            </th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500">
+                              Buchungsname
+                            </th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                           {[...previewLines]
-                            .sort((a, b) => Number(b.has_conflicting_partner_criteria) - Number(a.has_conflicting_partner_criteria))
+                            .sort(
+                              (a, b) =>
+                                Number(b.has_conflicting_partner_criteria) -
+                                Number(a.has_conflicting_partner_criteria),
+                            )
                             .map((line) => {
-                            let rowClassName = 'hover:bg-gray-50'
-                            if (line.has_conflicting_partner_criteria) {
-                              rowClassName = 'bg-red-50/40 hover:bg-red-50'
-                            } else if (line.already_assigned) {
-                              rowClassName = 'bg-gray-50 text-gray-500'
-                            }
-                            return (
-                            <tr key={line.journal_line_id} className={rowClassName}>
-                              <td className="whitespace-nowrap px-3 py-2">
-                                {line.has_conflicting_partner_criteria ? (
-                                  <span className="rounded bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700" title={line.conflicting_partner_criteria.join(', ')}>
-                                    Widerspruch
-                                  </span>
-                                ) : (
-                                  <span className="font-semibold text-green-700" title="Kein Widerspruch">✓</span>
-                                )}
-                              </td>
-                              <td className="whitespace-nowrap px-3 py-2 text-gray-700">{line.booking_date}</td>
-                              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-gray-700">
-                                {Number(line.amount).toLocaleString('de-DE', { style: 'currency', currency: line.currency })}
-                              </td>
-                              <td className="max-w-[220px] truncate px-3 py-2 text-gray-600">{line.text ?? '–'}</td>
-                              <td className="px-3 py-2 text-gray-700">{line.current_service_name ?? '–'}</td>
-                              <td className="px-3 py-2 text-gray-700">{line.current_partner_name ?? '–'}</td>
-                              <td className="px-3 py-2 text-gray-500">{line.partner_name_raw ?? '–'}</td>
-                            </tr>
-                          )})}
+                              let rowClassName = 'hover:bg-gray-50'
+                              if (line.has_conflicting_partner_criteria) {
+                                rowClassName = 'bg-red-50/40 hover:bg-red-50'
+                              } else if (line.already_assigned) {
+                                rowClassName = 'bg-gray-50 text-gray-500'
+                              }
+                              return (
+                                <tr key={line.journal_line_id} className={rowClassName}>
+                                  <td className="whitespace-nowrap px-3 py-2">
+                                    {line.has_conflicting_partner_criteria ? (
+                                      <span
+                                        className="rounded bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700"
+                                        title={line.conflicting_partner_criteria.join(', ')}
+                                      >
+                                        Widerspruch
+                                      </span>
+                                    ) : (
+                                      <span
+                                        className="font-semibold text-green-700"
+                                        title="Kein Widerspruch"
+                                      >
+                                        ✓
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="whitespace-nowrap px-3 py-2 text-gray-700">
+                                    {line.booking_date}
+                                  </td>
+                                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-gray-700">
+                                    {Number(line.amount).toLocaleString('de-DE', {
+                                      style: 'currency',
+                                      currency: line.currency,
+                                    })}
+                                  </td>
+                                  <td className="max-w-[220px] truncate px-3 py-2 text-gray-600">
+                                    {line.text ?? '–'}
+                                  </td>
+                                  <td className="px-3 py-2 text-gray-700">
+                                    {line.current_service_name ?? '–'}
+                                  </td>
+                                  <td className="px-3 py-2 text-gray-700">
+                                    {line.current_partner_name ?? '–'}
+                                  </td>
+                                  <td className="px-3 py-2 text-gray-500">
+                                    {line.partner_name_raw ?? '–'}
+                                  </td>
+                                </tr>
+                              )
+                            })}
                         </tbody>
                       </table>
                     </div>
@@ -757,59 +836,100 @@ function InlineAddAccount({
                   <>
                     {foreign.length > 0 && (
                       <p className="mb-2 text-xs font-semibold text-gray-700">
-                        {foreign.length} Buchungszeile{foreign.length !== 1 ? 'n' : ''} anderer Partner passen –
-                        {' '}werden beim Hinzufügen diesem Partner zugeordnet:
+                        {foreign.length} Buchungszeile{foreign.length !== 1 ? 'n' : ''} anderer
+                        Partner passen – werden beim Hinzufügen diesem Partner zugeordnet:
                       </p>
                     )}
                     {own.length > 0 && (
                       <p className="mb-2 text-xs font-semibold text-gray-700">
-                        {own.length} Buchungszeile{own.length !== 1 ? 'n' : ''} bereits diesem Partner zugeordnet.
+                        {own.length} Buchungszeile{own.length !== 1 ? 'n' : ''} bereits diesem
+                        Partner zugeordnet.
                       </p>
                     )}
                     <div className="mt-2 overflow-x-auto rounded border border-gray-200 bg-white">
                       <table className="min-w-full text-xs">
                         <thead className="bg-gray-50">
                           <tr>
-                            <th className="px-3 py-2 text-left font-semibold text-gray-500">Hinweis</th>
-                            <th className="px-3 py-2 text-left font-semibold text-gray-500">Datum</th>
-                            <th className="px-3 py-2 text-right font-semibold text-gray-500">Betrag</th>
-                            <th className="px-3 py-2 text-left font-semibold text-gray-500">Text</th>
-                            <th className="px-3 py-2 text-left font-semibold text-gray-500">Leistung</th>
-                            <th className="px-3 py-2 text-left font-semibold text-gray-500">Aktueller Partner</th>
-                            <th className="px-3 py-2 text-left font-semibold text-gray-500">Buchungsname</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500">
+                              Hinweis
+                            </th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500">
+                              Datum
+                            </th>
+                            <th className="px-3 py-2 text-right font-semibold text-gray-500">
+                              Betrag
+                            </th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500">
+                              Text
+                            </th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500">
+                              Leistung
+                            </th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500">
+                              Aktueller Partner
+                            </th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500">
+                              Buchungsname
+                            </th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                           {[...previewLines]
-                            .sort((a, b) => Number(b.has_conflicting_partner_criteria) - Number(a.has_conflicting_partner_criteria))
+                            .sort(
+                              (a, b) =>
+                                Number(b.has_conflicting_partner_criteria) -
+                                Number(a.has_conflicting_partner_criteria),
+                            )
                             .map((l) => {
-                            let rowClassName = 'hover:bg-gray-50'
-                            if (l.has_conflicting_partner_criteria) {
-                              rowClassName = 'bg-red-50/40 hover:bg-red-50'
-                            } else if (l.already_assigned) {
-                              rowClassName = 'bg-gray-50 text-gray-500'
-                            }
-                            return (
-                            <tr key={l.journal_line_id} className={rowClassName}>
-                              <td className="whitespace-nowrap px-3 py-2">
-                                {l.has_conflicting_partner_criteria ? (
-                                  <span className="rounded bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700" title={l.conflicting_partner_criteria.join(', ')}>
-                                    Widerspruch
-                                  </span>
-                                ) : (
-                                  <span className="font-semibold text-green-700" title="Kein Widerspruch">✓</span>
-                                )}
-                              </td>
-                              <td className="whitespace-nowrap px-3 py-2 text-gray-700">{l.booking_date}</td>
-                              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-gray-700">
-                                {Number(l.amount).toLocaleString('de-DE', { style: 'currency', currency: l.currency })}
-                              </td>
-                              <td className="max-w-[220px] truncate px-3 py-2 text-gray-600">{l.text ?? '–'}</td>
-                              <td className="px-3 py-2 text-gray-700">{l.current_service_name ?? '–'}</td>
-                              <td className="px-3 py-2 text-gray-700">{l.current_partner_name ?? '–'}</td>
-                              <td className="px-3 py-2 text-gray-500">{l.partner_name_raw ?? '–'}</td>
-                            </tr>
-                          )})}
+                              let rowClassName = 'hover:bg-gray-50'
+                              if (l.has_conflicting_partner_criteria) {
+                                rowClassName = 'bg-red-50/40 hover:bg-red-50'
+                              } else if (l.already_assigned) {
+                                rowClassName = 'bg-gray-50 text-gray-500'
+                              }
+                              return (
+                                <tr key={l.journal_line_id} className={rowClassName}>
+                                  <td className="whitespace-nowrap px-3 py-2">
+                                    {l.has_conflicting_partner_criteria ? (
+                                      <span
+                                        className="rounded bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700"
+                                        title={l.conflicting_partner_criteria.join(', ')}
+                                      >
+                                        Widerspruch
+                                      </span>
+                                    ) : (
+                                      <span
+                                        className="font-semibold text-green-700"
+                                        title="Kein Widerspruch"
+                                      >
+                                        ✓
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="whitespace-nowrap px-3 py-2 text-gray-700">
+                                    {l.booking_date}
+                                  </td>
+                                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-gray-700">
+                                    {Number(l.amount).toLocaleString('de-DE', {
+                                      style: 'currency',
+                                      currency: l.currency,
+                                    })}
+                                  </td>
+                                  <td className="max-w-[220px] truncate px-3 py-2 text-gray-600">
+                                    {l.text ?? '–'}
+                                  </td>
+                                  <td className="px-3 py-2 text-gray-700">
+                                    {l.current_service_name ?? '–'}
+                                  </td>
+                                  <td className="px-3 py-2 text-gray-700">
+                                    {l.current_partner_name ?? '–'}
+                                  </td>
+                                  <td className="px-3 py-2 text-gray-500">
+                                    {l.partner_name_raw ?? '–'}
+                                  </td>
+                                </tr>
+                              )
+                            })}
                         </tbody>
                       </table>
                     </div>
@@ -846,16 +966,16 @@ function JournalSection({ mandantId, partnerId }: { mandantId: string; partnerId
     }
   }
 
-  const {
-    data,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-    isLoading,
-  } = useInfiniteQuery({
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } = useInfiniteQuery({
     queryKey: ['partner-journal', mandantId, partnerId, sortBy, sortDir],
     queryFn: ({ pageParam = 1 }) =>
-      listJournalLines(mandantId, { partner_id: partnerId, page: pageParam as number, size: PAGE_SIZE, sort_by: sortBy, sort_dir: sortDir }),
+      listJournalLines(mandantId, {
+        partner_id: partnerId,
+        page: pageParam as number,
+        size: PAGE_SIZE,
+        sort_by: sortBy,
+        sort_dir: sortDir,
+      }),
     initialPageParam: 1,
     getNextPageParam: (lastPage) =>
       lastPage.page < lastPage.pages ? lastPage.page + 1 : undefined,
@@ -879,7 +999,15 @@ function JournalSection({ mandantId, partnerId }: { mandantId: string; partnerId
   const lines = data?.pages.flatMap((p) => p.items) ?? []
   const total = data?.pages[0]?.total ?? 0
 
-  function SortTh({ field, label, align = 'left' }: { field: JournalSortField; label: string; align?: 'left' | 'right' }) {
+  function SortTh({
+    field,
+    label,
+    align = 'left',
+  }: {
+    field: JournalSortField
+    label: string
+    align?: 'left' | 'right'
+  }) {
     const active = sortBy === field
     return (
       <th
@@ -898,9 +1026,7 @@ function JournalSection({ mandantId, partnerId }: { mandantId: string; partnerId
         <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
           Buchungszeilen
         </h2>
-        {total > 0 && (
-          <span className="text-xs text-gray-400">{total} gesamt</span>
-        )}
+        {total > 0 && <span className="text-xs text-gray-400">{total} gesamt</span>}
       </div>
 
       {isLoading && (
@@ -920,10 +1046,16 @@ function JournalSection({ mandantId, partnerId }: { mandantId: string; partnerId
           <thead className="bg-gray-50 text-xs font-medium uppercase text-gray-500">
             <tr>
               <SortTh field="valuta_date" label="Valuta" />
-              <th className="w-[48%] px-4 py-2 text-left cursor-pointer select-none hover:bg-gray-100" onClick={() => toggleSort('text')}>
+              <th
+                className="w-[48%] px-4 py-2 text-left cursor-pointer select-none hover:bg-gray-100"
+                onClick={() => toggleSort('text')}
+              >
                 Text{sortBy === 'text' ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ' ↕'}
               </th>
-              <th className="w-[22%] px-4 py-2 text-left cursor-pointer select-none hover:bg-gray-100" onClick={() => toggleSort('service_name')}>
+              <th
+                className="w-[22%] px-4 py-2 text-left cursor-pointer select-none hover:bg-gray-100"
+                onClick={() => toggleSort('service_name')}
+              >
                 Leistung{sortBy === 'service_name' ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ' ↕'}
               </th>
               <SortTh field="amount" label="Betrag" align="right" />
@@ -937,15 +1069,17 @@ function JournalSection({ mandantId, partnerId }: { mandantId: string; partnerId
                 </td>
                 <td className="px-4 py-2 text-gray-700">
                   <div className="line-clamp-2 break-words">
-                  {line.text ?? line.partner_name_raw ?? <em className="text-gray-400">—</em>}
+                    {line.text ?? line.partner_name_raw ?? <em className="text-gray-400">—</em>}
                   </div>
                 </td>
                 <td className="px-4 py-2 text-sm text-gray-600">
                   {line.splits[0]?.service_name ?? <span className="text-xs text-gray-400">—</span>}
                 </td>
-                <td className={`px-4 py-2 text-right font-mono text-sm whitespace-nowrap ${
-                  Number(line.amount) < 0 ? 'text-red-600' : 'text-green-700'
-                }`}>
+                <td
+                  className={`px-4 py-2 text-right font-mono text-sm whitespace-nowrap ${
+                    Number(line.amount) < 0 ? 'text-red-600' : 'text-green-700'
+                  }`}
+                >
                   {Number(line.amount).toLocaleString('de-DE', {
                     style: 'currency',
                     currency: line.currency,

@@ -116,9 +116,7 @@ export function ImportPage() {
     },
   })
 
-  const uploadErrorMessage = mutation.isError
-    ? getUploadErrorMessage(mutation.error)
-    : null
+  const uploadErrorMessage = mutation.isError ? getUploadErrorMessage(mutation.error) : null
 
   if (!accountId) {
     return (
@@ -131,11 +129,15 @@ export function ImportPage() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
       <div className="mb-2 text-sm text-gray-400">
-        <Link to="/accounts" className="hover:underline">Konten</Link>
+        <Link to="/accounts" className="hover:underline">
+          Konten
+        </Link>
         {account && (
           <>
             {' / '}
-            <Link to={`/accounts/${accountId}`} className="hover:underline">{account.name}</Link>
+            <Link to={`/accounts/${accountId}`} className="hover:underline">
+              {account.name}
+            </Link>
           </>
         )}
         {' / Import'}
@@ -144,7 +146,12 @@ export function ImportPage() {
 
       {/* Step indicators */}
       <div className="mb-8 flex items-center gap-4">
-        <StepBadge number={1} label="Dateien wählen" active={step === 'upload'} done={step === 'result'} />
+        <StepBadge
+          number={1}
+          label="Dateien wählen"
+          active={step === 'upload'}
+          done={step === 'result'}
+        />
         <div className="h-px flex-1 bg-gray-200" />
         <StepBadge number={2} label="Ergebnis" active={step === 'result'} done={false} />
       </div>
@@ -164,8 +171,18 @@ export function ImportPage() {
             }}
             onDrop={handleFileDrop}
           >
-            <svg className="mb-2 h-10 w-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+            <svg
+              className="mb-2 h-10 w-10 text-gray-400"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={1.5}
+                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+              />
             </svg>
             <p className="text-sm text-gray-500">
               {selectedFiles.length > 0
@@ -197,9 +214,7 @@ export function ImportPage() {
           )}
 
           {mutation.isError && (
-            <p className="mb-4 text-sm text-red-500">
-              Fehler beim Hochladen. {uploadErrorMessage}
-            </p>
+            <p className="mb-4 text-sm text-red-500">Fehler beim Hochladen. {uploadErrorMessage}</p>
           )}
 
           <div className="flex justify-end gap-2">
@@ -272,7 +287,9 @@ export function ImportPage() {
                       <StatusBadge status={run.status} />
                     </td>
                     <td className="px-4 py-2 text-gray-400">
-                      {new Date(run.created_at + 'Z').toLocaleDateString('de-DE', { timeZone: 'Europe/Vienna' })}
+                      {new Date(run.created_at + 'Z').toLocaleDateString('de-DE', {
+                        timeZone: 'Europe/Vienna',
+                      })}
                     </td>
                   </tr>
                 ))}
@@ -312,9 +329,11 @@ function ImportRunCard({ run }: Readonly<{ run: ImportRunDetail }>) {
         <StatusBadge status={run.status} />
       </div>
       <div className="mt-2 flex flex-wrap gap-4 text-sm text-gray-600">
-        <span>Importiert: <strong>{run.row_count}</strong></span>
-        {run.skipped_count > 0 && (
-          realDuplicateCount > 0 ? (
+        <span>
+          Importiert: <strong>{run.row_count}</strong>
+        </span>
+        {run.skipped_count > 0 &&
+          (realDuplicateCount > 0 ? (
             <button
               onClick={() => setShowDuplicates((v) => !v)}
               className="text-amber-600 hover:underline"
@@ -323,10 +342,11 @@ function ImportRunCard({ run }: Readonly<{ run: ImportRunDetail }>) {
             </button>
           ) : (
             <span className="text-gray-500">{skippedLabel}</span>
-          )
-        )}
+          ))}
         {hasErrors && (
-          <span className="text-orange-600">Parse-Fehler: <strong>{run.error_count}</strong></span>
+          <span className="text-orange-600">
+            Parse-Fehler: <strong>{run.error_count}</strong>
+          </span>
         )}
       </div>
 
@@ -353,7 +373,10 @@ function ImportRunCard({ run }: Readonly<{ run: ImportRunDetail }>) {
                   <td className="px-3 py-1.5 font-mono text-gray-400">{d.row ?? '–'}</td>
                   <td className="px-3 py-1.5 font-mono text-gray-600">{d.valuta_date}</td>
                   <td className="px-3 py-1.5 text-right font-mono text-gray-800">
-                    {Number(d.amount).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
+                    {Number(d.amount).toLocaleString('de-DE', {
+                      style: 'currency',
+                      currency: 'EUR',
+                    })}
                   </td>
                   <td className="max-w-xs truncate px-3 py-1.5 text-gray-600">
                     {d.text ?? d.partner_name_raw ?? '–'}
@@ -376,7 +399,9 @@ function StatusBadge({ status }: Readonly<{ status: string }>) {
     pending: 'bg-gray-100 text-gray-500',
   }
   return (
-    <span className={`rounded px-2 py-0.5 text-xs font-medium ${styles[status] ?? 'bg-gray-100 text-gray-500'}`}>
+    <span
+      className={`rounded px-2 py-0.5 text-xs font-medium ${styles[status] ?? 'bg-gray-100 text-gray-500'}`}
+    >
       {status}
     </span>
   )
@@ -407,9 +432,7 @@ function StepBadge({
       >
         {done ? '✓' : number}
       </div>
-      <span
-        className={`text-sm font-medium ${active ? 'text-gray-900' : 'text-gray-400'}`}
-      >
+      <span className={`text-sm font-medium ${active ? 'text-gray-900' : 'text-gray-400'}`}>
         {label}
       </span>
     </div>

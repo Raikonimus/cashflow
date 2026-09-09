@@ -7,7 +7,9 @@ export interface PartnerListItem {
   display_name: string | null
   is_active: boolean
   manual_assignment: boolean
-  service_types: Array<'customer' | 'supplier' | 'employee' | 'shareholder' | 'authority' | 'unknown'>
+  service_types: Array<
+    'customer' | 'supplier' | 'employee' | 'shareholder' | 'authority' | 'unknown'
+  >
   iban_count: number
   name_count: number
   journal_line_count: number
@@ -58,7 +60,12 @@ export interface PaginatedPartners {
   pages: number
 }
 
-export type PartnerSortField = 'name' | 'iban_count' | 'name_count' | 'journal_line_count' | 'status'
+export type PartnerSortField =
+  | 'name'
+  | 'iban_count'
+  | 'name_count'
+  | 'journal_line_count'
+  | 'status'
 export type SortDirection = 'asc' | 'desc'
 
 export interface MergeResponse {
@@ -87,20 +94,22 @@ export async function listPartners(
   sortBy: PartnerSortField = 'name',
   sortDir: SortDirection = 'asc',
 ): Promise<PaginatedPartners> {
-  const resp = await apiClient.get<PaginatedPartners>(
-    `/mandants/${mandantId}/partners`,
-    { params: { page, size, include_inactive: includeInactive, search, service_type: serviceType, sort_by: sortBy, sort_dir: sortDir } },
-  )
+  const resp = await apiClient.get<PaginatedPartners>(`/mandants/${mandantId}/partners`, {
+    params: {
+      page,
+      size,
+      include_inactive: includeInactive,
+      search,
+      service_type: serviceType,
+      sort_by: sortBy,
+      sort_dir: sortDir,
+    },
+  })
   return resp.data
 }
 
-export async function getPartner(
-  mandantId: string,
-  partnerId: string,
-): Promise<PartnerDetail> {
-  const resp = await apiClient.get<PartnerDetail>(
-    `/mandants/${mandantId}/partners/${partnerId}`,
-  )
+export async function getPartner(mandantId: string, partnerId: string): Promise<PartnerDetail> {
+  const resp = await apiClient.get<PartnerDetail>(`/mandants/${mandantId}/partners/${partnerId}`)
   return resp.data
 }
 
@@ -128,10 +137,7 @@ export async function updatePartner(
   return resp.data
 }
 
-export async function deletePartner(
-  mandantId: string,
-  partnerId: string,
-): Promise<void> {
+export async function deletePartner(mandantId: string, partnerId: string): Promise<void> {
   await apiClient.delete(`/mandants/${mandantId}/partners/${partnerId}`)
 }
 
@@ -150,10 +156,10 @@ export async function createPartner(
   name: string,
   manualAssignment = false,
 ): Promise<PartnerDetail> {
-  const resp = await apiClient.post<PartnerDetail>(
-    `/mandants/${mandantId}/partners`,
-    { name, manual_assignment: manualAssignment },
-  )
+  const resp = await apiClient.post<PartnerDetail>(`/mandants/${mandantId}/partners`, {
+    name,
+    manual_assignment: manualAssignment,
+  })
   return resp.data
 }
 
@@ -270,9 +276,9 @@ export async function mergePartners(
   sourceId: string,
   targetId: string,
 ): Promise<MergeResponse> {
-  const resp = await apiClient.post<MergeResponse>(
-    `/mandants/${mandantId}/partners/merge`,
-    { source_partner_id: sourceId, target_partner_id: targetId },
-  )
+  const resp = await apiClient.post<MergeResponse>(`/mandants/${mandantId}/partners/merge`, {
+    source_partner_id: sourceId,
+    target_partner_id: targetId,
+  })
   return resp.data
 }

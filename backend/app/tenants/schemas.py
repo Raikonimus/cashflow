@@ -1,19 +1,19 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal, Optional
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
-
 # ─── Mandant ────────────────────────────────────────────────────────────────
+
 
 class CreateMandantRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
 
 
 class UpdateMandantRequest(BaseModel):
-    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    name: str | None = Field(default=None, min_length=1, max_length=255)
 
 
 class MandantResponse(BaseModel):
@@ -27,7 +27,9 @@ class MandantResponse(BaseModel):
 
 
 CleanupMode = Literal["delete_mandant", "delete_data", "selected"]
-CleanupScope = Literal["journal_data", "partner_service_data", "audit_data", "review_data"]
+CleanupScope = Literal[
+    "journal_data", "partner_service_data", "audit_data", "review_data"
+]
 
 
 class CleanupPreviewItem(BaseModel):
@@ -73,25 +75,26 @@ class ExecuteMandantCleanupResponse(BaseModel):
 
 # ─── Account ─────────────────────────────────────────────────────────────────
 
+
 class CreateAccountRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    iban: Optional[str] = Field(default=None, max_length=34)
+    iban: str | None = Field(default=None, max_length=34)
     currency: str = Field(default="EUR", max_length=3)
     opening_balance: Decimal = Field(default=Decimal("0.00"))
 
 
 class UpdateAccountRequest(BaseModel):
-    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
-    iban: Optional[str] = Field(default=None, max_length=34)
-    is_active: Optional[bool] = None
-    opening_balance: Optional[Decimal] = None
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    iban: str | None = Field(default=None, max_length=34)
+    is_active: bool | None = None
+    opening_balance: Decimal | None = None
 
 
 class AccountResponse(BaseModel):
     id: UUID
     mandant_id: UUID
     name: str
-    iban: Optional[str] = None
+    iban: str | None = None
     currency: str
     opening_balance: Decimal = Decimal("0.00")
     is_active: bool
@@ -124,9 +127,12 @@ REQUIRED_TARGETS = {"valuta_date", "booking_date", "amount"}
 
 class ColumnAssignment(BaseModel):
     """Zuordnung einer einzelnen CSV-Spalte zu einem Zielfeld."""
+
     source: str = Field(min_length=1, max_length=200, description="Name der CSV-Spalte")
     target: ColumnTarget = Field(description="Zielfeld (oder 'unused')")
-    sort_order: int = Field(ge=0, description="Reihenfolge bei Mehrfach-Belegung desselben Zielfelds")
+    sort_order: int = Field(
+        ge=0, description="Reihenfolge bei Mehrfach-Belegung desselben Zielfelds"
+    )
     duplicate_check: bool = Field(
         default=False,
         description="Wenn true, wird diese CSV-Spalte für die Dublettenprüfung verwendet.",
@@ -137,15 +143,15 @@ class ColumnMappingRequest(BaseModel):
     # ── Neue Assignment-basierte Konfiguration ──────────────────────────────
     # Wenn angegeben, übersteuert diese Liste die sechs Legacy-Felder unten.
     # Jede CSV-Spalte muss exakt einmal vorkommen.
-    column_assignments: Optional[list[ColumnAssignment]] = None
+    column_assignments: list[ColumnAssignment] | None = None
 
     # ── Legacy-Felder (rückwärtskompatibel) ────────────────────────────────
-    valuta_date_col: Optional[str] = Field(default=None, max_length=100)
-    booking_date_col: Optional[str] = Field(default=None, max_length=100)
-    amount_col: Optional[str] = Field(default=None, max_length=100)
-    partner_iban_col: Optional[str] = Field(default=None, max_length=100)
-    partner_name_col: Optional[str] = Field(default=None, max_length=100)
-    description_col: Optional[str] = Field(default=None, max_length=100)
+    valuta_date_col: str | None = Field(default=None, max_length=100)
+    booking_date_col: str | None = Field(default=None, max_length=100)
+    amount_col: str | None = Field(default=None, max_length=100)
+    partner_iban_col: str | None = Field(default=None, max_length=100)
+    partner_name_col: str | None = Field(default=None, max_length=100)
+    description_col: str | None = Field(default=None, max_length=100)
 
     # ── Parser-Konfiguration ────────────────────────────────────────────────
     decimal_separator: str = Field(default=",", max_length=1)
@@ -169,24 +175,30 @@ class ColumnMappingRequest(BaseModel):
                 )
         else:
             if not self.valuta_date_col:
-                raise ValueError("valuta_date_col ist Pflichtfeld (oder column_assignments verwenden)")
+                raise ValueError(
+                    "valuta_date_col ist Pflichtfeld (oder column_assignments verwenden)"
+                )
             if not self.booking_date_col:
-                raise ValueError("booking_date_col ist Pflichtfeld (oder column_assignments verwenden)")
+                raise ValueError(
+                    "booking_date_col ist Pflichtfeld (oder column_assignments verwenden)"
+                )
             if not self.amount_col:
-                raise ValueError("amount_col ist Pflichtfeld (oder column_assignments verwenden)")
+                raise ValueError(
+                    "amount_col ist Pflichtfeld (oder column_assignments verwenden)"
+                )
         return self
 
 
 class ColumnMappingResponse(BaseModel):
     id: UUID
     account_id: UUID
-    column_assignments: Optional[list[ColumnAssignment]] = None
-    valuta_date_col: Optional[str] = None
-    booking_date_col: Optional[str] = None
-    amount_col: Optional[str] = None
-    partner_iban_col: Optional[str] = None
-    partner_name_col: Optional[str] = None
-    description_col: Optional[str] = None
+    column_assignments: list[ColumnAssignment] | None = None
+    valuta_date_col: str | None = None
+    booking_date_col: str | None = None
+    amount_col: str | None = None
+    partner_iban_col: str | None = None
+    partner_name_col: str | None = None
+    description_col: str | None = None
     decimal_separator: str
     date_format: str
     encoding: str
@@ -200,8 +212,10 @@ class ColumnMappingResponse(BaseModel):
 
 # ─── CSV-Vorschau ─────────────────────────────────────────────────────────────
 
+
 class CsvPreviewResponse(BaseModel):
     """Gibt die erkannten Spaltennamen und Beispielzeilen aus dem CSV-Header zurück."""
+
     columns: list[str]
     detected_delimiter: str | None = None
     detected_encoding: str | None = None
@@ -210,6 +224,7 @@ class CsvPreviewResponse(BaseModel):
 
 # ─── Remapping ───────────────────────────────────────────────────────────────
 
+
 class RemappingTriggerResponse(BaseModel):
     message: str
     account_id: UUID
@@ -217,10 +232,11 @@ class RemappingTriggerResponse(BaseModel):
 
 # ─── Excluded Identifiers ─────────────────────────────────────────────────────
 
+
 class ExcludedIdentifierCreate(BaseModel):
     identifier_type: Literal["iban", "account_number"]
     value: str = Field(min_length=1, max_length=50)
-    label: Optional[str] = Field(default=None, max_length=255)
+    label: str | None = Field(default=None, max_length=255)
 
 
 class ExcludedIdentifierResponse(BaseModel):
@@ -228,7 +244,7 @@ class ExcludedIdentifierResponse(BaseModel):
     account_id: UUID
     identifier_type: str
     value: str
-    label: Optional[str] = None
+    label: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

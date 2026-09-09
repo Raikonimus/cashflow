@@ -1,7 +1,7 @@
 import re
 from collections import Counter
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -11,7 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.imports.models import JournalLine, JournalLineSplit, ReviewItem
-from app.partners.conflict_utils import PartnerAssignmentCriteria, detect_conflicting_criteria, load_partner_assignment_criteria
+from app.partners.conflict_utils import (
+    PartnerAssignmentCriteria,
+    detect_conflicting_criteria,
+    load_partner_assignment_criteria,
+)
 from app.partners.delete_utils import delete_partner_clean
 from app.partners.models import Partner
 from app.services.models import (
@@ -27,9 +31,9 @@ from app.services.models import (
     ServiceTypeKeyword,
 )
 from app.services.schemas import (
+    CreateServiceGroupRequest,
     CreateServiceMatcherRequest,
     CreateServiceRequest,
-    CreateServiceGroupRequest,
     CreateServiceTypeKeywordRequest,
     DeleteServiceGroupRequest,
     MatcherPreviewLineItem,
@@ -48,21 +52,50 @@ from app.services.schemas import (
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 SYSTEM_DEFAULT_KEYWORDS: tuple[SystemServiceTypeKeywordResponse, ...] = (
-    SystemServiceTypeKeywordResponse(pattern="gehalt", pattern_type=ServiceMatcherType.string, target_service_type=KeywordTargetType.employee),
-    SystemServiceTypeKeywordResponse(pattern="lohn", pattern_type=ServiceMatcherType.string, target_service_type=KeywordTargetType.employee),
-    SystemServiceTypeKeywordResponse(pattern="entnahme", pattern_type=ServiceMatcherType.string, target_service_type=KeywordTargetType.shareholder),
-    SystemServiceTypeKeywordResponse(pattern="steuer", pattern_type=ServiceMatcherType.string, target_service_type=KeywordTargetType.authority),
-    SystemServiceTypeKeywordResponse(pattern="köst", pattern_type=ServiceMatcherType.string, target_service_type=KeywordTargetType.authority),
-    SystemServiceTypeKeywordResponse(pattern="umsatzsteuer", pattern_type=ServiceMatcherType.string, target_service_type=KeywordTargetType.authority),
+    SystemServiceTypeKeywordResponse(
+        pattern="gehalt",
+        pattern_type=ServiceMatcherType.string,
+        target_service_type=KeywordTargetType.employee,
+    ),
+    SystemServiceTypeKeywordResponse(
+        pattern="lohn",
+        pattern_type=ServiceMatcherType.string,
+        target_service_type=KeywordTargetType.employee,
+    ),
+    SystemServiceTypeKeywordResponse(
+        pattern="entnahme",
+        pattern_type=ServiceMatcherType.string,
+        target_service_type=KeywordTargetType.shareholder,
+    ),
+    SystemServiceTypeKeywordResponse(
+        pattern="steuer",
+        pattern_type=ServiceMatcherType.string,
+        target_service_type=KeywordTargetType.authority,
+    ),
+    SystemServiceTypeKeywordResponse(
+        pattern="köst",
+        pattern_type=ServiceMatcherType.string,
+        target_service_type=KeywordTargetType.authority,
+    ),
+    SystemServiceTypeKeywordResponse(
+        pattern="umsatzsteuer",
+        pattern_type=ServiceMatcherType.string,
+        target_service_type=KeywordTargetType.authority,
+    ),
 )
 
 DEFAULT_GROUPS_BY_SECTION: dict[ServiceGroupSection, tuple[str, ...]] = {
     ServiceGroupSection.income: ("Kunden",),
-    ServiceGroupSection.expense: ("Lieferanten", "Behörden", "Gesellschafter", "Mitarbeiter"),
+    ServiceGroupSection.expense: (
+        "Lieferanten",
+        "Behörden",
+        "Gesellschafter",
+        "Mitarbeiter",
+    ),
     ServiceGroupSection.neutral: ("Erfolgsneutrale Zahlungen",),
 }
 
@@ -83,7 +116,11 @@ _EXPENSE_SERVICE_TYPES = {
 
 
 def _default_tax_rate(service_type: ServiceType) -> Decimal:
-    if service_type in (ServiceType.employee, ServiceType.shareholder, ServiceType.authority):
+    if service_type in (
+        ServiceType.employee,
+        ServiceType.shareholder,
+        ServiceType.authority,
+    ):
         return Decimal("0.00")
     return Decimal("20.00")
 
@@ -98,7 +135,9 @@ class ServiceAssignmentResult:
 async def ensure_base_service(session: AsyncSession, partner_id: UUID) -> Service:
     existing = (
         await session.exec(
-            select(Service).where(Service.partner_id == partner_id, Service.is_base_service == True)  # noqa: E712
+            select(Service).where(
+                Service.partner_id == partner_id, Service.is_base_service == True
+            )  # noqa: E712
         )
     ).first()
     if existing is not None:
@@ -142,7 +181,9 @@ class ServiceManagementService:
             changed_line_ids.append(line.id)
             splits = (
                 await self._session.exec(
-                    select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
+                    select(JournalLineSplit).where(
+                        JournalLineSplit.journal_line_id == line.id
+                    )
                 )
             ).all()
             for split in splits:
@@ -159,16 +200,22 @@ class ServiceManagementService:
 
         return len(changed_line_ids)
 
-    async def list_services(self, partner_id: UUID, mandant_id: UUID) -> list[ServiceResponse]:
+    async def list_services(
+        self, partner_id: UUID, mandant_id: UUID
+    ) -> list[ServiceResponse]:
         await self._get_partner(partner_id, mandant_id)
         services = (
             await self._session.exec(
-                select(Service).where(Service.partner_id == partner_id).order_by(desc(Service.is_base_service), Service.name)
+                select(Service)
+                .where(Service.partner_id == partner_id)
+                .order_by(desc(Service.is_base_service), Service.name)
             )
         ).all()
         return [await self._to_response(service) for service in services]
 
-    async def create_service(self, partner_id: UUID, mandant_id: UUID, body: CreateServiceRequest) -> ServiceResponse:
+    async def create_service(
+        self, partner_id: UUID, mandant_id: UUID, body: CreateServiceRequest
+    ) -> ServiceResponse:
         await self._get_partner(partner_id, mandant_id)
         await self._ensure_unique_service_name(partner_id, body.name)
         await self.ensure_default_groups(mandant_id)
@@ -203,13 +250,24 @@ class ServiceManagementService:
         await self._trigger_revalidation(partner_id)
         return await self._to_response(service)
 
-    async def update_service(self, service_id: UUID, mandant_id: UUID, body: UpdateServiceRequest) -> ServiceResponse:
+    async def update_service(
+        self, service_id: UUID, mandant_id: UUID, body: UpdateServiceRequest
+    ) -> ServiceResponse:
         service = await self._get_service(service_id, mandant_id)
         refresh_group_assignment = False
-        if service.is_base_service and body.name is not None and body.name != service.name:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Base service name cannot be changed")
+        if (
+            service.is_base_service
+            and body.name is not None
+            and body.name != service.name
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Base service name cannot be changed",
+            )
         if body.name is not None and body.name != service.name:
-            await self._ensure_unique_service_name(service.partner_id, body.name, exclude_service_id=service.id)
+            await self._ensure_unique_service_name(
+                service.partner_id, body.name, exclude_service_id=service.id
+            )
             service.name = body.name
         if body.description is not None or "description" in body.model_fields_set:
             service.description = body.description
@@ -232,7 +290,9 @@ class ServiceManagementService:
         if refresh_group_assignment:
             await self.ensure_default_groups(mandant_id)
             await self._session.flush()
-            await self.ensure_service_group_assignment(mandant_id, service, follow_preferred_group=True)
+            await self.ensure_service_group_assignment(
+                mandant_id, service, follow_preferred_group=True
+            )
         await self._session.commit()
         await self._session.refresh(service)
         await self.detect_service_type_for_service(mandant_id, service.id)
@@ -242,13 +302,18 @@ class ServiceManagementService:
     async def delete_service(self, service_id: UUID, mandant_id: UUID) -> None:
         service = await self._get_service(service_id, mandant_id)
         if service.is_base_service:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Base service cannot be deleted")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Base service cannot be deleted",
+            )
         partner_id = service.partner_id
         await self._session.delete(service)
         await self._session.commit()
         await self._trigger_revalidation(partner_id)
 
-    async def create_matcher(self, service_id: UUID, mandant_id: UUID, body: CreateServiceMatcherRequest):
+    async def create_matcher(
+        self, service_id: UUID, mandant_id: UUID, body: CreateServiceMatcherRequest
+    ):
         service = await self._get_service(service_id, mandant_id)
         self._ensure_matcher_allowed(service)
         self._validate_pattern(body.pattern, body.pattern_type)
@@ -280,12 +345,24 @@ class ServiceManagementService:
         self._ensure_matcher_allowed(service)
         matcher = await self._session.get(ServiceMatcher, matcher_id)
         if matcher is None or matcher.service_id != service_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service matcher not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Service matcher not found",
+            )
         new_pattern = body.pattern if body.pattern is not None else matcher.pattern
-        new_pattern_type = body.pattern_type if body.pattern_type is not None else ServiceMatcherType(matcher.pattern_type)
+        new_pattern_type = (
+            body.pattern_type
+            if body.pattern_type is not None
+            else ServiceMatcherType(matcher.pattern_type)
+        )
         self._validate_pattern(new_pattern, new_pattern_type)
-        if new_pattern != matcher.pattern or new_pattern_type.value != matcher.pattern_type:
-            await self._ensure_unique_matcher(service_id, new_pattern, new_pattern_type, exclude_matcher_id=matcher.id)
+        if (
+            new_pattern != matcher.pattern
+            or new_pattern_type.value != matcher.pattern_type
+        ):
+            await self._ensure_unique_matcher(
+                service_id, new_pattern, new_pattern_type, exclude_matcher_id=matcher.id
+            )
         matcher.pattern = new_pattern
         matcher.pattern_type = new_pattern_type.value
         if body.internal_only is not None:
@@ -298,12 +375,17 @@ class ServiceManagementService:
         await self._recheck_new_partner_reviews(mandant_id, service.partner_id)
         return matcher
 
-    async def delete_matcher(self, service_id: UUID, matcher_id: UUID, mandant_id: UUID) -> None:
+    async def delete_matcher(
+        self, service_id: UUID, matcher_id: UUID, mandant_id: UUID
+    ) -> None:
         service = await self._get_service(service_id, mandant_id)
         self._ensure_matcher_allowed(service)
         matcher = await self._session.get(ServiceMatcher, matcher_id)
         if matcher is None or matcher.service_id != service_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service matcher not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Service matcher not found",
+            )
         await self._session.delete(matcher)
         await self._session.commit()
         await self._trigger_revalidation(service.partner_id)
@@ -316,7 +398,7 @@ class ServiceManagementService:
     ) -> MatcherPreviewResponse:
         """Gibt eine Vorschau zurück, welche Buchungszeilen ein noch nicht gespeicherter
         Matcher treffen würde – ohne Änderungen vorzunehmen."""
-        #breakpoint()  # Debug breakpoint for "Matcher testen" backend flow
+        # breakpoint()  # Debug breakpoint for "Matcher testen" backend flow
         service = await self._get_service(service_id, mandant_id)
         self._ensure_matcher_allowed(service)
         self._validate_pattern(body.pattern, body.pattern_type)
@@ -354,7 +436,9 @@ class ServiceManagementService:
                 )
             ).all()
             for sp in all_splits:
-                splits_for_lines.setdefault(sp.journal_line_id, []).append(sp.service_id)
+                splits_for_lines.setdefault(sp.journal_line_id, []).append(
+                    sp.service_id
+                )
 
         matched_lines: list[MatcherPreviewLineItem] = []
         partner_name_cache: dict[UUID, str | None] = {}
@@ -373,7 +457,9 @@ class ServiceManagementService:
                 first_sid = line_service_ids[0]
                 if first_sid not in service_name_cache:
                     current_service = await self._session.get(Service, first_sid)
-                    service_name_cache[first_sid] = current_service.name if current_service is not None else None
+                    service_name_cache[first_sid] = (
+                        current_service.name if current_service is not None else None
+                    )
                 line_service_name = service_name_cache[first_sid]
             if not self._service_matches_line(service, [mock_matcher], line):
                 continue
@@ -385,8 +471,14 @@ class ServiceManagementService:
             conflict_reasons: list[str] = []
             if line.partner_id is not None and line.partner_id != service.partner_id:
                 if line.partner_id not in partner_conflict_cache:
-                    partner_conflict_cache[line.partner_id] = await load_partner_assignment_criteria(self._session, line.partner_id)
-                conflict_reasons = detect_conflicting_criteria(partner_conflict_cache[line.partner_id], line)
+                    partner_conflict_cache[line.partner_id] = (
+                        await load_partner_assignment_criteria(
+                            self._session, line.partner_id
+                        )
+                    )
+                conflict_reasons = detect_conflicting_criteria(
+                    partner_conflict_cache[line.partner_id], line
+                )
             matched_lines.append(
                 MatcherPreviewLineItem(
                     journal_line_id=line.id,
@@ -405,12 +497,18 @@ class ServiceManagementService:
 
         matched_lines.sort(key=lambda x: x.booking_date, reverse=True)
         matched_lines.sort(key=lambda x: not x.has_conflicting_partner_criteria)
-        return MatcherPreviewResponse(matched_lines=matched_lines, total=len(matched_lines))
+        return MatcherPreviewResponse(
+            matched_lines=matched_lines, total=len(matched_lines)
+        )
 
     async def list_keywords(self, mandant_id: UUID) -> ServiceTypeKeywordListResponse:
         items = (
             await self._session.exec(
-                select(ServiceTypeKeyword).where(ServiceTypeKeyword.mandant_id == mandant_id).order_by(ServiceTypeKeyword.target_service_type, ServiceTypeKeyword.pattern)
+                select(ServiceTypeKeyword)
+                .where(ServiceTypeKeyword.mandant_id == mandant_id)
+                .order_by(
+                    ServiceTypeKeyword.target_service_type, ServiceTypeKeyword.pattern
+                )
             )
         ).all()
         return ServiceTypeKeywordListResponse(
@@ -418,9 +516,13 @@ class ServiceManagementService:
             system_defaults=list(SYSTEM_DEFAULT_KEYWORDS),
         )
 
-    async def create_keyword(self, mandant_id: UUID, body: CreateServiceTypeKeywordRequest) -> ServiceTypeKeywordResponse:
+    async def create_keyword(
+        self, mandant_id: UUID, body: CreateServiceTypeKeywordRequest
+    ) -> ServiceTypeKeywordResponse:
         self._validate_pattern(body.pattern, body.pattern_type)
-        await self._ensure_unique_keyword(mandant_id, body.pattern, body.pattern_type, body.target_service_type)
+        await self._ensure_unique_keyword(
+            mandant_id, body.pattern, body.pattern_type, body.target_service_type
+        )
         now = _utcnow()
         entity = ServiceTypeKeyword(
             mandant_id=mandant_id,
@@ -444,13 +546,18 @@ class ServiceManagementService:
         groups = (
             await self._session.exec(
                 select(ServiceGroup)
-                .where(ServiceGroup.mandant_id == mandant_id, ServiceGroup.section == section.value)
+                .where(
+                    ServiceGroup.mandant_id == mandant_id,
+                    ServiceGroup.section == section.value,
+                )
                 .order_by(ServiceGroup.sort_order, ServiceGroup.name)
             )
         ).all()
         return [ServiceGroupResponse.model_validate(group) for group in groups]
 
-    async def create_service_group(self, mandant_id: UUID, body: CreateServiceGroupRequest) -> ServiceGroupResponse:
+    async def create_service_group(
+        self, mandant_id: UUID, body: CreateServiceGroupRequest
+    ) -> ServiceGroupResponse:
         await self.ensure_default_groups(mandant_id)
         await self._ensure_unique_group_name(mandant_id, body.section, body.name)
         group = ServiceGroup(
@@ -511,7 +618,9 @@ class ServiceManagementService:
                 detail="Group has assigned services. Provide reassign_to_group_id.",
             )
         if assignments and body.reassign_to_group_id is not None:
-            target_group = await self._get_service_group(mandant_id, body.reassign_to_group_id)
+            target_group = await self._get_service_group(
+                mandant_id, body.reassign_to_group_id
+            )
             if target_group.section != group.section:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -609,12 +718,16 @@ class ServiceManagementService:
         if changed:
             await self._session.commit()
 
-    async def list_groups_by_section(self, mandant_id: UUID) -> dict[ServiceGroupSection, list[ServiceGroup]]:
+    async def list_groups_by_section(
+        self, mandant_id: UUID
+    ) -> dict[ServiceGroupSection, list[ServiceGroup]]:
         groups = (
             await self._session.exec(
                 select(ServiceGroup)
                 .where(ServiceGroup.mandant_id == mandant_id)
-                .order_by(ServiceGroup.section, ServiceGroup.sort_order, ServiceGroup.name)
+                .order_by(
+                    ServiceGroup.section, ServiceGroup.sort_order, ServiceGroup.name
+                )
             )
         ).all()
         groups_by_section: dict[ServiceGroupSection, list[ServiceGroup]] = {
@@ -644,13 +757,18 @@ class ServiceManagementService:
             return None
         preferred_name = self._preferred_default_group_name(service)
         if preferred_name is not None:
-            preferred_group = next((group for group in section_groups if group.name == preferred_name), None)
+            preferred_group = next(
+                (group for group in section_groups if group.name == preferred_name),
+                None,
+            )
             if preferred_group is not None:
                 return preferred_group
         # Bevorzugte Standardgruppe existiert nicht (z. B. umbenannt): auf eine Standardgruppe
         # der Sektion ausweichen statt auf die erste beliebige. Sonst wird die Gruppe mit dem
         # niedrigsten sort_order zum Auffangbecken fuer alle neuen Leistungen.
-        fallback_group = next((group for group in section_groups if group.is_default), None)
+        fallback_group = next(
+            (group for group in section_groups if group.is_default), None
+        )
         if fallback_group is not None:
             return fallback_group
         return section_groups[0]
@@ -700,7 +818,9 @@ class ServiceManagementService:
             None,
         )
         if current_group is None:
-            current_group = await self._session.get(ServiceGroup, assignment.service_group_id)
+            current_group = await self._session.get(
+                ServiceGroup, assignment.service_group_id
+            )
         if current_group is not None and not current_group.is_default:
             return assignment
         if current_group is not None and current_group.section == service_section.value:
@@ -715,10 +835,17 @@ class ServiceManagementService:
             preferred_name = self._preferred_default_group_name(service)
             if preferred_name is not None:
                 preferred_group = next(
-                    (g for g in groups_by_section[service_section] if g.name == preferred_name),
+                    (
+                        g
+                        for g in groups_by_section[service_section]
+                        if g.name == preferred_name
+                    ),
                     None,
                 )
-                if preferred_group is not None and assignment.service_group_id != preferred_group.id:
+                if (
+                    preferred_group is not None
+                    and assignment.service_group_id != preferred_group.id
+                ):
                     assignment.service_group_id = preferred_group.id
                     assignment.updated_at = _utcnow()
                     self._session.add(assignment)
@@ -737,13 +864,34 @@ class ServiceManagementService:
     ) -> ServiceTypeKeywordResponse:
         entity = await self._session.get(ServiceTypeKeyword, keyword_id)
         if entity is None or entity.mandant_id != mandant_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service keyword not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Service keyword not found",
+            )
         new_pattern = body.pattern if body.pattern is not None else entity.pattern
-        new_pattern_type = body.pattern_type if body.pattern_type is not None else ServiceMatcherType(entity.pattern_type)
-        new_target = body.target_service_type if body.target_service_type is not None else KeywordTargetType(entity.target_service_type)
+        new_pattern_type = (
+            body.pattern_type
+            if body.pattern_type is not None
+            else ServiceMatcherType(entity.pattern_type)
+        )
+        new_target = (
+            body.target_service_type
+            if body.target_service_type is not None
+            else KeywordTargetType(entity.target_service_type)
+        )
         self._validate_pattern(new_pattern, new_pattern_type)
-        if new_pattern != entity.pattern or new_pattern_type.value != entity.pattern_type or new_target.value != entity.target_service_type:
-            await self._ensure_unique_keyword(mandant_id, new_pattern, new_pattern_type, new_target, exclude_keyword_id=entity.id)
+        if (
+            new_pattern != entity.pattern
+            or new_pattern_type.value != entity.pattern_type
+            or new_target.value != entity.target_service_type
+        ):
+            await self._ensure_unique_keyword(
+                mandant_id,
+                new_pattern,
+                new_pattern_type,
+                new_target,
+                exclude_keyword_id=entity.id,
+            )
         entity.pattern = new_pattern
         entity.pattern_type = new_pattern_type.value
         entity.target_service_type = new_target.value
@@ -756,17 +904,26 @@ class ServiceManagementService:
     async def delete_keyword(self, mandant_id: UUID, keyword_id: UUID) -> None:
         entity = await self._session.get(ServiceTypeKeyword, keyword_id)
         if entity is None or entity.mandant_id != mandant_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service keyword not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Service keyword not found",
+            )
         await self._session.delete(entity)
         await self._session.commit()
 
-    async def auto_assign_journal_line(self, mandant_id: UUID, line: JournalLine) -> None:
+    async def auto_assign_journal_line(
+        self, mandant_id: UUID, line: JournalLine
+    ) -> None:
         if line.partner_id is None:
             await self._delete_splits_for_line(line.id)
             return
 
-        services, matchers_by_service = await self._load_partner_services(line.partner_id)
-        assignment = await self._calculate_assignment(line, services, matchers_by_service)
+        services, matchers_by_service = await self._load_partner_services(
+            line.partner_id
+        )
+        assignment = await self._calculate_assignment(
+            line, services, matchers_by_service
+        )
         await self._replace_splits(line, [assignment.service_id], "auto")
 
         if assignment.reason == "multiple_matches":
@@ -800,13 +957,22 @@ class ServiceManagementService:
         service_id: UUID,
     ) -> None:
         if line.partner_id is None:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Journal line has no partner")
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Journal line has no partner",
+            )
 
         service = await self._get_service(service_id, mandant_id)
         if service.partner_id != line.partner_id:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Service does not belong to journal line partner")
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Service does not belong to journal line partner",
+            )
         if not self._is_service_valid_for_booking_date(service, line.booking_date):
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Service is not valid for journal line booking_date")
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Service is not valid for journal line booking_date",
+            )
 
         await self._replace_splits(line, [service.id], "manual")
         await self._clear_service_assignment_review(line.id)
@@ -821,26 +987,44 @@ class ServiceManagementService:
     ) -> None:
         """Ordnet eine Buchungszeile manuell mehreren Leistungen mit expliziten Beträgen zu."""
         if line.partner_id is None:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Journal line has no partner")
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Journal line has no partner",
+            )
 
         if len(splits) < 2:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="At least 2 splits are required")
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="At least 2 splits are required",
+            )
 
         total = sum(amount for _, amount in splits)
         line_amount = Decimal(str(line.amount))
         if abs(total - line_amount) > Decimal("0.01"):
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Split amounts do not sum to journal line amount")
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Split amounts do not sum to journal line amount",
+            )
 
         seen_ids: set[UUID] = set()
         for service_id, _ in splits:
             if service_id in seen_ids:
-                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Duplicate service_id in splits")
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="Duplicate service_id in splits",
+                )
             seen_ids.add(service_id)
             service = await self._get_service(service_id, mandant_id)
             if service.partner_id != line.partner_id:
-                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Service does not belong to journal line partner")
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="Service does not belong to journal line partner",
+                )
             if not self._is_service_valid_for_booking_date(service, line.booking_date):
-                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Service is not valid for journal line booking_date")
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="Service is not valid for journal line booking_date",
+                )
 
         await self._replace_splits_with_amounts(line, splits, "manual")
         await self._clear_service_assignment_review(line.id)
@@ -856,7 +1040,9 @@ class ServiceManagementService:
         services, matchers_by_service = await self._load_partner_services(partner_id)
         lines = (
             await self._session.exec(
-                select(JournalLine).where(JournalLine.partner_id == partner_id).order_by(JournalLine.created_at)
+                select(JournalLine)
+                .where(JournalLine.partner_id == partner_id)
+                .order_by(JournalLine.created_at)
             )
         ).all()
         touched_service_ids: set[UUID] = set()
@@ -864,14 +1050,18 @@ class ServiceManagementService:
         for line in lines:
             current_splits = (
                 await self._session.exec(
-                    select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
+                    select(JournalLineSplit).where(
+                        JournalLineSplit.journal_line_id == line.id
+                    )
                 )
             ).all()
             current_service_ids = {sp.service_id for sp in current_splits}
             for sid in current_service_ids:
                 touched_service_ids.add(sid)
 
-            assignment = await self._calculate_assignment(line, services, matchers_by_service)
+            assignment = await self._calculate_assignment(
+                line, services, matchers_by_service
+            )
             touched_service_ids.add(assignment.service_id)
 
             if assignment.reason == "multiple_matches":
@@ -894,23 +1084,35 @@ class ServiceManagementService:
                     matching_service_ids=assignment.matching_service_ids,
                 )
                 if partner.manual_assignment:
-                    await self._upsert_manual_service_assignment_review(partner.mandant_id, line.id)
+                    await self._upsert_manual_service_assignment_review(
+                        partner.mandant_id, line.id
+                    )
                 else:
                     await self._clear_manual_service_assignment_review(line.id)
                 continue
 
             if current_service_ids == {assignment.service_id}:
                 await self._clear_service_assignment_review(line.id)
-                if assignment.reason == "no_match_base_service" and partner.manual_assignment:
-                    await self._upsert_manual_service_assignment_review(partner.mandant_id, line.id)
+                if (
+                    assignment.reason == "no_match_base_service"
+                    and partner.manual_assignment
+                ):
+                    await self._upsert_manual_service_assignment_review(
+                        partner.mandant_id, line.id
+                    )
                 else:
                     await self._clear_manual_service_assignment_review(line.id)
                 continue
 
             await self._replace_splits(line, [assignment.service_id], "auto")
             await self._clear_service_assignment_review(line.id)
-            if assignment.reason == "no_match_base_service" and partner.manual_assignment:
-                await self._upsert_manual_service_assignment_review(partner.mandant_id, line.id)
+            if (
+                assignment.reason == "no_match_base_service"
+                and partner.manual_assignment
+            ):
+                await self._upsert_manual_service_assignment_review(
+                    partner.mandant_id, line.id
+                )
             else:
                 await self._clear_manual_service_assignment_review(line.id)
 
@@ -919,7 +1121,9 @@ class ServiceManagementService:
 
         await self._session.commit()
 
-    async def detect_service_type_for_service(self, mandant_id: UUID, service_id: UUID | None) -> None:
+    async def detect_service_type_for_service(
+        self, mandant_id: UUID, service_id: UUID | None
+    ) -> None:
         if service_id is None:
             return
 
@@ -927,7 +1131,10 @@ class ServiceManagementService:
         existing_review = await self._get_service_type_review(service.id)
         if service.service_type_manual:
             return
-        if service.service_type != ServiceType.unknown.value and existing_review is None:
+        if (
+            service.service_type != ServiceType.unknown.value
+            and existing_review is None
+        ):
             return
 
         splits = (
@@ -971,7 +1178,9 @@ class ServiceManagementService:
 
         review_previous_type = previous_type
         if existing_review is not None:
-            review_previous_type = existing_review.context.get("previous_type", previous_type)
+            review_previous_type = existing_review.context.get(
+                "previous_type", previous_type
+            )
 
         await self._upsert_service_type_review(
             mandant_id=mandant_id,
@@ -986,20 +1195,28 @@ class ServiceManagementService:
     async def _get_partner(self, partner_id: UUID, mandant_id: UUID) -> Partner:
         partner = await self._session.get(Partner, partner_id)
         if partner is None or partner.mandant_id != mandant_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Partner not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Partner not found"
+            )
         return partner
 
     async def _get_service(self, service_id: UUID, mandant_id: UUID) -> Service:
         service = await self._session.get(Service, service_id)
         if service is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Service not found"
+            )
         await self._get_partner(service.partner_id, mandant_id)
         return service
 
-    async def _get_service_group(self, mandant_id: UUID, group_id: UUID) -> ServiceGroup:
+    async def _get_service_group(
+        self, mandant_id: UUID, group_id: UUID
+    ) -> ServiceGroup:
         group = await self._session.get(ServiceGroup, group_id)
         if group is None or group.mandant_id != mandant_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service group not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Service group not found"
+            )
         return group
 
     async def _ensure_unique_group_name(
@@ -1020,9 +1237,14 @@ class ServiceManagementService:
             )
         ).first()
         if existing is not None and existing.id != exclude_group_id:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Service group with this name already exists")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Service group with this name already exists",
+            )
 
-    def _determine_service_section(self, service: Service) -> ServiceGroupSection | None:
+    def _determine_service_section(
+        self, service: Service
+    ) -> ServiceGroupSection | None:
         if service.erfolgsneutral:
             return ServiceGroupSection.neutral
         if service.service_type == ServiceType.customer.value:
@@ -1037,10 +1259,14 @@ class ServiceManagementService:
     ) -> tuple[list[Service], dict[UUID, list[ServiceMatcher]]]:
         services = (
             await self._session.exec(
-                select(Service).where(Service.partner_id == partner_id).order_by(desc(Service.is_base_service), Service.name)
+                select(Service)
+                .where(Service.partner_id == partner_id)
+                .order_by(desc(Service.is_base_service), Service.name)
             )
         ).all()
-        base_service = next((service for service in services if service.is_base_service), None)
+        base_service = next(
+            (service for service in services if service.is_base_service), None
+        )
         if base_service is None:
             base_service = await ensure_base_service(self._session, partner_id)
             services = [base_service, *services]
@@ -1065,9 +1291,14 @@ class ServiceManagementService:
         matchers_by_service: dict[UUID, list[ServiceMatcher]],
     ) -> ServiceAssignmentResult:
         if line.partner_id is None:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Journal line has no partner")
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Journal line has no partner",
+            )
 
-        base_service = next((service for service in services if service.is_base_service), None)
+        base_service = next(
+            (service for service in services if service.is_base_service), None
+        )
         if base_service is None:
             base_service = await ensure_base_service(self._session, line.partner_id)
 
@@ -1077,7 +1308,9 @@ class ServiceManagementService:
                 continue
             if not self._is_service_valid_for_booking_date(service, line.booking_date):
                 continue
-            if self._service_matches_line(service, matchers_by_service.get(service.id, []), line):
+            if self._service_matches_line(
+                service, matchers_by_service.get(service.id, []), line
+            ):
                 matching_service_ids.append(service.id)
 
         if len(matching_service_ids) == 1:
@@ -1101,12 +1334,16 @@ class ServiceManagementService:
     async def _to_response(self, service: Service) -> ServiceResponse:
         matchers = (
             await self._session.exec(
-                select(ServiceMatcher).where(ServiceMatcher.service_id == service.id).order_by(ServiceMatcher.created_at)
+                select(ServiceMatcher)
+                .where(ServiceMatcher.service_id == service.id)
+                .order_by(ServiceMatcher.created_at)
             )
         ).all()
         journal_line_count = (
             await self._session.exec(
-                select(func.count()).select_from(JournalLineSplit).where(JournalLineSplit.service_id == service.id)
+                select(func.count())
+                .select_from(JournalLineSplit)
+                .where(JournalLineSplit.service_id == service.id)
             )
         ).one()
         return ServiceResponse(
@@ -1138,10 +1375,21 @@ class ServiceManagementService:
             ],
         )
 
-    async def _ensure_unique_service_name(self, partner_id: UUID, name: str, exclude_service_id: UUID | None = None) -> None:
-        existing = (await self._session.exec(select(Service).where(Service.partner_id == partner_id, Service.name == name))).first()
+    async def _ensure_unique_service_name(
+        self, partner_id: UUID, name: str, exclude_service_id: UUID | None = None
+    ) -> None:
+        existing = (
+            await self._session.exec(
+                select(Service).where(
+                    Service.partner_id == partner_id, Service.name == name
+                )
+            )
+        ).first()
         if existing is not None and existing.id != exclude_service_id:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Service with this name already exists for partner")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Service with this name already exists for partner",
+            )
 
     async def _ensure_unique_matcher(
         self,
@@ -1160,7 +1408,10 @@ class ServiceManagementService:
             )
         ).first()
         if existing is not None and existing.id != exclude_matcher_id:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Service matcher already exists")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Service matcher already exists",
+            )
 
     async def _ensure_unique_keyword(
         self,
@@ -1181,7 +1432,10 @@ class ServiceManagementService:
             )
         ).first()
         if existing is not None and existing.id != exclude_keyword_id:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Service keyword rule already exists")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Service keyword rule already exists",
+            )
 
     def _validate_pattern(self, pattern: str, pattern_type: ServiceMatcherType) -> None:
         if pattern_type != ServiceMatcherType.regex:
@@ -1189,16 +1443,24 @@ class ServiceManagementService:
         try:
             re.compile(pattern)
         except re.error as exc:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=f"Invalid regex pattern: {exc}") from exc
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"Invalid regex pattern: {exc}",
+            ) from exc
 
     def _ensure_matcher_allowed(self, service: Service) -> None:
         if service.is_base_service:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Base service cannot have matchers")
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Base service cannot have matchers",
+            )
 
     async def _trigger_revalidation(self, partner_id: UUID) -> None:
         await self.revalidate_partner_lines(partner_id)
 
-    async def _recheck_new_partner_reviews(self, mandant_id: UUID, changed_partner_id: UUID) -> None:
+    async def _recheck_new_partner_reviews(
+        self, mandant_id: UUID, changed_partner_id: UUID
+    ) -> None:
         """Prüft nach einer Matcher-Änderung alle anderen Partner des Mandanten.
 
         Dieselbe Logik wie die Preview: lädt alle Buchungszeilen anderer Partner,
@@ -1206,7 +1468,9 @@ class ServiceManagementService:
         Zeilen werden umgezogen. Der Quell-Partner wird gelöscht sofern er danach
         keine Zeilen mehr hat.
         """
-        services, matchers_by_service = await self._load_partner_services(changed_partner_id)
+        services, matchers_by_service = await self._load_partner_services(
+            changed_partner_id
+        )
         has_matchers = any(
             not svc.is_base_service and bool(matchers_by_service.get(svc.id))
             for svc in services
@@ -1235,7 +1499,9 @@ class ServiceManagementService:
             matched = any(
                 not service.is_base_service
                 and bool(matchers_by_service.get(service.id))
-                and self._service_matches_line(service, matchers_by_service.get(service.id, []), line)
+                and self._service_matches_line(
+                    service, matchers_by_service.get(service.id, []), line
+                )
                 for service in services
             )
             if matched:
@@ -1249,13 +1515,17 @@ class ServiceManagementService:
 
         for other_partner_id, matched_lines in matching_by_partner.items():
             # Nur die treffenden Zeilen verschieben (nicht alle des Partners)
-            await self.prepare_lines_for_partner_change(mandant_id, list(matched_lines), changed_partner_id)
+            await self.prepare_lines_for_partner_change(
+                mandant_id, list(matched_lines), changed_partner_id
+            )
             needs_revalidation = True
 
             # Partner löschen falls danach keine Zeilen mehr übrig
             remaining = (
                 await self._session.exec(
-                    select(JournalLine).where(JournalLine.partner_id == other_partner_id)
+                    select(JournalLine).where(
+                        JournalLine.partner_id == other_partner_id
+                    )
                 )
             ).all()
             if not remaining:
@@ -1272,7 +1542,9 @@ class ServiceManagementService:
         else:
             await self._session.commit()
 
-    def _is_service_valid_for_booking_date(self, service: Service, booking_date_raw: str) -> bool:
+    def _is_service_valid_for_booking_date(
+        self, service: Service, booking_date_raw: str
+    ) -> bool:
         booking_date = date.fromisoformat(booking_date_raw)
         if service.valid_from is not None and booking_date < service.valid_from:
             return False
@@ -1280,8 +1552,12 @@ class ServiceManagementService:
             return False
         return True
 
-    def _service_matches_line(self, _service: Service, matchers: list[ServiceMatcher], line: JournalLine) -> bool:
-        searchable_text = "\n".join(filter(None, [line.text or "", line.partner_name_raw or ""]))
+    def _service_matches_line(
+        self, _service: Service, matchers: list[ServiceMatcher], line: JournalLine
+    ) -> bool:
+        searchable_text = "\n".join(
+            filter(None, [line.text or "", line.partner_name_raw or ""])
+        )
         searchable_text_lower = searchable_text.lower()
         for matcher in matchers:
             if matcher.internal_only and line.partner_id != _service.partner_id:
@@ -1294,7 +1570,9 @@ class ServiceManagementService:
                 return True
         return False
 
-    async def _get_service_assignment_review(self, journal_line_id: UUID) -> ReviewItem | None:
+    async def _get_service_assignment_review(
+        self, journal_line_id: UUID
+    ) -> ReviewItem | None:
         return (
             await self._session.exec(
                 select(ReviewItem).where(
@@ -1325,12 +1603,18 @@ class ServiceManagementService:
     ) -> None:
         review = await self._get_service_assignment_review(journal_line_id)
         context = {
-            "current_service_id": str(current_service_id) if current_service_id else None,
-            "proposed_service_id": str(proposed_service_id) if proposed_service_id else None,
+            "current_service_id": (
+                str(current_service_id) if current_service_id else None
+            ),
+            "proposed_service_id": (
+                str(proposed_service_id) if proposed_service_id else None
+            ),
             "reason": reason,
         }
         if matching_service_ids is not None:
-            context["matching_services"] = [str(service_id) for service_id in matching_service_ids]
+            context["matching_services"] = [
+                str(service_id) for service_id in matching_service_ids
+            ]
 
         if review is None:
             review = ReviewItem(
@@ -1394,14 +1678,18 @@ class ServiceManagementService:
         currently on the base service of the given partner."""
         base_service = (
             await self._session.exec(
-                select(Service).where(Service.partner_id == partner_id, Service.is_base_service == True)  # noqa: E712
+                select(Service).where(
+                    Service.partner_id == partner_id, Service.is_base_service == True
+                )  # noqa: E712
             )
         ).first()
         if base_service is None:
             return
         splits = (
             await self._session.exec(
-                select(JournalLineSplit).where(JournalLineSplit.service_id == base_service.id)
+                select(JournalLineSplit).where(
+                    JournalLineSplit.service_id == base_service.id
+                )
             )
         ).all()
         line_ids = list({sp.journal_line_id for sp in splits})
@@ -1410,7 +1698,9 @@ class ServiceManagementService:
         if line_ids:
             await self._session.flush()
 
-    async def delete_manual_assignment_reviews_for_partner(self, partner_id: UUID) -> None:
+    async def delete_manual_assignment_reviews_for_partner(
+        self, partner_id: UUID
+    ) -> None:
         """Deletes all open manual_service_assignment review items for a partner's lines."""
         reviews = (
             await self._session.exec(
@@ -1426,7 +1716,9 @@ class ServiceManagementService:
         for review in reviews:
             await self._session.delete(review)
 
-    async def _get_manual_service_assignment_review(self, journal_line_id: UUID) -> ReviewItem | None:
+    async def _get_manual_service_assignment_review(
+        self, journal_line_id: UUID
+    ) -> ReviewItem | None:
         return (
             await self._session.exec(
                 select(ReviewItem).where(
@@ -1456,7 +1748,9 @@ class ServiceManagementService:
         )
         self._session.add(review)
 
-    async def _clear_manual_service_assignment_review(self, journal_line_id: UUID | None) -> None:
+    async def _clear_manual_service_assignment_review(
+        self, journal_line_id: UUID | None
+    ) -> None:
         if journal_line_id is None:
             return
         review = await self._get_manual_service_assignment_review(journal_line_id)
@@ -1464,7 +1758,9 @@ class ServiceManagementService:
             return
         await self._session.delete(review)
 
-    async def _clear_service_assignment_review(self, journal_line_id: UUID | None) -> None:
+    async def _clear_service_assignment_review(
+        self, journal_line_id: UUID | None
+    ) -> None:
         if journal_line_id is None:
             return
         review = await self._get_service_assignment_review(journal_line_id)
@@ -1483,7 +1779,10 @@ class ServiceManagementService:
     async def _delete_open_line_reviews(self, journal_line_ids: list[UUID]) -> None:
         if not journal_line_ids:
             return
-        line_filters = [ReviewItem.journal_line_id == journal_line_id for journal_line_id in journal_line_ids]
+        line_filters = [
+            ReviewItem.journal_line_id == journal_line_id
+            for journal_line_id in journal_line_ids
+        ]
         reviews = (
             await self._session.exec(
                 select(ReviewItem).where(
@@ -1495,10 +1794,14 @@ class ServiceManagementService:
         for review in reviews:
             await self._session.delete(review)
 
-    async def _load_keyword_rules(self, mandant_id: UUID) -> list[ServiceTypeKeyword | SystemServiceTypeKeywordResponse]:
+    async def _load_keyword_rules(
+        self, mandant_id: UUID
+    ) -> list[ServiceTypeKeyword | SystemServiceTypeKeywordResponse]:
         custom_rules = (
             await self._session.exec(
-                select(ServiceTypeKeyword).where(ServiceTypeKeyword.mandant_id == mandant_id).order_by(ServiceTypeKeyword.created_at)
+                select(ServiceTypeKeyword)
+                .where(ServiceTypeKeyword.mandant_id == mandant_id)
+                .order_by(ServiceTypeKeyword.created_at)
             )
         ).all()
         if custom_rules:
@@ -1519,8 +1822,14 @@ class ServiceManagementService:
             return ServiceType.supplier, "amount<=0"
         return ServiceType.customer, "amount>0"
 
-    def _pattern_matches(self, text: str, pattern: str, pattern_type: ServiceMatcherType | str) -> bool:
-        pattern_kind = pattern_type.value if isinstance(pattern_type, ServiceMatcherType) else pattern_type
+    def _pattern_matches(
+        self, text: str, pattern: str, pattern_type: ServiceMatcherType | str
+    ) -> bool:
+        pattern_kind = (
+            pattern_type.value
+            if isinstance(pattern_type, ServiceMatcherType)
+            else pattern_type
+        )
         if pattern_kind == ServiceMatcherType.string.value:
             return pattern.lower() in text.lower()
         return re.search(pattern, text, re.IGNORECASE) is not None
@@ -1534,7 +1843,9 @@ class ServiceManagementService:
         """Ersetzt alle vorhandenen Splits durch neue mit expliziten Beträgen."""
         existing_splits = (
             await self._session.exec(
-                select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
+                select(JournalLineSplit).where(
+                    JournalLineSplit.journal_line_id == line.id
+                )
             )
         ).all()
         for split in existing_splits:
@@ -1562,7 +1873,9 @@ class ServiceManagementService:
         """Ersetzt alle vorhandenen Splits einer Buchungszeile durch neue."""
         existing_splits = (
             await self._session.exec(
-                select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
+                select(JournalLineSplit).where(
+                    JournalLineSplit.journal_line_id == line.id
+                )
             )
         ).all()
         for split in existing_splits:
@@ -1576,7 +1889,9 @@ class ServiceManagementService:
             if i < count - 1:
                 split_amount = (total / count).quantize(Decimal("0.01"))
             else:
-                split_amount = total - (total / count).quantize(Decimal("0.01")) * (count - 1)
+                split_amount = total - (total / count).quantize(Decimal("0.01")) * (
+                    count - 1
+                )
             split = JournalLineSplit(
                 journal_line_id=line.id,
                 service_id=sid,
@@ -1591,7 +1906,9 @@ class ServiceManagementService:
     async def _delete_splits_for_line(self, line_id: UUID) -> None:
         splits = (
             await self._session.exec(
-                select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line_id)
+                select(JournalLineSplit).where(
+                    JournalLineSplit.journal_line_id == line_id
+                )
             )
         ).all()
         for split in splits:

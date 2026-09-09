@@ -1,4 +1,5 @@
 """Tests für den Rückvergleich — misst er das Richtige und wählt er das Richtige aus?"""
+
 from decimal import Decimal
 
 from app.forecast.backtest import (
@@ -249,11 +250,9 @@ class TestSaisonUndVorjahr:
     def test_saisonales_muster_schlaegt_den_flachen_durchschnitt(self):
         """Umsatz nur im Sommer: Ein Jahresmittel verteilt ihn gleichmäßig und liegt
         jeden Monat daneben; Vorjahresmonat oder Saisonprofil treffen."""
+
         def summer_year(year: int) -> dict[int, Decimal]:
-            return {
-                month_index(year, month): Decimal("30000")
-                for month in (6, 7, 8)
-            }
+            return {month_index(year, month): Decimal("30000") for month in (6, 7, 8)}
 
         points = {**summer_year(2024), **summer_year(2025), **summer_year(2026)}
         _, report = report_for(points)

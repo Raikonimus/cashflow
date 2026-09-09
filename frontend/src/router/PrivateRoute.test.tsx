@@ -58,10 +58,11 @@ describe('MandantRequiredRoute', () => {
 
   it('renders target route when login token already contains a single mandant_id', () => {
     act(() => {
-      useAuthStore.getState().login(
-        createTestJwt({ sub: 'user-1', role: 'accountant', mandant_id: 'mandant-1' }),
-        [{ id: 'mandant-1', name: 'Einziger Mandant' }],
-      )
+      useAuthStore
+        .getState()
+        .login(createTestJwt({ sub: 'user-1', role: 'accountant', mandant_id: 'mandant-1' }), [
+          { id: 'mandant-1', name: 'Einziger Mandant' },
+        ])
     })
 
     render(

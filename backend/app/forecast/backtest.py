@@ -32,6 +32,7 @@ Vier Entscheidungen, die nicht offensichtlich sind:
 
 Kein Datenbankzugriff, keine Zufallszahlen — dieselbe Historie ergibt dasselbe Ergebnis.
 """
+
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import date
@@ -101,6 +102,7 @@ def combined_uncertainty(deviations: list[Decimal]) -> Decimal:
     total = sum(deviations, _ZERO)
     variance = (_ONE - ERROR_CORRELATION) * squares + ERROR_CORRELATION * total * total
     return variance.sqrt() if variance > _ZERO else _ZERO
+
 
 _ZERO = Decimal("0")
 _ONE = Decimal("1")

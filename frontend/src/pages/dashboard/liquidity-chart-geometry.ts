@@ -11,7 +11,20 @@ export const PAD_BOTTOM = 30
 export const INNER_WIDTH = WIDTH - PAD_LEFT - PAD_RIGHT
 export const INNER_HEIGHT = HEIGHT - PAD_TOP - PAD_BOTTOM
 
-const MONTH_ABBR = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez']
+const MONTH_ABBR = [
+  'Jan',
+  'Feb',
+  'Mär',
+  'Apr',
+  'Mai',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Okt',
+  'Nov',
+  'Dez',
+]
 
 export interface ChartPoint {
   label: string
@@ -54,7 +67,8 @@ export function niceStep(rough: number): number {
   const exponent = Math.floor(Math.log10(rough))
   const base = 10 ** exponent
   const fraction = rough / base
-  const nice = fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 2.5 ? 2.5 : fraction <= 5 ? 5 : 10
+  const nice =
+    fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 2.5 ? 2.5 : fraction <= 5 ? 5 : 10
   return nice * base
 }
 
@@ -77,10 +91,11 @@ export function buildChartGeometry(points: ChartPoint[]) {
     points.length <= 1
       ? PAD_LEFT + INNER_WIDTH / 2
       : PAD_LEFT + (index * INNER_WIDTH) / (points.length - 1)
-  const y = (value: number) =>
-    PAD_TOP + INNER_HEIGHT * (1 - (value - yMin) / (yMax - yMin))
+  const y = (value: number) => PAD_TOP + INNER_HEIGHT * (1 - (value - yMin) / (yMax - yMin))
 
-  const line = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${x(index)} ${y(point.value)}`).join(' ')
+  const line = points
+    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${x(index)} ${y(point.value)}`)
+    .join(' ')
   const zeroY = y(0)
   const area = `${line} L ${x(points.length - 1)} ${zeroY} L ${x(0)} ${zeroY} Z`
 

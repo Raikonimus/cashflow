@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import get_current_user, require_mandant_access, require_role
+from app.auth.dependencies import require_mandant_access, require_role
 from app.auth.models import User
 from app.core.database import get_session
 from app.partners.schemas import (
@@ -23,8 +23,14 @@ from app.partners.schemas import (
     PartnerNeighborsResponse,
     UpdatePartnerRequest,
 )
+from app.partners.service import (
+    AuditLogService,
+    PartnerMergeService,
+    PartnerService,
+    PartnerSortField,
+    SortDirection,
+)
 from app.services.models import ServiceType
-from app.partners.service import AuditLogService, PartnerMergeService, PartnerService, PartnerSortField, SortDirection
 
 partners_router = APIRouter(prefix="/mandants", tags=["partners"])
 
@@ -42,6 +48,7 @@ def _audit_svc(session: AsyncSession = Depends(get_session)) -> AuditLogService:
 
 
 # ─── Partner CRUD ────────────────────────────────────────────────────────────
+
 
 @partners_router.get("/{mandant_id}/partners", response_model=PaginatedPartnersResponse)
 async def list_partners(
@@ -81,11 +88,18 @@ async def create_partner(
     _access: None = Depends(require_mandant_access),
     svc: PartnerService = Depends(_partner_svc),
 ) -> PartnerDetailResponse:
-    partner = await svc.create_partner(mandant_id, name=body.name, iban=body.iban, manual_assignment=body.manual_assignment)
+    partner = await svc.create_partner(
+        mandant_id,
+        name=body.name,
+        iban=body.iban,
+        manual_assignment=body.manual_assignment,
+    )
     return await svc.get_partner_detail(partner.id, mandant_id)
 
 
-@partners_router.get("/{mandant_id}/partners/{partner_id}", response_model=PartnerDetailResponse)
+@partners_router.get(
+    "/{mandant_id}/partners/{partner_id}", response_model=PartnerDetailResponse
+)
 async def get_partner(
     mandant_id: UUID,
     partner_id: UUID,
@@ -96,7 +110,9 @@ async def get_partner(
     return await svc.get_partner_detail(partner_id, mandant_id)
 
 
-@partners_router.patch("/{mandant_id}/partners/{partner_id}", response_model=PartnerDetailResponse)
+@partners_router.patch(
+    "/{mandant_id}/partners/{partner_id}", response_model=PartnerDetailResponse
+)
 async def update_partner(
     mandant_id: UUID,
     partner_id: UUID,
@@ -108,7 +124,9 @@ async def update_partner(
     return await svc.update_display_name(partner_id, mandant_id, body)
 
 
-@partners_router.delete("/{mandant_id}/partners/{partner_id}", status_code=status.HTTP_204_NO_CONTENT)
+@partners_router.delete(
+    "/{mandant_id}/partners/{partner_id}", status_code=status.HTTP_204_NO_CONTENT
+)
 async def delete_partner(
     mandant_id: UUID,
     partner_id: UUID,
@@ -119,7 +137,10 @@ async def delete_partner(
     await svc.delete_partner(partner_id, mandant_id)
 
 
-@partners_router.get("/{mandant_id}/partners/{partner_id}/neighbors", response_model=PartnerNeighborsResponse)
+@partners_router.get(
+    "/{mandant_id}/partners/{partner_id}/neighbors",
+    response_model=PartnerNeighborsResponse,
+)
 async def get_partner_neighbors(
     mandant_id: UUID,
     partner_id: UUID,
@@ -131,6 +152,7 @@ async def get_partner_neighbors(
 
 
 # ─── IBAN endpoints ───────────────────────────────────────────────────────────
+
 
 @partners_router.post(
     "/{mandant_id}/partners/{partner_id}/ibans/preview",
@@ -185,6 +207,7 @@ async def remove_iban(
 
 # ─── Account (BLZ + Kontonummer) endpoints ────────────────────────────────────
 
+
 @partners_router.post(
     "/{mandant_id}/partners/{partner_id}/accounts/preview",
     response_model=AccountPreviewResponse,
@@ -197,7 +220,9 @@ async def preview_account(
     _access: None = Depends(require_mandant_access),
     svc: PartnerService = Depends(_partner_svc),
 ) -> AccountPreviewResponse:
-    return await svc.preview_account(partner_id, mandant_id, body.account_number, body.blz)
+    return await svc.preview_account(
+        partner_id, mandant_id, body.account_number, body.blz
+    )
 
 
 @partners_router.post(
@@ -215,9 +240,13 @@ async def add_account(
     svc: PartnerService = Depends(_partner_svc),
 ) -> PartnerAccountResponse:
     if reassign:
-        entity = await svc.add_account_with_reassign(partner_id, mandant_id, body.account_number, body.blz, body.bic)
+        entity = await svc.add_account_with_reassign(
+            partner_id, mandant_id, body.account_number, body.blz, body.bic
+        )
     else:
-        entity = await svc.add_account(partner_id, mandant_id, body.account_number, body.blz, body.bic)
+        entity = await svc.add_account(
+            partner_id, mandant_id, body.account_number, body.blz, body.bic
+        )
     return PartnerAccountResponse.model_validate(entity)
 
 
@@ -234,6 +263,7 @@ async def remove_account(
     svc: PartnerService = Depends(_partner_svc),
 ) -> None:
     await svc.remove_account(account_id, partner_id, mandant_id)
+
 
 @partners_router.post(
     "/{mandant_id}/partners/{partner_id}/names",
@@ -269,6 +299,7 @@ async def remove_name(
 
 # ─── Merge endpoint ───────────────────────────────────────────────────────────
 
+
 @partners_router.post(
     "/{mandant_id}/partners/merge",
     response_model=MergeResponse,
@@ -281,10 +312,13 @@ async def merge_partners(
     _access: None = Depends(require_mandant_access),
     svc: PartnerMergeService = Depends(_merge_svc),
 ) -> MergeResponse:
-    return await svc.merge(actor.id, mandant_id, body.source_partner_id, body.target_partner_id)
+    return await svc.merge(
+        actor.id, mandant_id, body.source_partner_id, body.target_partner_id
+    )
 
 
 # ─── Audit-Log endpoints ──────────────────────────────────────────────────────
+
 
 @partners_router.get(
     "/{mandant_id}/audit-log",

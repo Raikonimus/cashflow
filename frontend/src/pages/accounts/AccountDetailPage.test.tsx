@@ -80,13 +80,10 @@ describe('AccountDetailPage – Startsaldo', () => {
     setup('0.00')
     let patched: Record<string, unknown> | null = null
     server.use(
-      http.patch(
-        `/api/v1/mandants/${MANDANT_ID}/accounts/${ACCOUNT_ID}`,
-        async ({ request }) => {
-          patched = (await request.json()) as Record<string, unknown>
-          return HttpResponse.json(account('1234.56'))
-        },
-      ),
+      http.patch(`/api/v1/mandants/${MANDANT_ID}/accounts/${ACCOUNT_ID}`, async ({ request }) => {
+        patched = (await request.json()) as Record<string, unknown>
+        return HttpResponse.json(account('1234.56'))
+      }),
     )
     renderPage()
 

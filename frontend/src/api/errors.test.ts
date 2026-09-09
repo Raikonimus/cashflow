@@ -51,7 +51,9 @@ describe('extractErrorMessage', () => {
   it('faellt auf den Fallback zurueck, wenn kein Detail lesbar ist', () => {
     expect(extractErrorMessage(axiosErrorWith({}), FALLBACK)).toBe(FALLBACK)
     expect(extractErrorMessage(axiosErrorWith({ detail: [] }), FALLBACK)).toBe(FALLBACK)
-    expect(extractErrorMessage(axiosErrorWith({ detail: [{ loc: ['body'] }] }), FALLBACK)).toBe(FALLBACK)
+    expect(extractErrorMessage(axiosErrorWith({ detail: [{ loc: ['body'] }] }), FALLBACK)).toBe(
+      FALLBACK,
+    )
     expect(extractErrorMessage(new Error('boom'), FALLBACK)).toBe(FALLBACK)
     expect(extractErrorMessage(undefined, FALLBACK)).toBe(FALLBACK)
   })

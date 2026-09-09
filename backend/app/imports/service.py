@@ -2,22 +2,23 @@ import csv
 import io
 from collections import Counter
 from datetime import datetime
+
 from sqlalchemy.exc import IntegrityError
 
 
 def _detect_encoding(raw: bytes) -> str:
     """Erkennt Zeichensatz via BOM, dann Trial-decode."""
-    if raw[:2] == b'\xff\xfe' or raw[:2] == b'\xfe\xff':
-        return 'utf-16'
-    if raw[:3] == b'\xef\xbb\xbf':
-        return 'utf-8-sig'
-    for enc in ('utf-8', 'cp1252', 'latin-1'):
+    if raw[:2] == b"\xff\xfe" or raw[:2] == b"\xfe\xff":
+        return "utf-16"
+    if raw[:3] == b"\xef\xbb\xbf":
+        return "utf-8-sig"
+    for enc in ("utf-8", "cp1252", "latin-1"):
         try:
             raw.decode(enc)
             return enc
         except UnicodeDecodeError:
             continue
-    return 'utf-8'
+    return "utf-8"
 
 
 def _detect_delimiter(text: str, fallback: str) -> str:
@@ -29,6 +30,8 @@ def _detect_delimiter(text: str, fallback: str) -> str:
         return dialect.delimiter
     except csv.Error:
         return fallback
+
+
 from decimal import Decimal, InvalidOperation
 from uuid import UUID, uuid4
 
@@ -125,7 +128,9 @@ def _build_duplicate_signature(
         return None
     if any(source not in source_values for source in duplicate_sources):
         return None
-    return tuple(sorted((source, source_values[source]) for source in duplicate_sources))
+    return tuple(
+        sorted((source, source_values[source]) for source in duplicate_sources)
+    )
 
 
 async def _count_stored_signatures(
@@ -229,7 +234,9 @@ class ImportService:
         """
         account = await self._session.get(Account, account_id)
         if account is None or account.mandant_id != mandant_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Account not found"
+            )
         return account
 
     async def upload(
@@ -256,7 +263,9 @@ class ImportService:
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=f"File '{file.filename}' is not a CSV",
                 )
-            run = await self._process_file(actor_id, account_id, mandant_id, file, mapping)
+            run = await self._process_file(
+                actor_id, account_id, mandant_id, file, mapping
+            )
             results.append(run)
         return results
 
@@ -283,10 +292,14 @@ class ImportService:
         decoded = await self._decode_upload(file)
         reader = self._build_csv_reader(decoded, mapping)
         self._validate_duplicate_check_columns(reader.fieldnames, mapping)
-        lines_to_insert, errors = self._collect_lines_to_insert(reader, mapping, run.id, account_id)
+        lines_to_insert, errors = self._collect_lines_to_insert(
+            reader, mapping, run.id, account_id
+        )
 
-        inserted, skipped, review_items, duplicates, zero_skipped = await self._bulk_insert_with_matching(
-            lines_to_insert, mandant_id, run.id, account_id
+        inserted, skipped, review_items, duplicates, zero_skipped = (
+            await self._bulk_insert_with_matching(
+                lines_to_insert, mandant_id, run.id, account_id
+            )
         )
         self._finalize_run(run, inserted, skipped, errors, duplicates, zero_skipped)
 
@@ -299,7 +312,11 @@ class ImportService:
 
         audit_entry = AuditLog(
             mandant_id=mandant_id,
-            event_type="import.completed" if run.status == ImportStatus.completed.value else "import.failed",
+            event_type=(
+                "import.completed"
+                if run.status == ImportStatus.completed.value
+                else "import.failed"
+            ),
             actor_id=actor_id,
             payload={
                 "import_run_id": str(run.id),
@@ -330,7 +347,7 @@ class ImportService:
         try:
             return content.decode(encoding)
         except UnicodeDecodeError:
-            return content.decode('utf-8', errors='replace')
+            return content.decode("utf-8", errors="replace")
 
     def _build_csv_reader(
         self,
@@ -349,7 +366,9 @@ class ImportService:
             if not stream.readline():
                 break
         remainder = stream.read()
-        effective_delimiter = _detect_delimiter(remainder, fallback=mapping.delimiter or ";")
+        effective_delimiter = _detect_delimiter(
+            remainder, fallback=mapping.delimiter or ";"
+        )
         return csv.DictReader(io.StringIO(remainder), delimiter=effective_delimiter)
 
     def _collect_lines_to_insert(
@@ -368,7 +387,12 @@ class ImportService:
             try:
                 line_data = self._map_row(row, mapping, run_id, account_id, row_num)
                 if line_data is None:
-                    errors.append({"row": row_num, "error": "required field missing after mapping"})
+                    errors.append(
+                        {
+                            "row": row_num,
+                            "error": "required field missing after mapping",
+                        }
+                    )
                     continue
                 lines_to_insert.append(line_data)
             except (ValueError, InvalidOperation) as exc:
@@ -422,7 +446,9 @@ class ImportService:
         assignments = mapping.column_assignments  # list[dict] | None
 
         if assignments:
-            return self._map_row_from_assignments(row, assignments, mapping, run_id, account_id, row_num)
+            return self._map_row_from_assignments(
+                row, assignments, mapping, run_id, account_id, row_num
+            )
         return self._map_row_legacy(row, mapping, run_id, account_id, row_num)
 
     def _map_row_from_assignments(
@@ -483,7 +509,9 @@ class ImportService:
         return {
             "_csv_row_num": row_num,
             "_duplicate_sources": duplicate_sources,
-            "_duplicate_signature": _build_duplicate_signature(source_values, duplicate_sources),
+            "_duplicate_signature": _build_duplicate_signature(
+                source_values, duplicate_sources
+            ),
             "account_id": account_id,
             "import_run_id": run_id,
             "valuta_date": valuta_date,
@@ -511,6 +539,7 @@ class ImportService:
         row_num: int,
     ) -> dict | None:
         """Legacy-Mapping: ein Spaltenname pro Zielfeld (rückwärtskompatibel)."""
+
         def get(field: str | None) -> str | None:
             if field is None:
                 return None
@@ -549,7 +578,9 @@ class ImportService:
         return {
             "_csv_row_num": row_num,
             "_duplicate_sources": duplicate_sources,
-            "_duplicate_signature": _build_duplicate_signature(source_values, duplicate_sources),
+            "_duplicate_signature": _build_duplicate_signature(
+                source_values, duplicate_sources
+            ),
             "account_id": account_id,
             "import_run_id": run_id,
             "valuta_date": valuta_date,
@@ -595,12 +626,16 @@ class ImportService:
         excluded_accounts: frozenset[str] = frozenset()
         if account_id is not None:
             account_svc = AccountService(self._session)
-            excluded_ibans, excluded_accounts = await account_svc.get_excluded_sets(account_id)
+            excluded_ibans, excluded_accounts = await account_svc.get_excluded_sets(
+                account_id
+            )
 
         # Kennungen, die in diesem Lauf auf nahezu jeder Zeile stehen, duerfen nicht
         # automatisch an einen Partner angehaengt werden.
         no_enrich_ibans = _ubiquitous_values(rows, "partner_iban_raw", _normalize_iban)
-        no_enrich_accounts = _ubiquitous_values(rows, "partner_account_raw", _normalize_account)
+        no_enrich_accounts = _ubiquitous_values(
+            rows, "partner_account_raw", _normalize_account
+        )
         if no_enrich_ibans or no_enrich_accounts:
             log.info(
                 "import_ubiquitous_identifiers",
@@ -623,7 +658,11 @@ class ImportService:
         # uebernommen, ein versehentlich wiederholter Import aber vollstaendig
         # verworfen.
         duplicate_sources = next(
-            (row.get("_duplicate_sources") or [] for row in rows if row.get("_duplicate_sources")),
+            (
+                row.get("_duplicate_sources") or []
+                for row in rows
+                if row.get("_duplicate_sources")
+            ),
             [],
         )
         remaining_stored: Counter[tuple[tuple[str, str], ...]] = Counter()
@@ -641,7 +680,10 @@ class ImportService:
 
             current_signature = row.get("_duplicate_signature")
             is_duplicate = False
-            if current_signature is not None and remaining_stored[current_signature] > 0:
+            if (
+                current_signature is not None
+                and remaining_stored[current_signature] > 0
+            ):
                 # Fuer diese Signatur liegt noch eine gespeicherte Zeile vor, die
                 # nicht zugeordnet ist - die aktuelle gilt als deren Wiederholung.
                 remaining_stored[current_signature] -= 1
@@ -649,14 +691,16 @@ class ImportService:
 
             if is_duplicate:
                 skipped += 1
-                duplicates.append({
-                    "row": row.get("_csv_row_num"),
-                    "valuta_date": row["valuta_date"],
-                    "booking_date": row["booking_date"],
-                    "amount": row["amount"],
-                    "text": row.get("text"),
-                    "partner_name_raw": row.get("partner_name_raw"),
-                })
+                duplicates.append(
+                    {
+                        "row": row.get("_csv_row_num"),
+                        "valuta_date": row["valuta_date"],
+                        "booking_date": row["booking_date"],
+                        "amount": row["amount"],
+                        "text": row.get("text"),
+                        "partner_name_raw": row.get("partner_name_raw"),
+                    }
+                )
                 continue
 
             result = await matcher.match(
@@ -696,15 +740,17 @@ class ImportService:
             except IntegrityError:
                 await self._session.rollback()
                 skipped += 1
-                duplicates.append({
-                    "row": row.get("_csv_row_num"),
-                    "valuta_date": row["valuta_date"],
-                    "booking_date": row["booking_date"],
-                    "amount": row["amount"],
-                    "text": row.get("text"),
-                    "partner_name_raw": row.get("partner_name_raw"),
-                    "_reason": "integrity_error",
-                })
+                duplicates.append(
+                    {
+                        "row": row.get("_csv_row_num"),
+                        "valuta_date": row["valuta_date"],
+                        "booking_date": row["booking_date"],
+                        "amount": row["amount"],
+                        "text": row.get("text"),
+                        "partner_name_raw": row.get("partner_name_raw"),
+                        "_reason": "integrity_error",
+                    }
+                )
                 continue
 
             from app.services.service import ServiceManagementService
@@ -794,15 +840,21 @@ class ImportService:
 
     async def _load_mapping(self, account_id: UUID) -> ColumnMappingConfig | None:
         result = await self._session.exec(
-            select(ColumnMappingConfig).where(ColumnMappingConfig.account_id == account_id)
+            select(ColumnMappingConfig).where(
+                ColumnMappingConfig.account_id == account_id
+            )
         )
         return result.first()
 
-    async def get_run(self, run_id: UUID, account_id: UUID, mandant_id: UUID) -> ImportRun:
+    async def get_run(
+        self, run_id: UUID, account_id: UUID, mandant_id: UUID
+    ) -> ImportRun:
         await self._require_account(account_id, mandant_id)
         run = await self._session.get(ImportRun, run_id)
         if run is None or run.account_id != account_id or run.mandant_id != mandant_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Import run not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Import run not found"
+            )
         return run
 
     async def list_runs(

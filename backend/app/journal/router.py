@@ -6,8 +6,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import require_mandant_access, require_role
 from app.auth.models import User
 from app.core.database import get_session
-from app.journal.schemas import AccountBalancesResponse, AssignServiceRequest, LiquidityResponse, BulkAssignRequest, BulkAssignResponse, IncomeExpenseMatrixResponse, JournalLineResponse, JournalYearsResponse, PaginatedJournalResponse, SORTABLE_COLUMNS
 from app.forecast.rules import Scenario
+from app.journal.schemas import (
+    SORTABLE_COLUMNS,
+    AccountBalancesResponse,
+    AssignServiceRequest,
+    BulkAssignRequest,
+    BulkAssignResponse,
+    IncomeExpenseMatrixResponse,
+    JournalLineResponse,
+    JournalYearsResponse,
+    LiquidityResponse,
+    PaginatedJournalResponse,
+)
 from app.journal.service import JournalService
 from app.partners.schemas import PaginatedAuditLogResponse
 from app.partners.service import AuditLogService
@@ -25,6 +36,7 @@ def _audit_svc(session: AsyncSession = Depends(get_session)) -> AuditLogService:
 
 
 # ─── Journal Lines ────────────────────────────────────────────────────────────
+
 
 @journal_router.get(
     "/{mandant_id}/journal",
@@ -159,10 +171,14 @@ async def assign_service_to_line(
 
 # ─── Audit Log ────────────────────────────────────────────────────────────────
 
+
 @audit_router.get(
     "/{mandant_id}/audit",
     response_model=PaginatedAuditLogResponse,
-    dependencies=[Depends(require_role("mandant_admin")), Depends(require_mandant_access)],
+    dependencies=[
+        Depends(require_role("mandant_admin")),
+        Depends(require_mandant_access),
+    ],
 )
 async def list_audit_log(
     mandant_id: UUID,

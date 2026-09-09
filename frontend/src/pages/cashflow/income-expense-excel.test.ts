@@ -123,7 +123,9 @@ describe('buildIncomeExpenseWorkbook', () => {
 
   it('setzt eine leere Gruppe auf 0 statt auf eine kaputte Formel', () => {
     const workbook = buildIncomeExpenseWorkbook(
-      makeInput([makeSheet({ groups: [{ name: 'Leere Gruppe', collapsed: false, services: [] }] })]),
+      makeInput([
+        makeSheet({ groups: [{ name: 'Leere Gruppe', collapsed: false, services: [] }] }),
+      ]),
     )
     const worksheet = workbook.worksheets[0]
 

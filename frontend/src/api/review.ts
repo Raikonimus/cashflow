@@ -38,7 +38,13 @@ export interface ReviewServiceSummary {
 }
 
 export interface NoPartnerDiagnosis {
-  iban?: { provided: boolean; excluded?: boolean; found?: boolean; normalized?: string; matches_partner_iban?: boolean }
+  iban?: {
+    provided: boolean
+    excluded?: boolean
+    found?: boolean
+    normalized?: string
+    matches_partner_iban?: boolean
+  }
   account?: { provided: boolean; excluded?: boolean; found?: boolean; normalized?: string }
   name?: { provided: boolean; found?: boolean; value?: string }
   service_matchers?: {
@@ -121,16 +127,10 @@ export async function listReviewItems(
   mandantId: string,
   params: ReviewListParams = {},
 ): Promise<PaginatedReviewItems> {
-  const {
-    status = 'open',
-    page = 1,
-    size = 20,
-    itemType,
-  } = params
-  const resp = await apiClient.get<PaginatedReviewItems>(
-    `/mandants/${mandantId}/review`,
-    { params: { status, page, size, item_type: itemType } },
-  )
+  const { status = 'open', page = 1, size = 20, itemType } = params
+  const resp = await apiClient.get<PaginatedReviewItems>(`/mandants/${mandantId}/review`, {
+    params: { status, page, size, item_type: itemType },
+  })
   return resp.data
 }
 
@@ -138,47 +138,27 @@ export async function listReviewArchive(
   mandantId: string,
   params: ReviewArchiveParams = {},
 ): Promise<PaginatedReviewItems> {
-  const {
-    itemType,
-    resolvedByUserId,
-    resolvedFrom,
-    resolvedTo,
-    page = 1,
-    size = 20,
-  } = params
-  const resp = await apiClient.get<PaginatedReviewItems>(
-    `/mandants/${mandantId}/review/archive`,
-    {
-      params: {
-        item_type: itemType,
-        resolved_by_user_id: resolvedByUserId,
-        resolved_from: resolvedFrom,
-        resolved_to: resolvedTo,
-        page,
-        size,
-      },
+  const { itemType, resolvedByUserId, resolvedFrom, resolvedTo, page = 1, size = 20 } = params
+  const resp = await apiClient.get<PaginatedReviewItems>(`/mandants/${mandantId}/review/archive`, {
+    params: {
+      item_type: itemType,
+      resolved_by_user_id: resolvedByUserId,
+      resolved_from: resolvedFrom,
+      resolved_to: resolvedTo,
+      page,
+      size,
     },
-  )
+  })
   return resp.data
 }
 
-export async function getReviewItem(
-  mandantId: string,
-  itemId: string,
-): Promise<ReviewItem> {
-  const resp = await apiClient.get<ReviewItem>(
-    `/mandants/${mandantId}/review/${itemId}`,
-  )
+export async function getReviewItem(mandantId: string, itemId: string): Promise<ReviewItem> {
+  const resp = await apiClient.get<ReviewItem>(`/mandants/${mandantId}/review/${itemId}`)
   return resp.data
 }
 
-export async function confirmReviewItem(
-  mandantId: string,
-  itemId: string,
-): Promise<ReviewItem> {
-  const resp = await apiClient.post<ReviewItem>(
-    `/mandants/${mandantId}/review/${itemId}/confirm`,
-  )
+export async function confirmReviewItem(mandantId: string, itemId: string): Promise<ReviewItem> {
+  const resp = await apiClient.post<ReviewItem>(`/mandants/${mandantId}/review/${itemId}/confirm`)
   return resp.data
 }
 
@@ -200,13 +180,8 @@ export async function adjustReviewItem(
   return resp.data
 }
 
-export async function rejectReviewItem(
-  mandantId: string,
-  itemId: string,
-): Promise<ReviewItem> {
-  const resp = await apiClient.post<ReviewItem>(
-    `/mandants/${mandantId}/review/${itemId}/reject`,
-  )
+export async function rejectReviewItem(mandantId: string, itemId: string): Promise<ReviewItem> {
+  const resp = await apiClient.post<ReviewItem>(`/mandants/${mandantId}/review/${itemId}/reject`)
   return resp.data
 }
 

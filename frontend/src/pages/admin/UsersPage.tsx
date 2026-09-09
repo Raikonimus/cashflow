@@ -22,14 +22,17 @@ export function UsersPage() {
   const [editingUser, setEditingUser] = useState<UserListItem | null>(null)
   const queryClient = useQueryClient()
 
-  const { data: users = [], isLoading, isError } = useQuery({
+  const {
+    data: users = [],
+    isLoading,
+    isError,
+  } = useQuery({
     queryKey: ['users'],
     queryFn: listUsers,
   })
 
   const toggleActive = useMutation({
-    mutationFn: (user: UserListItem) =>
-      updateUser(user.id, { is_active: !user.is_active }),
+    mutationFn: (user: UserListItem) => updateUser(user.id, { is_active: !user.is_active }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] }),
   })
 
@@ -94,9 +97,7 @@ export function UsersPage() {
             {users.map((u) => (
               <tr key={u.id} className="hover:bg-gray-50">
                 <td className="px-4 py-3 font-medium text-gray-900">{u.email}</td>
-                <td className="px-4 py-3 text-gray-600">
-                  {ROLE_LABELS[u.role] ?? u.role}
-                </td>
+                <td className="px-4 py-3 text-gray-600">{ROLE_LABELS[u.role] ?? u.role}</td>
                 <td className="px-4 py-3 text-gray-500 text-xs">
                   {INV_LABELS[u.invitation_status] ?? u.invitation_status}
                 </td>
@@ -114,7 +115,11 @@ export function UsersPage() {
                   </button>
                 </td>
                 <td className="px-4 py-3 text-gray-400">
-                  {u.created_at ? new Date(u.created_at + 'Z').toLocaleDateString('de-DE', { timeZone: 'Europe/Vienna' }) : '–'}
+                  {u.created_at
+                    ? new Date(u.created_at + 'Z').toLocaleDateString('de-DE', {
+                        timeZone: 'Europe/Vienna',
+                      })
+                    : '–'}
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex justify-end gap-2">
@@ -140,9 +145,7 @@ export function UsersPage() {
       </div>
 
       {showCreate && <UserDialog onClose={() => setShowCreate(false)} />}
-      {editingUser && (
-        <UserDialog user={editingUser} onClose={() => setEditingUser(null)} />
-      )}
+      {editingUser && <UserDialog user={editingUser} onClose={() => setEditingUser(null)} />}
     </div>
   )
 }

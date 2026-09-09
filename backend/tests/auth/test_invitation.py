@@ -4,11 +4,12 @@ POST /api/v1/auth/accept-invitation
 POST /api/v1/users/:id/resend-invitation
 (Story 006-user-invitation)
 """
-import pytest
 
-from tests.auth.conftest import assign_user_to_mandant, create_mandant, create_user
+from datetime import UTC
+
 from app.auth.models import UserInvitation, UserRole
 from app.auth.security import generate_raw_token, hash_token
+from tests.auth.conftest import create_user
 
 
 async def _admin_token(client, db_session) -> str:
@@ -19,7 +20,9 @@ async def _admin_token(client, db_session) -> str:
     return resp.json()["access_token"]
 
 
-async def _create_invited_user(client, token: str, email: str = "invited@example.com") -> dict:
+async def _create_invited_user(
+    client, token: str, email: str = "invited@example.com"
+) -> dict:
     resp = await client.post(
         "/api/v1/users",
         json={"email": email, "role": "viewer"},
@@ -31,12 +34,13 @@ async def _create_invited_user(client, token: str, email: str = "invited@example
 
 async def _get_raw_token_from_db(db_session, user_id) -> str:
     """Helper: generate + insert a valid invitation token directly."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
+
     raw = generate_raw_token()
     inv = UserInvitation(
         user_id=user_id,
         token_hash=hash_token(raw),
-        expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+        expires_at=datetime.now(UTC) + timedelta(days=7),
     )
     db_session.add(inv)
     await db_session.commit()
@@ -51,12 +55,15 @@ class TestCreateUserSendsInvitation:
 
     async def test_new_user_has_no_password(self, client, db_session):
         from sqlmodel import select
+
         from app.auth.models import User
 
         token = await _admin_token(client, db_session)
         data = await _create_invited_user(client, token)
 
-        result = await db_session.exec(select(User).where(User.email == "invited@example.com"))
+        result = await db_session.exec(
+            select(User).where(User.email == "invited@example.com")
+        )
         user = result.first()
         assert user.password_hash is None
 
@@ -78,7 +85,9 @@ class TestAcceptInvitation:
         user_data = await _create_invited_user(client, token)
 
         from sqlmodel import select
+
         from app.auth.models import User
+
         result = await db_session.exec(
             select(User).where(User.email == "invited@example.com")
         )
@@ -86,8 +95,12 @@ class TestAcceptInvitation:
 
         # Clear existing invitation and insert one we control
         from sqlmodel import select as sel
+
         from app.auth.models import UserInvitation
-        invs = await db_session.exec(sel(UserInvitation).where(UserInvitation.user_id == user.id))
+
+        invs = await db_session.exec(
+            sel(UserInvitation).where(UserInvitation.user_id == user.id)
+        )
         for inv in invs.all():
             await db_session.delete(inv)
         await db_session.commit()
@@ -108,19 +121,24 @@ class TestAcceptInvitation:
         assert login.status_code == 200
 
     async def test_accept_with_expired_token_returns_400(self, client, db_session):
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
+
         token = await _admin_token(client, db_session)
         user_data = await _create_invited_user(client, token)
 
         from sqlmodel import select
+
         from app.auth.models import User, UserInvitation
+
         result = await db_session.exec(
             select(User).where(User.email == "invited@example.com")
         )
         user = result.first()
 
         # Clear and insert expired token
-        invs = await db_session.exec(select(UserInvitation).where(UserInvitation.user_id == user.id))
+        invs = await db_session.exec(
+            select(UserInvitation).where(UserInvitation.user_id == user.id)
+        )
         for inv in invs.all():
             await db_session.delete(inv)
         await db_session.commit()
@@ -129,7 +147,7 @@ class TestAcceptInvitation:
         expired_inv = UserInvitation(
             user_id=user.id,
             token_hash=hash_token(raw),
-            expires_at=datetime.now(timezone.utc) - timedelta(seconds=1),
+            expires_at=datetime.now(UTC) - timedelta(seconds=1),
         )
         db_session.add(expired_inv)
         await db_session.commit()
@@ -142,9 +160,9 @@ class TestAcceptInvitation:
         assert "expired" in resp.json()["detail"].lower()
 
     async def test_accept_already_used_token_returns_400(self, client, db_session):
-        from datetime import datetime, timedelta, timezone
-        from app.auth.models import User, UserInvitation
         from sqlmodel import select
+
+        from app.auth.models import User, UserInvitation
 
         token = await _admin_token(client, db_session)
         await _create_invited_user(client, token)
@@ -154,7 +172,9 @@ class TestAcceptInvitation:
         )
         user = result.first()
 
-        invs = await db_session.exec(select(UserInvitation).where(UserInvitation.user_id == user.id))
+        invs = await db_session.exec(
+            select(UserInvitation).where(UserInvitation.user_id == user.id)
+        )
         for inv in invs.all():
             await db_session.delete(inv)
         await db_session.commit()
@@ -184,7 +204,8 @@ class TestAcceptInvitation:
 class TestResendInvitation:
     async def test_resend_creates_new_invitation(self, client, db_session):
         from sqlmodel import select
-        from app.auth.models import User, UserInvitation
+
+        from app.auth.models import User
 
         adm_token = await _admin_token(client, db_session)
         user_data = await _create_invited_user(client, adm_token)
@@ -202,6 +223,7 @@ class TestResendInvitation:
 
     async def test_resend_for_accepted_user_returns_400(self, client, db_session):
         from sqlmodel import select
+
         from app.auth.models import User, UserInvitation
 
         adm_token = await _admin_token(client, db_session)
@@ -216,9 +238,10 @@ class TestResendInvitation:
         invs = await db_session.exec(
             select(UserInvitation).where(UserInvitation.user_id == user.id)
         )
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         for inv in invs.all():
-            inv.accepted_at = datetime.now(timezone.utc)
+            inv.accepted_at = datetime.now(UTC)
             db_session.add(inv)
         await db_session.commit()
 

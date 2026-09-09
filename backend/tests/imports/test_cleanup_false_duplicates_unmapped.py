@@ -48,8 +48,12 @@ async def test_cleanup_plan_keeps_baseline_and_moves_reviews(db_session):
     await db_session.refresh(baseline_run)
     await db_session.refresh(enriched_run)
 
-    keep_line = JournalLine(import_run_id=baseline_run.id, unmapped_data=None, **base_group)
-    extra_baseline = JournalLine(import_run_id=baseline_run.id, unmapped_data="null", **base_group)
+    keep_line = JournalLine(
+        import_run_id=baseline_run.id, unmapped_data=None, **base_group
+    )
+    extra_baseline = JournalLine(
+        import_run_id=baseline_run.id, unmapped_data="null", **base_group
+    )
     enriched_line = JournalLine(
         import_run_id=enriched_run.id,
         unmapped_data={"Eigene IBAN": "AT112011184376189300"},
@@ -87,7 +91,10 @@ async def test_cleanup_plan_keeps_baseline_and_moves_reviews(db_session):
     delete_rows = [row for row in plan if row.action == "delete"]
     assert len(keep_rows) == 1
     assert keep_rows[0].journal_line_id == keep_line.id
-    assert {row.journal_line_id for row in delete_rows} == {extra_baseline.id, enriched_line.id}
+    assert {row.journal_line_id for row in delete_rows} == {
+        extra_baseline.id,
+        enriched_line.id,
+    }
 
     result = await apply_cleanup_plan(db_session, plan)
     assert result["groups"] == 1

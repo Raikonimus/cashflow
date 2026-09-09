@@ -1,6 +1,5 @@
 from datetime import datetime
-from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -16,7 +15,7 @@ class ImportRunListItem(BaseModel):
     error_count: int
     status: ImportStatus
     created_at: datetime
-    completed_at: Optional[datetime]
+    completed_at: datetime | None
 
     model_config = {"from_attributes": True}
 
@@ -24,7 +23,7 @@ class ImportRunListItem(BaseModel):
 class ImportRunDetailResponse(ImportRunListItem):
     account_id: UUID
     user_id: UUID
-    error_details: Optional[Any]
+    error_details: Any | None
 
     model_config = {"from_attributes": True}
 

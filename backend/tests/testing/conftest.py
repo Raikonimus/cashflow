@@ -1,4 +1,5 @@
 """Fixtures for testing module tests."""
+
 # pylint: disable=unused-import
 from tests.journal import (  # noqa: F401
     assign_user_to_mandant,

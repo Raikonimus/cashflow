@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, field_validator
@@ -57,7 +56,7 @@ class UserResponse(BaseModel):
     id: UUID
     email: str
     role: UserRole
-    mandant_id: Optional[UUID] = None
+    mandant_id: UUID | None = None
     is_active: bool
 
 
@@ -67,9 +66,9 @@ class CreateUserRequest(BaseModel):
 
 
 class UpdateUserRequest(BaseModel):
-    email: Optional[EmailStr] = None
-    role: Optional[UserRole] = None
-    is_active: Optional[bool] = None
+    email: EmailStr | None = None
+    role: UserRole | None = None
+    is_active: bool | None = None
 
 
 class UserDetailResponse(BaseModel):

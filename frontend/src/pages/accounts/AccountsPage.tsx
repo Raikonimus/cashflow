@@ -6,7 +6,11 @@ import { listAccounts } from '@/api/accounts'
 export function AccountsPage() {
   const mandantId = useAuthStore((s) => s.user?.mandant_id ?? '')
 
-  const { data: accounts = [], isLoading, isError } = useQuery({
+  const {
+    data: accounts = [],
+    isLoading,
+    isError,
+  } = useQuery({
     queryKey: ['accounts', mandantId],
     queryFn: () => listAccounts(mandantId),
     enabled: !!mandantId,

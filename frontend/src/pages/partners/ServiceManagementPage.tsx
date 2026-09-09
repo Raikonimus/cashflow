@@ -22,7 +22,16 @@ import {
 } from '@/api/services'
 import { getPartner } from '@/api/partners'
 
-const serviceTypeLabels: Record<'customer' | 'supplier' | 'employee' | 'shareholder' | 'authority' | 'internal_transfer' | 'unknown', string> = {
+const serviceTypeLabels: Record<
+  | 'customer'
+  | 'supplier'
+  | 'employee'
+  | 'shareholder'
+  | 'authority'
+  | 'internal_transfer'
+  | 'unknown',
+  string
+> = {
   customer: 'Kunde',
   supplier: 'Lieferant',
   employee: 'Mitarbeiter',
@@ -35,7 +44,14 @@ const serviceTypeLabels: Record<'customer' | 'supplier' | 'employee' | 'sharehol
 type ServiceFormState = {
   name: string
   description: string
-  service_type: 'customer' | 'supplier' | 'employee' | 'shareholder' | 'authority' | 'internal_transfer' | 'unknown'
+  service_type:
+    | 'customer'
+    | 'supplier'
+    | 'employee'
+    | 'shareholder'
+    | 'authority'
+    | 'internal_transfer'
+    | 'unknown'
   tax_rate: string
   erfolgsneutral: boolean
   valid_from: string
@@ -160,7 +176,11 @@ export function ServiceManagementPage() {
     }))
   }
 
-  const { data: partner, isLoading: partnerLoading, isError: partnerError } = useQuery({
+  const {
+    data: partner,
+    isLoading: partnerLoading,
+    isError: partnerError,
+  } = useQuery({
     queryKey: ['partner', mandantId, partnerId],
     queryFn: () => getPartner(mandantId, partnerId!),
     enabled: !!mandantId && !!partnerId,
@@ -185,22 +205,29 @@ export function ServiceManagementPage() {
       setShowCreateForm(false)
       setFormError(null)
       setMatcherError(null)
-      setNotice('Leistung gespeichert. Bitte prüfe die neu erzeugten Vorschläge in der Review-Queue.')
+      setNotice(
+        'Leistung gespeichert. Bitte prüfe die neu erzeugten Vorschläge in der Review-Queue.',
+      )
       await refreshServices()
     },
-    onError: (error) => setFormError(extractErrorMessage(error, 'Die Änderung konnte nicht gespeichert werden.')),
+    onError: (error) =>
+      setFormError(extractErrorMessage(error, 'Die Änderung konnte nicht gespeichert werden.')),
   })
 
   const updateMutation = useMutation({
-    mutationFn: (serviceId: string) => updateService(mandantId, serviceId, toUpdatePayload(editForm)),
+    mutationFn: (serviceId: string) =>
+      updateService(mandantId, serviceId, toUpdatePayload(editForm)),
     onSuccess: async () => {
       setEditingServiceId(null)
       setFormError(null)
       setMatcherError(null)
-      setNotice('Leistung aktualisiert. Bitte prüfe die neu erzeugten Vorschläge in der Review-Queue.')
+      setNotice(
+        'Leistung aktualisiert. Bitte prüfe die neu erzeugten Vorschläge in der Review-Queue.',
+      )
       await refreshServices()
     },
-    onError: (error) => setFormError(extractErrorMessage(error, 'Die Änderung konnte nicht gespeichert werden.')),
+    onError: (error) =>
+      setFormError(extractErrorMessage(error, 'Die Änderung konnte nicht gespeichert werden.')),
   })
 
   const deleteMutation = useMutation({
@@ -211,12 +238,18 @@ export function ServiceManagementPage() {
       setNotice('Leistung gelöscht. Bitte prüfe die neu erzeugten Vorschläge in der Review-Queue.')
       await refreshServices()
     },
-    onError: (error) => setFormError(extractErrorMessage(error, 'Die Änderung konnte nicht gespeichert werden.')),
+    onError: (error) =>
+      setFormError(extractErrorMessage(error, 'Die Änderung konnte nicht gespeichert werden.')),
   })
 
   const createMatcherMutation = useMutation({
-    mutationFn: ({ serviceId, payload }: { serviceId: string; payload: CreateServiceMatcherPayload }) =>
-      createServiceMatcher(mandantId, serviceId, payload),
+    mutationFn: ({
+      serviceId,
+      payload,
+    }: {
+      serviceId: string
+      payload: CreateServiceMatcherPayload
+    }) => createServiceMatcher(mandantId, serviceId, payload),
     onSuccess: async (_, variables) => {
       setCreateMatcherForms((current) => ({
         ...current,
@@ -229,12 +262,20 @@ export function ServiceManagementPage() {
       setNotice('Matcher gespeichert. Buchungszeilen wurden automatisch neu zugewiesen.')
       await refreshServices()
     },
-    onError: (error) => setMatcherError(extractErrorMessage(error, 'Die Änderung konnte nicht gespeichert werden.')),
+    onError: (error) =>
+      setMatcherError(extractErrorMessage(error, 'Die Änderung konnte nicht gespeichert werden.')),
   })
 
   const updateMatcherMutation = useMutation({
-    mutationFn: ({ serviceId, matcherId, payload }: { serviceId: string; matcherId: string; payload: CreateServiceMatcherPayload }) =>
-      updateServiceMatcher(mandantId, serviceId, matcherId, payload),
+    mutationFn: ({
+      serviceId,
+      matcherId,
+      payload,
+    }: {
+      serviceId: string
+      matcherId: string
+      payload: CreateServiceMatcherPayload
+    }) => updateServiceMatcher(mandantId, serviceId, matcherId, payload),
     onSuccess: async () => {
       setEditingMatcherId(null)
       setEditMatcherForm(emptyMatcherForm)
@@ -243,7 +284,8 @@ export function ServiceManagementPage() {
       setNotice('Matcher aktualisiert. Buchungszeilen wurden automatisch neu zugewiesen.')
       await refreshServices()
     },
-    onError: (error) => setMatcherError(extractErrorMessage(error, 'Die Änderung konnte nicht gespeichert werden.')),
+    onError: (error) =>
+      setMatcherError(extractErrorMessage(error, 'Die Änderung konnte nicht gespeichert werden.')),
   })
 
   const deleteMatcherMutation = useMutation({
@@ -255,12 +297,18 @@ export function ServiceManagementPage() {
       setNotice('Matcher gelöscht. Bitte prüfe die neu erzeugten Vorschläge in der Review-Queue.')
       await refreshServices()
     },
-    onError: (error) => setMatcherError(extractErrorMessage(error, 'Die Änderung konnte nicht gespeichert werden.')),
+    onError: (error) =>
+      setMatcherError(extractErrorMessage(error, 'Die Änderung konnte nicht gespeichert werden.')),
   })
 
   const previewMatcherMutation = useMutation({
-    mutationFn: ({ serviceId, payload }: { serviceId: string; payload: CreateServiceMatcherPayload }) =>
-      previewServiceMatcher(mandantId, serviceId, payload),
+    mutationFn: ({
+      serviceId,
+      payload,
+    }: {
+      serviceId: string
+      payload: CreateServiceMatcherPayload
+    }) => previewServiceMatcher(mandantId, serviceId, payload),
     onSuccess: (data, variables) => {
       setPreviewForServiceId(variables.serviceId)
       setPreviewResult(data)
@@ -292,9 +340,13 @@ export function ServiceManagementPage() {
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">
       <div className="mb-2 text-sm text-gray-400">
-        <Link to="/partners" className="hover:underline">Partner</Link>
+        <Link to="/partners" className="hover:underline">
+          Partner
+        </Link>
         {' / '}
-        <Link to={`/partners/${partnerId}`} className="hover:underline">{partner.display_name ?? partner.name}</Link>
+        <Link to={`/partners/${partnerId}`} className="hover:underline">
+          {partner.display_name ?? partner.name}
+        </Link>
         {' / Leistungen'}
       </div>
 
@@ -302,7 +354,8 @@ export function ServiceManagementPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Leistungen verwalten</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Pflege von Leistungen, Geltungszeiträumen und Basisleistungs-Schutz für {partner.display_name ?? partner.name}.
+            Pflege von Leistungen, Geltungszeiträumen und Basisleistungs-Schutz für{' '}
+            {partner.display_name ?? partner.name}.
           </p>
         </div>
         <Link
@@ -349,7 +402,10 @@ export function ServiceManagementPage() {
           {showCreateForm && (
             <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
               <h2 className="text-base font-semibold text-gray-800">Neue Leistung</h2>
-              <p className="mt-1 text-sm text-gray-500">Neue Leistungen können mit optionalem Geltungszeitraum angelegt werden. Ohne Datumsangaben ist die Leistung immer gültig.</p>
+              <p className="mt-1 text-sm text-gray-500">
+                Neue Leistungen können mit optionalem Geltungszeitraum angelegt werden. Ohne
+                Datumsangaben ist die Leistung immer gültig.
+              </p>
               <ServiceForm
                 form={createForm}
                 onChange={setCreateForm}
@@ -373,7 +429,10 @@ export function ServiceManagementPage() {
           const isExpanded = expandedServiceIds[service.id] ?? false
 
           return (
-            <section key={service.id} className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
+            <section
+              key={service.id}
+              className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md"
+            >
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -400,24 +459,44 @@ export function ServiceManagementPage() {
                   )}
                   <div className="mt-3 grid gap-2 text-sm text-gray-600 sm:grid-cols-2 xl:grid-cols-4">
                     <div className="rounded-xl bg-gray-50 px-3 py-2">
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Zeitraum</div>
-                      <div className="mt-1 font-medium text-gray-700">{formatDateRange(service)}</div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                        Zeitraum
+                      </div>
+                      <div className="mt-1 font-medium text-gray-700">
+                        {formatDateRange(service)}
+                      </div>
                     </div>
                     <div className="rounded-xl bg-gray-50 px-3 py-2">
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Erfolgsneutral</div>
-                      <div className="mt-1 font-medium text-gray-700">{service.erfolgsneutral ? 'Ja' : 'Nein'}</div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                        Erfolgsneutral
+                      </div>
+                      <div className="mt-1 font-medium text-gray-700">
+                        {service.erfolgsneutral ? 'Ja' : 'Nein'}
+                      </div>
                     </div>
                     <div className="rounded-xl bg-gray-50 px-3 py-2">
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Partner</div>
-                      <div className="mt-1 font-medium text-gray-700">{partner.display_name ?? partner.name}</div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                        Partner
+                      </div>
+                      <div className="mt-1 font-medium text-gray-700">
+                        {partner.display_name ?? partner.name}
+                      </div>
                     </div>
                     <div className="rounded-xl bg-gray-50 px-3 py-2">
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Status</div>
-                      <div className="mt-1 font-medium text-gray-700">{partner.is_active ? 'Aktiv' : 'Inaktiv'}</div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                        Status
+                      </div>
+                      <div className="mt-1 font-medium text-gray-700">
+                        {partner.is_active ? 'Aktiv' : 'Inaktiv'}
+                      </div>
                     </div>
                     <div className="rounded-xl bg-gray-50 px-3 py-2">
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Buchungszeilen</div>
-                      <div className="mt-1 font-medium text-gray-700">{service.journal_line_count}</div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                        Buchungszeilen
+                      </div>
+                      <div className="mt-1 font-medium text-gray-700">
+                        {service.journal_line_count}
+                      </div>
                     </div>
                   </div>
                   {service.is_base_service && (
@@ -467,7 +546,9 @@ export function ServiceManagementPage() {
                       <div className="mb-3 flex items-start justify-between gap-3">
                         <div>
                           <h3 className="text-sm font-semibold text-gray-900">Stammdaten</h3>
-                          <p className="text-xs text-gray-500">Typ, Steuerlogik und Gültigkeit der Leistung.</p>
+                          <p className="text-xs text-gray-500">
+                            Typ, Steuerlogik und Gültigkeit der Leistung.
+                          </p>
                         </div>
                         {!isEditing && !isReadOnly && partner.is_active && (
                           <button
@@ -502,20 +583,36 @@ export function ServiceManagementPage() {
                       ) : (
                         <dl className="grid gap-3 sm:grid-cols-2">
                           <div className="rounded-lg bg-white px-3 py-3">
-                            <dt className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Typ</dt>
-                            <dd className="mt-1 text-sm font-medium text-gray-700">{serviceTypeLabels[service.service_type]}</dd>
+                            <dt className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                              Typ
+                            </dt>
+                            <dd className="mt-1 text-sm font-medium text-gray-700">
+                              {serviceTypeLabels[service.service_type]}
+                            </dd>
                           </div>
                           <div className="rounded-lg bg-white px-3 py-3">
-                            <dt className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Steuer</dt>
-                            <dd className="mt-1 text-sm font-medium text-gray-700">{service.tax_rate}%</dd>
+                            <dt className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                              Steuer
+                            </dt>
+                            <dd className="mt-1 text-sm font-medium text-gray-700">
+                              {service.tax_rate}%
+                            </dd>
                           </div>
                           <div className="rounded-lg bg-white px-3 py-3">
-                            <dt className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Zeitraum</dt>
-                            <dd className="mt-1 text-sm font-medium text-gray-700">{formatDateRange(service)}</dd>
+                            <dt className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                              Zeitraum
+                            </dt>
+                            <dd className="mt-1 text-sm font-medium text-gray-700">
+                              {formatDateRange(service)}
+                            </dd>
                           </div>
                           <div className="rounded-lg bg-white px-3 py-3">
-                            <dt className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Erfolgsneutral</dt>
-                            <dd className="mt-1 text-sm font-medium text-gray-700">{service.erfolgsneutral ? 'Ja' : 'Nein'}</dd>
+                            <dt className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                              Erfolgsneutral
+                            </dt>
+                            <dd className="mt-1 text-sm font-medium text-gray-700">
+                              {service.erfolgsneutral ? 'Ja' : 'Nein'}
+                            </dd>
                           </div>
                         </dl>
                       )}
@@ -587,8 +684,15 @@ export function ServiceManagementPage() {
                           previewMatcherMutation.mutate({ serviceId: service.id, payload })
                         }}
                         previewResult={previewForServiceId === service.id ? previewResult : null}
-                        previewLoading={previewMatcherMutation.isPending && previewMatcherMutation.variables?.serviceId === service.id}
-                        busy={createMatcherMutation.isPending || updateMatcherMutation.isPending || deleteMatcherMutation.isPending}
+                        previewLoading={
+                          previewMatcherMutation.isPending &&
+                          previewMatcherMutation.variables?.serviceId === service.id
+                        }
+                        busy={
+                          createMatcherMutation.isPending ||
+                          updateMatcherMutation.isPending ||
+                          deleteMatcherMutation.isPending
+                        }
                       />
                     </div>
                   </div>
@@ -634,23 +738,19 @@ function ServiceJournalSection({
     setSortDir('desc')
   }
 
-  const {
-    data,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-    isLoading,
-  } = useInfiniteQuery({
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } = useInfiniteQuery({
     queryKey: ['service-journal', mandantId, serviceId, sortBy, sortDir],
-    queryFn: ({ pageParam = 1 }) => listJournalLines(mandantId, {
-      service_id: serviceId,
-      page: pageParam as number,
-      size: JOURNAL_PAGE_SIZE,
-      sort_by: sortBy,
-      sort_dir: sortDir,
-    }),
+    queryFn: ({ pageParam = 1 }) =>
+      listJournalLines(mandantId, {
+        service_id: serviceId,
+        page: pageParam as number,
+        size: JOURNAL_PAGE_SIZE,
+        sort_by: sortBy,
+        sort_dir: sortDir,
+      }),
     initialPageParam: 1,
-    getNextPageParam: (lastPage) => (lastPage.page < lastPage.pages ? lastPage.page + 1 : undefined),
+    getNextPageParam: (lastPage) =>
+      lastPage.page < lastPage.pages ? lastPage.page + 1 : undefined,
     enabled: enabled && !!mandantId && !!serviceId,
   })
 
@@ -710,8 +810,12 @@ function ServiceJournalSection({
     <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
       <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
         <div>
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Buchungszeilen</h3>
-          <p className="text-xs text-gray-400">Alle aktuell dieser Leistung zugeordneten Buchungszeilen für {serviceName}.</p>
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+            Buchungszeilen
+          </h3>
+          <p className="text-xs text-gray-400">
+            Alle aktuell dieser Leistung zugeordneten Buchungszeilen für {serviceName}.
+          </p>
         </div>
         <div className="flex items-center gap-3">
           {total > 0 && <span className="text-xs text-gray-400">{total} gesamt</span>}
@@ -743,16 +847,28 @@ function ServiceJournalSection({
         <table className="w-full table-fixed text-sm">
           <thead className="bg-gray-50 text-xs font-medium uppercase text-gray-500">
             <tr>
-              <th className="cursor-pointer select-none px-4 py-2 text-left hover:bg-gray-100" onClick={() => toggleSort('valuta_date')}>
+              <th
+                className="cursor-pointer select-none px-4 py-2 text-left hover:bg-gray-100"
+                onClick={() => toggleSort('valuta_date')}
+              >
                 Valuta{sortBy === 'valuta_date' ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ' ↕'}
               </th>
-              <th className="w-[46%] cursor-pointer select-none px-4 py-2 text-left hover:bg-gray-100" onClick={() => toggleSort('text')}>
+              <th
+                className="w-[46%] cursor-pointer select-none px-4 py-2 text-left hover:bg-gray-100"
+                onClick={() => toggleSort('text')}
+              >
                 Text{sortBy === 'text' ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ' ↕'}
               </th>
-              <th className="cursor-pointer select-none px-4 py-2 text-left hover:bg-gray-100" onClick={() => toggleSort('booking_date')}>
+              <th
+                className="cursor-pointer select-none px-4 py-2 text-left hover:bg-gray-100"
+                onClick={() => toggleSort('booking_date')}
+              >
                 Buchung{sortBy === 'booking_date' ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ' ↕'}
               </th>
-              <th className="cursor-pointer select-none px-4 py-2 text-right hover:bg-gray-100" onClick={() => toggleSort('amount')}>
+              <th
+                className="cursor-pointer select-none px-4 py-2 text-right hover:bg-gray-100"
+                onClick={() => toggleSort('amount')}
+              >
                 Betrag{sortBy === 'amount' ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ' ↕'}
               </th>
             </tr>
@@ -760,7 +876,10 @@ function ServiceJournalSection({
           <tbody>
             {yearGroups.map(([year, group]) => {
               const isOpen = expandedYears[year] ?? false
-              const yearSum = group.sum.toLocaleString('de-DE', { style: 'currency', currency: group.currency })
+              const yearSum = group.sum.toLocaleString('de-DE', {
+                style: 'currency',
+                currency: group.currency,
+              })
               return (
                 <>
                   <tr
@@ -772,41 +891,55 @@ function ServiceJournalSection({
                       <div className="flex items-center gap-2 font-semibold text-gray-800">
                         <span className="text-xs text-gray-400">{isOpen ? '▼' : '▶'}</span>
                         <span>{year}</span>
-                        <span className="text-xs font-normal text-gray-400">{group.lines.length} Zeile{group.lines.length !== 1 ? 'n' : ''}{hasNextPage ? '+' : ''}</span>
+                        <span className="text-xs font-normal text-gray-400">
+                          {group.lines.length} Zeile{group.lines.length !== 1 ? 'n' : ''}
+                          {hasNextPage ? '+' : ''}
+                        </span>
                       </div>
                     </td>
                     <td className="px-4 py-2 text-right" colSpan={2}>
-                      <span className={`font-semibold tabular-nums ${
-                        group.sum < 0 ? 'text-red-600' : 'text-green-700'
-                      }`}>{yearSum}</span>
+                      <span
+                        className={`font-semibold tabular-nums ${
+                          group.sum < 0 ? 'text-red-600' : 'text-green-700'
+                        }`}
+                      >
+                        {yearSum}
+                      </span>
                     </td>
                   </tr>
-                  {isOpen && group.lines.map((line) => (
-                    <tr key={line.id} className="border-t border-gray-100 hover:bg-gray-50">
-                      <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-gray-500">
-                        {line.valuta_date}
-                      </td>
-                      <td className="px-4 py-3 text-gray-700">
-                        <div className="line-clamp-2 break-words">
-                          {line.text ?? line.partner_name_raw ?? <em className="text-gray-400">—</em>}
-                        </div>
-                        {line.partner_name_raw && (
-                          <div className="mt-1 text-xs text-gray-400">Buchungsname: {line.partner_name_raw}</div>
-                        )}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-gray-500">
-                        {line.booking_date}
-                      </td>
-                      <td className={`whitespace-nowrap px-4 py-3 text-right font-mono text-sm ${
-                        Number(line.amount) < 0 ? 'text-red-600' : 'text-green-700'
-                      }`}>
-                        {Number(line.amount).toLocaleString('de-DE', {
-                          style: 'currency',
-                          currency: line.currency,
-                        })}
-                      </td>
-                    </tr>
-                  ))}
+                  {isOpen &&
+                    group.lines.map((line) => (
+                      <tr key={line.id} className="border-t border-gray-100 hover:bg-gray-50">
+                        <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-gray-500">
+                          {line.valuta_date}
+                        </td>
+                        <td className="px-4 py-3 text-gray-700">
+                          <div className="line-clamp-2 break-words">
+                            {line.text ?? line.partner_name_raw ?? (
+                              <em className="text-gray-400">—</em>
+                            )}
+                          </div>
+                          {line.partner_name_raw && (
+                            <div className="mt-1 text-xs text-gray-400">
+                              Buchungsname: {line.partner_name_raw}
+                            </div>
+                          )}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-gray-500">
+                          {line.booking_date}
+                        </td>
+                        <td
+                          className={`whitespace-nowrap px-4 py-3 text-right font-mono text-sm ${
+                            Number(line.amount) < 0 ? 'text-red-600' : 'text-green-700'
+                          }`}
+                        >
+                          {Number(line.amount).toLocaleString('de-DE', {
+                            style: 'currency',
+                            currency: line.currency,
+                          })}
+                        </td>
+                      </tr>
+                    ))}
                 </>
               )
             })}
@@ -867,7 +1000,8 @@ function MatcherSection({
         <div>
           <h3 className="text-sm font-semibold text-gray-900">Matcher</h3>
           <p className="text-xs text-gray-500">
-            String-Matcher suchen case-insensitiv per Textsuche, Regex-Matcher werden serverseitig validiert.
+            String-Matcher suchen case-insensitiv per Textsuche, Regex-Matcher werden serverseitig
+            validiert.
           </p>
         </div>
         <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
@@ -882,7 +1016,10 @@ function MatcherSection({
           {service.matchers.map((matcher) => {
             const isEditingMatcher = editingMatcherId === matcher.id
             return (
-              <div key={matcher.id} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-3">
+              <div
+                key={matcher.id}
+                className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-3"
+              >
                 {isEditingMatcher ? (
                   <MatcherForm
                     form={editForm}
@@ -897,7 +1034,9 @@ function MatcherSection({
                     <div>
                       <div className="flex items-center gap-2">
                         <code className="font-mono text-sm text-gray-800">{matcher.pattern}</code>
-                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${matcher.pattern_type === 'regex' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${matcher.pattern_type === 'regex' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}
+                        >
                           {matcher.pattern_type === 'regex' ? 'Regex' : 'String'}
                         </span>
                         {matcher.internal_only && (
@@ -950,7 +1089,8 @@ function MatcherSection({
           {previewResult !== null && (
             <div className="mt-4">
               <p className="text-sm font-medium text-gray-700">
-                Vorschau: {previewResult.total === 0
+                Vorschau:{' '}
+                {previewResult.total === 0
                   ? 'Kein Treffer — es würden keine Buchungszeilen neu dieser Leistung zugeordnet.'
                   : `${previewResult.total} Buchungszeile${previewResult.total !== 1 ? 'n' : ''} würde${previewResult.total !== 1 ? 'n' : ''} neu dieser Leistung zugeordnet`}
               </p>
@@ -963,35 +1103,74 @@ function MatcherSection({
                         <th className="px-3 py-2 text-left font-semibold text-gray-500">Datum</th>
                         <th className="px-3 py-2 text-right font-semibold text-gray-500">Betrag</th>
                         <th className="px-3 py-2 text-left font-semibold text-gray-500">Text</th>
-                        <th className="px-3 py-2 text-left font-semibold text-gray-500">Leistung</th>
-                        <th className="px-3 py-2 text-left font-semibold text-gray-500">Aktueller Partner</th>
-                        <th className="px-3 py-2 text-left font-semibold text-gray-500">Buchungsname</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-500">
+                          Leistung
+                        </th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-500">
+                          Aktueller Partner
+                        </th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-500">
+                          Buchungsname
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {[...previewResult.matched_lines]
-                        .sort((a, b) => Number(b.has_conflicting_partner_criteria) - Number(a.has_conflicting_partner_criteria))
+                        .sort(
+                          (a, b) =>
+                            Number(b.has_conflicting_partner_criteria) -
+                            Number(a.has_conflicting_partner_criteria),
+                        )
                         .map((line) => (
-                        <tr key={line.journal_line_id} className={line.has_conflicting_partner_criteria ? 'bg-red-50/40 hover:bg-red-50' : 'hover:bg-gray-50'}>
-                          <td className="whitespace-nowrap px-3 py-2">
-                            {line.has_conflicting_partner_criteria ? (
-                              <span className="rounded bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700" title={line.conflicting_partner_criteria.join(', ')}>
-                                Widerspruch
-                              </span>
-                            ) : (
-                              <span className="font-semibold text-green-700" title="Kein Widerspruch">✓</span>
-                            )}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-2 text-gray-700">{line.booking_date}</td>
-                          <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-gray-700">
-                            {parseFloat(line.amount).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {line.currency}
-                          </td>
-                          <td className="max-w-[200px] truncate px-3 py-2 text-gray-600">{line.text ?? '–'}</td>
-                          <td className="px-3 py-2 text-gray-700">{line.current_service_name ?? '–'}</td>
-                          <td className="px-3 py-2 text-gray-700">{line.current_partner_name ?? '–'}</td>
-                          <td className="px-3 py-2 text-gray-500">{line.partner_name_raw ?? '–'}</td>
-                        </tr>
-                      ))}
+                          <tr
+                            key={line.journal_line_id}
+                            className={
+                              line.has_conflicting_partner_criteria
+                                ? 'bg-red-50/40 hover:bg-red-50'
+                                : 'hover:bg-gray-50'
+                            }
+                          >
+                            <td className="whitespace-nowrap px-3 py-2">
+                              {line.has_conflicting_partner_criteria ? (
+                                <span
+                                  className="rounded bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700"
+                                  title={line.conflicting_partner_criteria.join(', ')}
+                                >
+                                  Widerspruch
+                                </span>
+                              ) : (
+                                <span
+                                  className="font-semibold text-green-700"
+                                  title="Kein Widerspruch"
+                                >
+                                  ✓
+                                </span>
+                              )}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 text-gray-700">
+                              {line.booking_date}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-gray-700">
+                              {parseFloat(line.amount).toLocaleString('de-DE', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}{' '}
+                              {line.currency}
+                            </td>
+                            <td className="max-w-[200px] truncate px-3 py-2 text-gray-600">
+                              {line.text ?? '–'}
+                            </td>
+                            <td className="px-3 py-2 text-gray-700">
+                              {line.current_service_name ?? '–'}
+                            </td>
+                            <td className="px-3 py-2 text-gray-700">
+                              {line.current_partner_name ?? '–'}
+                            </td>
+                            <td className="px-3 py-2 text-gray-500">
+                              {line.partner_name_raw ?? '–'}
+                            </td>
+                          </tr>
+                        ))}
                     </tbody>
                   </table>
                 </div>
@@ -1002,7 +1181,9 @@ function MatcherSection({
       )}
 
       {service.is_base_service && (
-        <p className="mt-3 text-xs text-gray-500">Für die Basisleistung sind keine Matcher erlaubt.</p>
+        <p className="mt-3 text-xs text-gray-500">
+          Für die Basisleistung sind keine Matcher erlaubt.
+        </p>
       )}
     </div>
   )
@@ -1036,7 +1217,9 @@ function MatcherForm({
     <div className="mt-3">
       <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
         <label className="text-sm text-gray-600">
-          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Pattern</span>
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Pattern
+          </span>
           <input
             value={form.pattern}
             onChange={(event) => onChange({ ...form, pattern: event.target.value })}
@@ -1045,10 +1228,17 @@ function MatcherForm({
           />
         </label>
         <label className="text-sm text-gray-600">
-          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Typ</span>
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Typ
+          </span>
           <select
             value={form.pattern_type}
-            onChange={(event) => onChange({ ...form, pattern_type: event.target.value as MatcherFormState['pattern_type'] })}
+            onChange={(event) =>
+              onChange({
+                ...form,
+                pattern_type: event.target.value as MatcherFormState['pattern_type'],
+              })
+            }
             className="w-full rounded border px-3 py-2 text-sm"
           >
             <option value="string">String</option>
@@ -1118,7 +1308,9 @@ function ServiceForm({
     <div>
       <div className="grid gap-4 md:grid-cols-2">
         <label className="text-sm text-gray-600">
-          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Name</span>
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Name
+          </span>
           <input
             value={form.name}
             onChange={(event) => onChange({ ...form, name: event.target.value })}
@@ -1129,20 +1321,31 @@ function ServiceForm({
         </label>
 
         <label className="text-sm text-gray-600">
-          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Typ</span>
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Typ
+          </span>
           <select
             value={form.service_type}
-            onChange={(event) => onChange({ ...form, service_type: event.target.value as ServiceFormState['service_type'] })}
+            onChange={(event) =>
+              onChange({
+                ...form,
+                service_type: event.target.value as ServiceFormState['service_type'],
+              })
+            }
             className="w-full rounded border px-3 py-2 text-sm"
           >
             {Object.entries(serviceTypeLabels).map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
+              <option key={value} value={value}>
+                {label}
+              </option>
             ))}
           </select>
         </label>
 
         <label className="text-sm text-gray-600 md:col-span-2">
-          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Beschreibung</span>
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Beschreibung
+          </span>
           <input
             value={form.description}
             onChange={(event) => onChange({ ...form, description: event.target.value })}
@@ -1152,7 +1355,9 @@ function ServiceForm({
         </label>
 
         <label className="text-sm text-gray-600">
-          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Steuersatz</span>
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Steuersatz
+          </span>
           <input
             value={form.tax_rate}
             onChange={(event) => onChange({ ...form, tax_rate: event.target.value })}
@@ -1173,7 +1378,9 @@ function ServiceForm({
         </label>
 
         <label className="text-sm text-gray-600">
-          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Gültig ab</span>
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Gültig ab
+          </span>
           <input
             type="date"
             value={form.valid_from}
@@ -1183,7 +1390,9 @@ function ServiceForm({
         </label>
 
         <label className="text-sm text-gray-600">
-          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Gültig bis</span>
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Gültig bis
+          </span>
           <input
             type="date"
             value={form.valid_to}
@@ -1209,7 +1418,9 @@ function ServiceForm({
       </div>
 
       {isDateInvalid && (
-        <p className="mt-3 text-sm text-red-600">Das Enddatum muss nach oder gleich dem Startdatum liegen.</p>
+        <p className="mt-3 text-sm text-red-600">
+          Das Enddatum muss nach oder gleich dem Startdatum liegen.
+        </p>
       )}
 
       <div className="mt-4 flex items-center gap-3">

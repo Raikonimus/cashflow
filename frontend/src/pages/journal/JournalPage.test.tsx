@@ -52,7 +52,15 @@ describe('JournalPage', () => {
               partner_name: 'Amazon EU',
               service_id: 'service-1',
               service_name: 'Hosting',
-              splits: [{ service_id: 'service-1', service_name: 'Hosting', amount: '-49.00', assignment_mode: 'manual', amount_consistency_ok: false }],
+              splits: [
+                {
+                  service_id: 'service-1',
+                  service_name: 'Hosting',
+                  amount: '-49.00',
+                  assignment_mode: 'manual',
+                  amount_consistency_ok: false,
+                },
+              ],
               valuta_date: '2026-04-01',
               booking_date: '2026-04-01',
               amount: '-49.00',
@@ -73,7 +81,9 @@ describe('JournalPage', () => {
           pages: 1,
         }),
       ),
-      http.get(`/api/v1/mandants/${MANDANT_ID}/journal/years`, () => HttpResponse.json({ years: [2026] })),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/journal/years`, () =>
+        HttpResponse.json({ years: [2026] }),
+      ),
       http.get(`/api/v1/mandants/${MANDANT_ID}/accounts`, () => HttpResponse.json([])),
     )
 
@@ -129,7 +139,9 @@ describe('JournalPage', () => {
           pages: 1,
         }),
       ),
-      http.get(`/api/v1/mandants/${MANDANT_ID}/journal/years`, () => HttpResponse.json({ years: [2026] })),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/journal/years`, () =>
+        HttpResponse.json({ years: [2026] }),
+      ),
       http.get(`/api/v1/mandants/${MANDANT_ID}/accounts`, () => HttpResponse.json([])),
     )
 
@@ -137,7 +149,9 @@ describe('JournalPage', () => {
       renderPage()
     })
 
-    await waitFor(() => expect(screen.getByText('E-COMM 20,00 DE K2 19.03. 14:09 SIPGATE')).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByText('E-COMM 20,00 DE K2 19.03. 14:09 SIPGATE')).toBeInTheDocument(),
+    )
 
     const infoButton = container.querySelector('button svg')?.parentElement as HTMLButtonElement
     expect(infoButton).not.toBeNull()

@@ -245,7 +245,9 @@ describe('PartnersPage', () => {
 
         if (sortBy === 'journal_line_count' && sortDir === 'asc') {
           return HttpResponse.json({
-            items: [...PARTNERS].sort((left, right) => left.journal_line_count - right.journal_line_count),
+            items: [...PARTNERS].sort(
+              (left, right) => left.journal_line_count - right.journal_line_count,
+            ),
             total: 2,
             page: 1,
             size: 30,
@@ -302,7 +304,9 @@ describe('PartnersPage', () => {
     await waitFor(() => expect(screen.getByText('Amazon EU')).toBeInTheDocument())
 
     await act(async () => {
-      fireEvent.change(screen.getByRole('combobox', { name: 'Leistungstyp filtern' }), { target: { value: 'shareholder' } })
+      fireEvent.change(screen.getByRole('combobox', { name: 'Leistungstyp filtern' }), {
+        target: { value: 'shareholder' },
+      })
     })
 
     await waitFor(() => expect(screen.getByText('Alter Partner')).toBeInTheDocument())
@@ -319,15 +323,22 @@ describe('PartnersPage', () => {
         HttpResponse.json({ items: PARTNERS, total: 2, page: 1, size: 30, pages: 1 }),
       ),
       http.post(`/api/v1/mandants/${MANDANT_ID}/partners`, async ({ request }) => {
-        capturedBody = await request.json() as Record<string, unknown>
+        capturedBody = (await request.json()) as Record<string, unknown>
         return HttpResponse.json(
-          { ...PARTNERS[0], id: 'p-new', name: capturedBody.name as string, manual_assignment: capturedBody.manual_assignment },
+          {
+            ...PARTNERS[0],
+            id: 'p-new',
+            name: capturedBody.name as string,
+            manual_assignment: capturedBody.manual_assignment,
+          },
           { status: 201 },
         )
       }),
     )
 
-    await act(async () => { renderPage() })
+    await act(async () => {
+      renderPage()
+    })
     await waitFor(() => expect(screen.getByText('Amazon EU')).toBeInTheDocument())
 
     await user.click(screen.getByRole('button', { name: /neuer partner/i }))

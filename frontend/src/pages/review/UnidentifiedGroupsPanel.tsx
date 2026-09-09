@@ -62,7 +62,11 @@ function ModeToggle({
   groupKey,
   mode,
   onSelect,
-}: Readonly<{ groupKey: string; mode: PartnerChoice['mode']; onSelect: (mode: PartnerChoice['mode']) => void }>) {
+}: Readonly<{
+  groupKey: string
+  mode: PartnerChoice['mode']
+  onSelect: (mode: PartnerChoice['mode']) => void
+}>) {
   const options: { value: PartnerChoice['mode']; label: string }[] = [
     { value: 'new', label: 'Neu anlegen' },
     { value: 'existing', label: 'Bestehender' },
@@ -77,7 +81,9 @@ function ModeToggle({
           aria-label={`${label} für ${groupKey}`}
           onClick={() => onSelect(value)}
           className={`flex-1 rounded-md px-2 py-1 text-[11px] font-medium ${
-            mode === value ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            mode === value
+              ? 'bg-white text-slate-900 shadow-sm'
+              : 'text-slate-500 hover:text-slate-700'
           }`}
         >
           {label}
@@ -173,7 +179,9 @@ function PartnerField({
       <ModeToggle
         groupKey={groupKey}
         mode={choice.mode}
-        onSelect={(mode) => onChange(mode === 'new' ? { mode: 'new', name: '' } : { mode: 'existing', partner: null })}
+        onSelect={(mode) =>
+          onChange(mode === 'new' ? { mode: 'new', name: '' } : { mode: 'existing', partner: null })
+        }
       />
       {choice.mode === 'new' ? (
         <>
@@ -183,7 +191,9 @@ function PartnerField({
             onChange={(event) => onChange({ mode: 'new', name: event.target.value })}
             className={FIELD_CLASS}
           />
-          <span className={HINT_CLASS}>Bestehender Partner mit exakt diesem Namen wird wiederverwendet.</span>
+          <span className={HINT_CLASS}>
+            Bestehender Partner mit exakt diesem Namen wird wiederverwendet.
+          </span>
         </>
       ) : (
         <>
@@ -284,15 +294,23 @@ function LineTable({ lines }: Readonly<{ lines: UnidentifiedGroupLine[] }>) {
       <table className="w-full text-xs">
         <thead className="sticky top-0 bg-slate-100 text-slate-500">
           <tr>
-            <th scope="col" className="px-2 py-1 text-left font-medium">Valuta</th>
-            <th scope="col" className="px-2 py-1 text-left font-medium">Buchungstext</th>
-            <th scope="col" className="px-2 py-1 text-right font-medium">Betrag</th>
+            <th scope="col" className="px-2 py-1 text-left font-medium">
+              Valuta
+            </th>
+            <th scope="col" className="px-2 py-1 text-left font-medium">
+              Buchungstext
+            </th>
+            <th scope="col" className="px-2 py-1 text-right font-medium">
+              Betrag
+            </th>
           </tr>
         </thead>
         <tbody>
           {lines.map((line) => (
             <tr key={line.id} className="border-t border-slate-200/70 align-top">
-              <td className="whitespace-nowrap px-2 py-1 tabular-nums text-slate-500">{formatDate(line.valuta_date)}</td>
+              <td className="whitespace-nowrap px-2 py-1 tabular-nums text-slate-500">
+                {formatDate(line.valuta_date)}
+              </td>
               <td className="break-all px-2 py-1 font-mono text-slate-600">{line.text ?? '—'}</td>
               <td
                 className={`whitespace-nowrap px-2 py-1 text-right tabular-nums ${
@@ -350,7 +368,11 @@ function GroupCard({
     // ihm - "neu anlegen" wuerde sonst ein Duplikat erzeugen, das sich nur in
     // Schreibweise oder Satzzeichen unterscheidet.
     partner: group.suggested_partner_id
-      ? { mode: 'existing', partner: { id: group.suggested_partner_id, name: group.suggested_partner_name }, suggested: true }
+      ? {
+          mode: 'existing',
+          partner: { id: group.suggested_partner_id, name: group.suggested_partner_name },
+          suggested: true,
+        }
       : { mode: 'new', name: group.suggested_partner_name },
     serviceId: '',
     serviceName: group.suggested_partner_name,
@@ -367,7 +389,8 @@ function GroupCard({
         `${result.partner_name}: ${result.assigned_lines} Buchung(en) zugeordnet, Matcher „${form.pattern.trim()}" angelegt.`,
       )
     },
-    onError: (error) => onError(extractErrorMessage(error, 'Gruppe konnte nicht aufgelöst werden.')),
+    onError: (error) =>
+      onError(extractErrorMessage(error, 'Gruppe konnte nicht aufgelöst werden.')),
   })
 
   const canSubmit =
@@ -383,7 +406,11 @@ function GroupCard({
         <div className="text-xs text-slate-500">
           {group.line_count} Buchung{group.line_count === 1 ? '' : 'en'}
           {' · '}
-          <span className={Number.parseFloat(group.total_amount) < 0 ? 'text-rose-600' : 'text-emerald-600'}>
+          <span
+            className={
+              Number.parseFloat(group.total_amount) < 0 ? 'text-rose-600' : 'text-emerald-600'
+            }
+          >
             {formatMoney(group.total_amount)} €
           </span>
           {' · '}
@@ -438,7 +465,9 @@ function GroupCard({
           disabled={!canSubmit}
           className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
         >
-          {mutation.isPending ? 'Wird angelegt …' : `Anlegen & ${group.line_count} Buchung(en) zuordnen`}
+          {mutation.isPending
+            ? 'Wird angelegt …'
+            : `Anlegen & ${group.line_count} Buchung(en) zuordnen`}
         </button>
       </div>
     </div>
@@ -475,8 +504,8 @@ export function UnidentifiedGroupsPanel({
       </div>
       <p className="mt-1 text-sm text-slate-600">
         {data.grouped} von {data.total_open} offenen Buchungen ohne Partner verteilen sich auf{' '}
-        <strong>{data.groups.length} Händler</strong>. Pro Gruppe legst du Partner, Leistung und Matcher in einem
-        Schritt an — der Matcher greift danach auch bei künftigen Importen.
+        <strong>{data.groups.length} Händler</strong>. Pro Gruppe legst du Partner, Leistung und
+        Matcher in einem Schritt an — der Matcher greift danach auch bei künftigen Importen.
       </p>
 
       {!collapsed && (

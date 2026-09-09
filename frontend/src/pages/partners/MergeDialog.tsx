@@ -75,9 +75,7 @@ export function MergeDialog({ sourcePartner, onClose, onSuccess }: MergeDialogPr
                 className="cursor-pointer px-3 py-2 text-sm hover:bg-blue-50"
               >
                 {p.display_name ?? p.name}
-                {p.display_name && (
-                  <span className="ml-2 text-xs text-gray-400">({p.name})</span>
-                )}
+                {p.display_name && <span className="ml-2 text-xs text-gray-400">({p.name})</span>}
               </li>
             ))}
           </ul>
@@ -85,8 +83,9 @@ export function MergeDialog({ sourcePartner, onClose, onSuccess }: MergeDialogPr
 
         {selected && (
           <div className="mt-3 rounded bg-orange-50 px-3 py-2 text-sm text-orange-800">
-            ⚠ <strong>{sourcePartner.name}</strong> wird in <strong>{selected.display_name ?? selected.name}</strong> gemergt.
-            Diese Aktion kann nicht rückgängig gemacht werden.
+            ⚠ <strong>{sourcePartner.name}</strong> wird in{' '}
+            <strong>{selected.display_name ?? selected.name}</strong> gemergt. Diese Aktion kann
+            nicht rückgängig gemacht werden.
           </div>
         )}
 

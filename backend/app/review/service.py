@@ -1,9 +1,10 @@
 """ReviewService — confirm, reassign, new-partner actions for ReviewItems."""
+
 from __future__ import annotations
 
 import re
 from collections import defaultdict
-from datetime import date, datetime, time, timezone
+from datetime import UTC, date, datetime, time
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -89,7 +90,10 @@ def merchant_key(text: str | None) -> str:
 def _suggest_partner_name(key: str) -> str:
     """Aus dem Haendler-Kern einen lesbaren Partnernamen machen: ANTHROPIC -> Anthropic."""
     words = [word for word in key.split(" ") if word]
-    return " ".join(word if len(word) <= 3 and word.isupper() else word.capitalize() for word in words)
+    return " ".join(
+        word if len(word) <= 3 and word.isupper() else word.capitalize()
+        for word in words
+    )
 
 
 _NAME_NOISE = re.compile(r"[\W_]+", re.UNICODE)
@@ -140,16 +144,22 @@ class ReviewService:
             ).all()
         )
 
-        items = [item for item in items if not self._should_hide_from_open_list(item, status_filter)]
+        items = [
+            item
+            for item in items
+            if not self._should_hide_from_open_list(item, status_filter)
+        ]
         total = len(items)
         offset = (page - 1) * size
 
-        return items[offset:offset + size], total
+        return items[offset : offset + size], total
 
     async def get_item(self, item_id: UUID, mandant_id: UUID) -> ReviewItem:
         item = await self._session.get(ReviewItem, item_id)
         if item is None or item.mandant_id != mandant_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Review item not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Review item not found"
+            )
         return item
 
     async def list_archive(
@@ -172,16 +182,23 @@ class ReviewService:
                 ReviewItem.status == "adjusted",  # type: ignore[operator]
                 ReviewItem.status == "rejected",  # type: ignore[operator]
             ),
-            ReviewItem.resolved_at != None,  # noqa: E711  # type: ignore[comparison-overlap]
+            ReviewItem.resolved_at
+            != None,  # noqa: E711  # type: ignore[comparison-overlap]
         ]
         if item_type:
             base_where.append(ReviewItem.item_type == item_type)
         if resolved_by_user_id is not None:
             base_where.append(ReviewItem.resolved_by == resolved_by_user_id)
         if resolved_from is not None:
-            base_where.append(ReviewItem.resolved_at >= datetime.combine(resolved_from, time.min, tzinfo=timezone.utc))
+            base_where.append(
+                ReviewItem.resolved_at
+                >= datetime.combine(resolved_from, time.min, tzinfo=UTC)
+            )
         if resolved_to is not None:
-            base_where.append(ReviewItem.resolved_at <= datetime.combine(resolved_to, time.max, tzinfo=timezone.utc))
+            base_where.append(
+                ReviewItem.resolved_at
+                <= datetime.combine(resolved_to, time.max, tzinfo=UTC)
+            )
 
         total = len(
             (
@@ -225,7 +242,9 @@ class ReviewService:
                     select(JournalLine).where(JournalLine.id.in_(line_ids))  # type: ignore[attr-defined]
                 )
             ).all()
-            assigned_journal_lines = [await self._serialize_journal_line(line) for line in lines]
+            assigned_journal_lines = [
+                await self._serialize_journal_line(line) for line in lines
+            ]
 
         return ReviewItemResponse(
             id=item.id,
@@ -260,7 +279,9 @@ class ReviewService:
 
         journal_line = await self._session.get(JournalLine, item.journal_line_id)
         if journal_line is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found"
+            )
 
         # ADR-013: register IBAN automatically when confirming
         if journal_line.partner_iban_raw and journal_line.partner_id:
@@ -314,25 +335,54 @@ class ReviewService:
 
         if item.item_type == "service_assignment":
             if body.service_id is None:
-                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="service_id is required for service assignment reviews")
-            return await self._adjust_service_assignment(item, mandant_id, actor_id, body.service_id)
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="service_id is required for service assignment reviews",
+                )
+            return await self._adjust_service_assignment(
+                item, mandant_id, actor_id, body.service_id
+            )
 
         if item.item_type == "service_type_review":
             if body.service_type is None:
-                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="service_type is required for service type reviews")
-            return await self._adjust_service_type_review(item, mandant_id, actor_id, body.service_type, body.tax_rate, body.erfolgsneutral)
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="service_type is required for service type reviews",
+                )
+            return await self._adjust_service_type_review(
+                item,
+                mandant_id,
+                actor_id,
+                body.service_type,
+                body.tax_rate,
+                body.erfolgsneutral,
+            )
 
         if item.item_type == "manual_service_assignment":
             if body.splits is not None:
-                parsed_splits = [(entry.service_id, entry.amount) for entry in body.splits]
-                return await self._adjust_manual_service_assignment_splits(item, mandant_id, actor_id, parsed_splits)
+                parsed_splits = [
+                    (entry.service_id, entry.amount) for entry in body.splits
+                ]
+                return await self._adjust_manual_service_assignment_splits(
+                    item, mandant_id, actor_id, parsed_splits
+                )
             if body.service_id is None:
-                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="service_id or splits is required for manual service assignment reviews")
-            return await self._adjust_manual_service_assignment(item, mandant_id, actor_id, body.service_id)
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="service_id or splits is required for manual service assignment reviews",
+                )
+            return await self._adjust_manual_service_assignment(
+                item, mandant_id, actor_id, body.service_id
+            )
 
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Adjust is not supported for this review item type")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Adjust is not supported for this review item type",
+        )
 
-    async def reject(self, item_id: UUID, mandant_id: UUID, actor_id: UUID) -> ReviewItem:
+    async def reject(
+        self, item_id: UUID, mandant_id: UUID, actor_id: UUID
+    ) -> ReviewItem:
         item = await self._get_open_or_raise(item_id, mandant_id)
         item.status = "rejected"
         item.resolved_by = actor_id
@@ -364,11 +414,15 @@ class ReviewService:
 
         target = await self._session.get(Partner, partner_id)
         if target is None or target.mandant_id != mandant_id or not target.is_active:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Partner not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Partner not found"
+            )
 
         journal_line = await self._session.get(JournalLine, item.journal_line_id)
         if journal_line is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found"
+            )
 
         old_partner_id = journal_line.partner_id
 
@@ -391,7 +445,9 @@ class ReviewService:
             )
         )
 
-        await service_svc.prepare_lines_for_partner_change(mandant_id, [journal_line], partner_id)
+        await service_svc.prepare_lines_for_partner_change(
+            mandant_id, [journal_line], partner_id
+        )
         await service_svc.revalidate_partner_lines(partner_id)
 
         # Für new_partner-Items: Ghost-Partner löschen, wenn er nach der Neuzuweisung keine
@@ -424,7 +480,9 @@ class ReviewService:
 
         journal_line = await self._session.get(JournalLine, item.journal_line_id)
         if journal_line is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found"
+            )
 
         # Guard name uniqueness (same pattern as matching.py)
         desired_name = partner_name
@@ -483,7 +541,9 @@ class ReviewService:
     # Nicht erkannte Partner: gruppieren und in einem Zug aufloesen
     # ------------------------------------------------------------------
 
-    async def _active_partners_by_normalized_name(self, mandant_id: UUID) -> dict[str, tuple[UUID, str]]:
+    async def _active_partners_by_normalized_name(
+        self, mandant_id: UUID
+    ) -> dict[str, tuple[UUID, str]]:
         """Vergleichsform -> (partner_id, echter Name), Namensvarianten inklusive.
 
         Nur aktive Partner: Matcher inaktiver Partner greifen bei der
@@ -525,7 +585,9 @@ class ReviewService:
             if normalized and len(ids) == 1
         }
 
-    async def list_unidentified_groups(self, mandant_id: UUID) -> UnidentifiedGroupsResponse:
+    async def list_unidentified_groups(
+        self, mandant_id: UUID
+    ) -> UnidentifiedGroupsResponse:
         """Offene no_partner_identified-Items nach Haendler-Kern gruppieren.
 
         Kartenimporte erzeugen hunderte Items, die sich auf wenige wiederkehrende
@@ -544,7 +606,9 @@ class ReviewService:
         if not items:
             return UnidentifiedGroupsResponse(groups=[], total_open=0, grouped=0)
 
-        line_ids = [item.journal_line_id for item in items if item.journal_line_id is not None]
+        line_ids = [
+            item.journal_line_id for item in items if item.journal_line_id is not None
+        ]
         lines = (
             await self._session.exec(
                 select(JournalLine).where(col(JournalLine.id).in_(line_ids))
@@ -554,7 +618,9 @@ class ReviewService:
 
         buckets: dict[str, list[tuple[ReviewItem, JournalLine]]] = defaultdict(list)
         for item in items:
-            line = line_by_id.get(item.journal_line_id) if item.journal_line_id else None
+            line = (
+                line_by_id.get(item.journal_line_id) if item.journal_line_id else None
+            )
             if line is None:
                 continue
             key = merchant_key(line.text)
@@ -574,9 +640,13 @@ class ReviewService:
                     suggested_partner_id=existing[0] if existing else None,
                     # Gibt es den Partner schon, ist sein echter Name der
                     # Vorschlag - die Verschoenerung wuerde ein Duplikat anlegen.
-                    suggested_partner_name=existing[1] if existing else _suggest_partner_name(key),
+                    suggested_partner_name=(
+                        existing[1] if existing else _suggest_partner_name(key)
+                    ),
                     line_count=len(entries),
-                    total_amount=sum((Decimal(str(line.amount)) for _, line in entries), Decimal("0")),
+                    total_amount=sum(
+                        (Decimal(str(line.amount)) for _, line in entries), Decimal("0")
+                    ),
                     first_date=entries[0][1].valuta_date,
                     last_date=entries[-1][1].valuta_date,
                     lines=[
@@ -638,7 +708,9 @@ class ReviewService:
         self._session.add(matcher)
         await self._session.flush()
 
-        line_ids = [item.journal_line_id for item in items if item.journal_line_id is not None]
+        line_ids = [
+            item.journal_line_id for item in items if item.journal_line_id is not None
+        ]
         lines = list(
             (
                 await self._session.exec(
@@ -660,7 +732,9 @@ class ReviewService:
         await self._session.flush()
 
         service_svc = ServiceManagementService(self._session)
-        await service_svc.prepare_lines_for_partner_change(mandant_id, lines, partner.id)
+        await service_svc.prepare_lines_for_partner_change(
+            mandant_id, lines, partner.id
+        )
 
         self._session.add(
             AuditLog(
@@ -754,7 +828,9 @@ class ReviewService:
         if body.partner_id is not None:
             partner = await self._session.get(Partner, body.partner_id)
             if partner is None or partner.mandant_id != mandant_id:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Partner not found")
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Partner not found"
+                )
             return partner
 
         desired_name = (body.partner_name or "").strip()
@@ -797,7 +873,9 @@ class ReviewService:
     async def _get_open_or_raise(self, item_id: UUID, mandant_id: UUID) -> ReviewItem:
         item = await self._session.get(ReviewItem, item_id)
         if item is None or item.mandant_id != mandant_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Review item not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Review item not found"
+            )
         if item.status != "open":
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -812,26 +890,39 @@ class ReviewService:
         actor_id: UUID,
     ) -> ReviewItem:
         if item.journal_line_id is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found"
+            )
 
         journal_line = await self._session.get(JournalLine, item.journal_line_id)
         if journal_line is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found"
+            )
 
-        target_service_id = self._parse_optional_uuid(item.context.get("proposed_service_id"))
+        target_service_id = self._parse_optional_uuid(
+            item.context.get("proposed_service_id")
+        )
         if target_service_id is None:
-            target_service_id = self._parse_optional_uuid(item.context.get("current_service_id"))
+            target_service_id = self._parse_optional_uuid(
+                item.context.get("current_service_id")
+            )
         if target_service_id is None:
             # Fallback: erster Split der Zeile
             first_split = (
                 await self._session.exec(
-                    select(JournalLineSplit).where(JournalLineSplit.journal_line_id == journal_line.id)
+                    select(JournalLineSplit).where(
+                        JournalLineSplit.journal_line_id == journal_line.id
+                    )
                 )
             ).first()
             if first_split is not None:
                 target_service_id = first_split.service_id
         if target_service_id is None:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="No target service available for confirmation")
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="No target service available for confirmation",
+            )
 
         item.status = "confirmed"
         item.resolved_by = actor_id
@@ -841,7 +932,9 @@ class ReviewService:
         await self._session.flush()
 
         service_svc = ServiceManagementService(self._session)
-        await service_svc.manually_assign_journal_line(mandant_id, journal_line, target_service_id)
+        await service_svc.manually_assign_journal_line(
+            mandant_id, journal_line, target_service_id
+        )
         self._session.add(
             AuditLog(
                 mandant_id=mandant_id,
@@ -868,16 +961,22 @@ class ReviewService:
         service_id: UUID,
     ) -> ReviewItem:
         if item.journal_line_id is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found"
+            )
 
         journal_line = await self._session.get(JournalLine, item.journal_line_id)
         if journal_line is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found"
+            )
 
         # Vorherige Service-ID aus erstem Split ermitteln
         previous_split = (
             await self._session.exec(
-                select(JournalLineSplit).where(JournalLineSplit.journal_line_id == journal_line.id)
+                select(JournalLineSplit).where(
+                    JournalLineSplit.journal_line_id == journal_line.id
+                )
             )
         ).first()
         previous_service_id = previous_split.service_id if previous_split else None
@@ -890,7 +989,9 @@ class ReviewService:
         await self._session.flush()
 
         service_svc = ServiceManagementService(self._session)
-        await service_svc.manually_assign_journal_line(mandant_id, journal_line, service_id)
+        await service_svc.manually_assign_journal_line(
+            mandant_id, journal_line, service_id
+        )
 
         self._session.add(
             AuditLog(
@@ -901,7 +1002,9 @@ class ReviewService:
                     "item_id": str(item.id),
                     "item_type": item.item_type,
                     "journal_line_id": str(journal_line.id),
-                    "old_service_id": str(previous_service_id) if previous_service_id else None,
+                    "old_service_id": (
+                        str(previous_service_id) if previous_service_id else None
+                    ),
                     "new_service_id": str(service_id),
                 },
             )
@@ -919,11 +1022,15 @@ class ReviewService:
         service_id: UUID,
     ) -> ReviewItem:
         if item.journal_line_id is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found"
+            )
 
         journal_line = await self._session.get(JournalLine, item.journal_line_id)
         if journal_line is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found"
+            )
 
         item.status = "adjusted"
         item.resolved_by = actor_id
@@ -933,7 +1040,9 @@ class ReviewService:
         await self._session.flush()
 
         service_svc = ServiceManagementService(self._session)
-        await service_svc.manually_assign_journal_line(mandant_id, journal_line, service_id)
+        await service_svc.manually_assign_journal_line(
+            mandant_id, journal_line, service_id
+        )
 
         self._session.add(
             AuditLog(
@@ -961,11 +1070,15 @@ class ReviewService:
         splits: list[tuple[UUID, Decimal]],
     ) -> ReviewItem:
         if item.journal_line_id is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found"
+            )
 
         journal_line = await self._session.get(JournalLine, item.journal_line_id)
         if journal_line is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found"
+            )
 
         item.status = "adjusted"
         item.resolved_by = actor_id
@@ -975,7 +1088,9 @@ class ReviewService:
         await self._session.flush()
 
         service_svc = ServiceManagementService(self._session)
-        await service_svc.manually_assign_journal_line_splits(mandant_id, journal_line, splits)
+        await service_svc.manually_assign_journal_line_splits(
+            mandant_id, journal_line, splits
+        )
 
         self._session.add(
             AuditLog(
@@ -986,7 +1101,10 @@ class ReviewService:
                     "item_id": str(item.id),
                     "item_type": item.item_type,
                     "journal_line_id": str(journal_line.id),
-                    "splits": [{"service_id": str(sid), "amount": str(amt)} for sid, amt in splits],
+                    "splits": [
+                        {"service_id": str(sid), "amount": str(amt)}
+                        for sid, amt in splits
+                    ],
                 },
             )
         )
@@ -1004,7 +1122,10 @@ class ReviewService:
         service = await self._get_service_for_review(item, mandant_id)
         auto_assigned_type = item.context.get("auto_assigned_type")
         if auto_assigned_type is None:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Review item is missing auto_assigned_type")
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Review item is missing auto_assigned_type",
+            )
 
         resolved_type = ServiceType(auto_assigned_type)
         service.service_type = resolved_type.value
@@ -1094,7 +1215,9 @@ class ReviewService:
             return None
         return await self._serialize_journal_line(journal_line)
 
-    async def _load_service_summary(self, service_id: UUID | None) -> ReviewServiceSummary | None:
+    async def _load_service_summary(
+        self, service_id: UUID | None
+    ) -> ReviewServiceSummary | None:
         if service_id is None:
             return None
         service = await self._session.get(Service, service_id)
@@ -1118,7 +1241,9 @@ class ReviewService:
             }
         )
 
-    async def _serialize_journal_line(self, line: JournalLine) -> ReviewJournalLineSummary:
+    async def _serialize_journal_line(
+        self, line: JournalLine
+    ) -> ReviewJournalLineSummary:
         partner_name: str | None = None
         if line.partner_id is not None:
             partner = await self._session.get(Partner, line.partner_id)
@@ -1127,7 +1252,9 @@ class ReviewService:
 
         splits = (
             await self._session.exec(
-                select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
+                select(JournalLineSplit).where(
+                    JournalLineSplit.journal_line_id == line.id
+                )
             )
         ).all()
 
@@ -1157,8 +1284,12 @@ class ReviewService:
 
     async def _enrich_context(self, item: ReviewItem, raw_context: object) -> dict:
         context = dict(raw_context) if isinstance(raw_context, dict) else {}
-        current_service_id = self._parse_optional_uuid(context.get("current_service_id"))
-        proposed_service_id = self._parse_optional_uuid(context.get("proposed_service_id"))
+        current_service_id = self._parse_optional_uuid(
+            context.get("current_service_id")
+        )
+        proposed_service_id = self._parse_optional_uuid(
+            context.get("proposed_service_id")
+        )
 
         if current_service_id is not None:
             current_service = await self._session.get(Service, current_service_id)
@@ -1183,7 +1314,10 @@ class ReviewService:
             if matching_service_names:
                 context["matching_service_names"] = matching_service_names
 
-        if item.item_type == "name_match_with_iban" and item.journal_line_id is not None:
+        if (
+            item.item_type == "name_match_with_iban"
+            and item.journal_line_id is not None
+        ):
             journal_line = await self._session.get(JournalLine, item.journal_line_id)
             partner_id = None if journal_line is None else journal_line.partner_id
             if partner_id is not None:
@@ -1198,11 +1332,21 @@ class ReviewService:
                 context["matched_partner_ibans"] = known_ibans
                 context["matched_partner_iban_count"] = len(known_ibans)
 
-                raw_iban = context.get("raw_iban") or (None if journal_line is None else journal_line.partner_iban_raw)
+                raw_iban = context.get("raw_iban") or (
+                    None if journal_line is None else journal_line.partner_iban_raw
+                )
                 if isinstance(raw_iban, str) and raw_iban:
                     normalized = _normalize_iban(raw_iban)
-                    diagnosis = context.get("diagnosis") if isinstance(context.get("diagnosis"), dict) else {}
-                    iban_diag = diagnosis.get("iban") if isinstance(diagnosis.get("iban"), dict) else {}
+                    diagnosis = (
+                        context.get("diagnosis")
+                        if isinstance(context.get("diagnosis"), dict)
+                        else {}
+                    )
+                    iban_diag = (
+                        diagnosis.get("iban")
+                        if isinstance(diagnosis.get("iban"), dict)
+                        else {}
+                    )
                     iban_diag.setdefault("provided", True)
                     iban_diag.setdefault("normalized", normalized)
                     iban_diag.setdefault("found", False)
@@ -1212,16 +1356,24 @@ class ReviewService:
 
         return context
 
-    async def _get_service_for_review(self, item: ReviewItem, mandant_id: UUID) -> Service:
+    async def _get_service_for_review(
+        self, item: ReviewItem, mandant_id: UUID
+    ) -> Service:
         if item.service_id is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Service not found"
+            )
         service = await self._session.get(Service, item.service_id)
         if service is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Service not found"
+            )
 
         partner = await self._session.get(Partner, service.partner_id)
         if partner is None or partner.mandant_id != mandant_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Service not found"
+            )
         return service
 
     def _parse_optional_uuid(self, raw_value: object) -> UUID | None:
@@ -1231,7 +1383,9 @@ class ReviewService:
             return raw_value
         return UUID(str(raw_value))
 
-    def _should_hide_from_open_list(self, item: ReviewItem, status_filter: str | None) -> bool:
+    def _should_hide_from_open_list(
+        self, item: ReviewItem, status_filter: str | None
+    ) -> bool:
         if status_filter != "open":
             return False
         if item.item_type != "service_type_review":
@@ -1241,7 +1395,13 @@ class ReviewService:
         auto_assigned_type = context.get("auto_assigned_type")
         current_journal_line_ids = context.get("current_journal_line_ids")
 
-        has_line_ids = isinstance(current_journal_line_ids, list) and len(current_journal_line_ids) > 0
-        has_meaningful_types = previous_type not in (None, "") or auto_assigned_type not in (None, "")
+        has_line_ids = (
+            isinstance(current_journal_line_ids, list)
+            and len(current_journal_line_ids) > 0
+        )
+        has_meaningful_types = previous_type not in (
+            None,
+            "",
+        ) or auto_assigned_type not in (None, "")
 
         return not has_line_ids and not has_meaningful_types

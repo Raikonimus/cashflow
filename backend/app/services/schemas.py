@@ -4,7 +4,12 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.services.models import KeywordTargetType, ServiceGroupSection, ServiceMatcherType, ServiceType
+from app.services.models import (
+    KeywordTargetType,
+    ServiceGroupSection,
+    ServiceMatcherType,
+    ServiceType,
+)
 
 
 class ServiceMatcherResponse(BaseModel):
@@ -41,7 +46,9 @@ class CreateServiceRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=1000)
     service_type: ServiceType = ServiceType.unknown
-    tax_rate: Decimal = Field(default=Decimal("20.00"), ge=Decimal("0.00"), le=Decimal("100.00"))
+    tax_rate: Decimal = Field(
+        default=Decimal("20.00"), ge=Decimal("0.00"), le=Decimal("100.00")
+    )
     erfolgsneutral: bool = False
     valid_from: date | None = None
     valid_to: date | None = None
@@ -57,7 +64,9 @@ class UpdateServiceRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=1000)
     service_type: ServiceType | None = None
-    tax_rate: Decimal | None = Field(default=None, ge=Decimal("0.00"), le=Decimal("100.00"))
+    tax_rate: Decimal | None = Field(
+        default=None, ge=Decimal("0.00"), le=Decimal("100.00")
+    )
     erfolgsneutral: bool | None = None
     valid_from: date | None = None
     valid_to: date | None = None

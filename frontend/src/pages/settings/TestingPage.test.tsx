@@ -63,7 +63,14 @@ describe('TestingPage', () => {
                   account_id: 'account-1',
                   import_run_id: 'run-1',
                   partner_id: 'partner-1',
-                  splits: [{ service_id: 'service-1', amount: '25.00', assignment_mode: 'manual', amount_consistency_ok: false }],
+                  splits: [
+                    {
+                      service_id: 'service-1',
+                      amount: '25.00',
+                      assignment_mode: 'manual',
+                      amount_consistency_ok: false,
+                    },
+                  ],
                   valuta_date: '2026-02-02',
                   booking_date: '2026-02-02',
                   amount: '25.00',
@@ -82,7 +89,14 @@ describe('TestingPage', () => {
                   account_id: 'account-1',
                   import_run_id: 'run-1',
                   partner_id: 'partner-1',
-                  splits: [{ service_id: 'service-1', amount: '-50.00', assignment_mode: 'manual', amount_consistency_ok: false }],
+                  splits: [
+                    {
+                      service_id: 'service-1',
+                      amount: '-50.00',
+                      assignment_mode: 'manual',
+                      amount_consistency_ok: false,
+                    },
+                  ],
                   valuta_date: '2026-02-01',
                   booking_date: '2026-02-01',
                   amount: '-50.00',
@@ -101,7 +115,14 @@ describe('TestingPage', () => {
                   account_id: 'account-1',
                   import_run_id: 'run-1',
                   partner_id: 'partner-1',
-                  splits: [{ service_id: 'service-1', amount: '-10.00', assignment_mode: 'manual', amount_consistency_ok: true }],
+                  splits: [
+                    {
+                      service_id: 'service-1',
+                      amount: '-10.00',
+                      assignment_mode: 'manual',
+                      amount_consistency_ok: true,
+                    },
+                  ],
                   valuta_date: '2026-01-30',
                   booking_date: '2026-01-30',
                   amount: '-10.00',
@@ -130,13 +151,21 @@ describe('TestingPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /Test 2 ausführen/i }))
 
     await waitFor(() => expect(screen.getByText(/Geprüfte Services:/)).toBeInTheDocument())
-    expect(screen.getByRole('link', { name: /Zur Servicekonfiguration/i })).toHaveAttribute('href', '/settings/service-keywords')
+    expect(screen.getByRole('link', { name: /Zur Servicekonfiguration/i })).toHaveAttribute(
+      'href',
+      '/settings/service-keywords',
+    )
     const serviceCardTitle = screen.getByText('Alpha GmbH / Hosting')
     expect(serviceCardTitle).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Partner öffnen/i })).toHaveAttribute('href', '/partners/partner-1')
+    expect(screen.getByRole('link', { name: /Partner öffnen/i })).toHaveAttribute(
+      'href',
+      '/partners/partner-1',
+    )
     expect(screen.getByText(/Eingänge: 1/)).toBeInTheDocument()
     expect(serviceCardTitle.closest('article')).toHaveTextContent('Ausgänge: 1')
-    expect(screen.getByText(/1 Buchung ist als in Ordnung markiert und wird im Test ignoriert./i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/1 Buchung ist als in Ordnung markiert und wird im Test ignoriert./i),
+    ).toBeInTheDocument()
 
     const details = screen.getByText(/Buchungszeilen anzeigen \(3\)/i).closest('details')
     expect(details).not.toBeNull()
@@ -178,7 +207,14 @@ describe('TestingPage', () => {
                       account_id: 'account-1',
                       import_run_id: 'run-1',
                       partner_id: 'partner-1',
-                      splits: [{ service_id: 'service-1', amount: '25.00', assignment_mode: 'manual', amount_consistency_ok: false }],
+                      splits: [
+                        {
+                          service_id: 'service-1',
+                          amount: '25.00',
+                          assignment_mode: 'manual',
+                          amount_consistency_ok: false,
+                        },
+                      ],
                       valuta_date: '2026-02-02',
                       booking_date: '2026-02-02',
                       amount: '25.00',
@@ -197,7 +233,14 @@ describe('TestingPage', () => {
                       account_id: 'account-1',
                       import_run_id: 'run-1',
                       partner_id: 'partner-1',
-                      splits: [{ service_id: 'service-1', amount: '-50.00', assignment_mode: 'manual', amount_consistency_ok: false }],
+                      splits: [
+                        {
+                          service_id: 'service-1',
+                          amount: '-50.00',
+                          assignment_mode: 'manual',
+                          amount_consistency_ok: false,
+                        },
+                      ],
                       valuta_date: '2026-02-01',
                       booking_date: '2026-02-01',
                       amount: '-50.00',
@@ -216,15 +259,18 @@ describe('TestingPage', () => {
               ],
         }),
       ),
-      http.post(`/api/v1/mandants/${MANDANT_ID}/settings/tests/service-amount-consistency/lines/line-1/ok`, async ({ request }) => {
-        const body = await request.json() as { split_service_id?: string; is_ok?: boolean }
-        isMarkedOk = body.is_ok === true
-        return HttpResponse.json({
-          journal_line_id: 'line-1',
-          split_service_id: 'service-1',
-          amount_consistency_ok: isMarkedOk,
-        })
-      }),
+      http.post(
+        `/api/v1/mandants/${MANDANT_ID}/settings/tests/service-amount-consistency/lines/line-1/ok`,
+        async ({ request }) => {
+          const body = (await request.json()) as { split_service_id?: string; is_ok?: boolean }
+          isMarkedOk = body.is_ok === true
+          return HttpResponse.json({
+            journal_line_id: 'line-1',
+            split_service_id: 'service-1',
+            amount_consistency_ok: isMarkedOk,
+          })
+        },
+      ),
     )
 
     await act(async () => {
@@ -240,7 +286,11 @@ describe('TestingPage', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /Als in Ordnung markieren/i })[0])
 
     await waitFor(() => {
-      expect(screen.getByText(/Keine Services mit gemischten Eingangs- und Ausgangsbuchungen gefunden./i)).toBeInTheDocument()
+      expect(
+        screen.getByText(
+          /Keine Services mit gemischten Eingangs- und Ausgangsbuchungen gefunden./i,
+        ),
+      ).toBeInTheDocument()
     })
   })
 })

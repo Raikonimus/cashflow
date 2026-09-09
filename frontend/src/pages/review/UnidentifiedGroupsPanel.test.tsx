@@ -26,7 +26,9 @@ const SERVICES = [
 /** Bestehenden Partner in einer Karte auswaehlen. */
 async function pickExistingPartner(card: HTMLElement, key: string, name = MICROSOFT.name) {
   fireEvent.click(within(card).getByRole('button', { name: `Bestehender für ${key}` }))
-  fireEvent.change(within(card).getByLabelText(`Partner suchen für ${key}`), { target: { value: 'micro' } })
+  fireEvent.change(within(card).getByLabelText(`Partner suchen für ${key}`), {
+    target: { value: 'micro' },
+  })
   await act(async () => {
     fireEvent.click(await within(card).findByRole('button', { name }))
   })
@@ -46,7 +48,12 @@ const GROUPS: UnidentifiedGroups = {
       first_date: '2026-01-02',
       last_date: '2026-03-04',
       lines: [
-        { id: 'l1', valuta_date: '2026-01-02', amount: '-99.58', text: 'ANTHROPIC inkl. Fremdwährungsentgelt 1,32' },
+        {
+          id: 'l1',
+          valuta_date: '2026-01-02',
+          amount: '-99.58',
+          text: 'ANTHROPIC inkl. Fremdwährungsentgelt 1,32',
+        },
         { id: 'l2', valuta_date: '2026-01-30', amount: '-99.58', text: 'ANTHROPIC* CLAUDE SUB' },
         { id: 'l3', valuta_date: '2026-02-28', amount: '-99.58', text: 'ANTHROPIC* CLAUDE SUB' },
         { id: 'l4', valuta_date: '2026-03-04', amount: '-99.59', text: null },
@@ -95,8 +102,12 @@ describe('UnidentifiedGroupsPanel', () => {
     listPartnersMock.mockResolvedValue({ items: [MICROSOFT], total: 1, page: 1, size: 8, pages: 1 })
     listServicesMock.mockResolvedValue(SERVICES)
     resolveMock.mockResolvedValue({
-      partner_id: 'p1', partner_name: 'Anthropic', service_id: 's1', matcher_id: 'm1',
-      resolved_items: 4, assigned_lines: 4,
+      partner_id: 'p1',
+      partner_name: 'Anthropic',
+      service_id: 's1',
+      matcher_id: 'm1',
+      resolved_items: 4,
+      assigned_lines: 4,
     })
     act(() => {
       useAuthStore.setState({
@@ -145,7 +156,9 @@ describe('UnidentifiedGroupsPanel', () => {
     // Kopfzeile plus eine Zeile je Buchung.
     expect(rows).toHaveLength(5)
     expect(within(rows[1]).getByText('02.01.2026')).toBeInTheDocument()
-    expect(within(rows[1]).getByText('ANTHROPIC inkl. Fremdwährungsentgelt 1,32')).toBeInTheDocument()
+    expect(
+      within(rows[1]).getByText('ANTHROPIC inkl. Fremdwährungsentgelt 1,32'),
+    ).toBeInTheDocument()
     expect(within(rows[1]).getByText('-99,58 €')).toBeInTheDocument()
     // Gleicher Text mehrfach: nichts wird zusammengefasst.
     expect(within(card).getAllByText('ANTHROPIC* CLAUDE SUB')).toHaveLength(2)
@@ -172,16 +185,25 @@ describe('UnidentifiedGroupsPanel', () => {
       service_name: 'Anthropic',
       partner_name: 'Anthropic',
     })
-    expect(onNotice).toHaveBeenCalledWith('success', expect.stringContaining('4 Buchung(en) zugeordnet'))
+    expect(onNotice).toHaveBeenCalledWith(
+      'success',
+      expect.stringContaining('4 Buchung(en) zugeordnet'),
+    )
   })
 
   it('uebernimmt geaenderte Eingaben', async () => {
     renderPanel()
     const card = cardFor(await screen.findByText('ANTHROPIC').then(() => 'ANTHROPIC'))
 
-    fireEvent.change(within(card).getByLabelText('Partner für ANTHROPIC'), { target: { value: 'Anthropic PBC' } })
-    fireEvent.change(within(card).getByLabelText('Leistung für ANTHROPIC'), { target: { value: 'Claude Max' } })
-    fireEvent.change(within(card).getByLabelText('Matcher-Muster für ANTHROPIC'), { target: { value: 'anthropic' } })
+    fireEvent.change(within(card).getByLabelText('Partner für ANTHROPIC'), {
+      target: { value: 'Anthropic PBC' },
+    })
+    fireEvent.change(within(card).getByLabelText('Leistung für ANTHROPIC'), {
+      target: { value: 'Claude Max' },
+    })
+    fireEvent.change(within(card).getByLabelText('Matcher-Muster für ANTHROPIC'), {
+      target: { value: 'anthropic' },
+    })
 
     await act(async () => {
       fireEvent.click(within(card).getByRole('button', { name: /Anlegen & 4 Buchung/ }))
@@ -199,36 +221,46 @@ describe('UnidentifiedGroupsPanel', () => {
     const card = cardFor(await screen.findByText('ANTHROPIC').then(() => 'ANTHROPIC'))
     const submit = within(card).getByRole('button', { name: /Anlegen & 4 Buchung/ })
 
-    fireEvent.change(within(card).getByLabelText('Partner für ANTHROPIC'), { target: { value: '  ' } })
+    fireEvent.change(within(card).getByLabelText('Partner für ANTHROPIC'), {
+      target: { value: '  ' },
+    })
     expect(submit).toBeDisabled()
 
-    fireEvent.change(within(card).getByLabelText('Partner für ANTHROPIC'), { target: { value: 'Anthropic' } })
-    fireEvent.change(within(card).getByLabelText('Matcher-Muster für ANTHROPIC'), { target: { value: 'A' } })
+    fireEvent.change(within(card).getByLabelText('Partner für ANTHROPIC'), {
+      target: { value: 'Anthropic' },
+    })
+    fireEvent.change(within(card).getByLabelText('Matcher-Muster für ANTHROPIC'), {
+      target: { value: 'A' },
+    })
     expect(submit).toBeDisabled()
 
-    fireEvent.change(within(card).getByLabelText('Matcher-Muster für ANTHROPIC'), { target: { value: 'AN' } })
+    fireEvent.change(within(card).getByLabelText('Matcher-Muster für ANTHROPIC'), {
+      target: { value: 'AN' },
+    })
     expect(submit).toBeEnabled()
   })
 
   it('startet beim bereits vorhandenen Partner statt bei "neu anlegen"', async () => {
     listMock.mockResolvedValue({
       ...GROUPS,
-      groups: [{
-        ...GROUPS.groups[1],
-        key: 'WEAVIATE B.V',
-        suggested_pattern: 'WEAVIATE B.V',
-        // Der Server hat den Haendler als bestehenden Partner erkannt; der
-        // Vorschlag traegt dessen echten Namen, nicht die verschoenerte Form.
-        suggested_partner_id: 'p-weaviate',
-        suggested_partner_name: 'WEAVIATE B.V.',
-      }],
+      groups: [
+        {
+          ...GROUPS.groups[1],
+          key: 'WEAVIATE B.V',
+          suggested_pattern: 'WEAVIATE B.V',
+          // Der Server hat den Haendler als bestehenden Partner erkannt; der
+          // Vorschlag traegt dessen echten Namen, nicht die verschoenerte Form.
+          suggested_partner_id: 'p-weaviate',
+          suggested_partner_name: 'WEAVIATE B.V.',
+        },
+      ],
     })
     renderPanel()
     const card = cardFor(await screen.findByText('WEAVIATE B.V').then(() => 'WEAVIATE B.V'))
 
-    expect(within(card).getByRole('button', { name: 'Bestehender für WEAVIATE B.V' })).toHaveAttribute(
-      'aria-pressed', 'true',
-    )
+    expect(
+      within(card).getByRole('button', { name: 'Bestehender für WEAVIATE B.V' }),
+    ).toHaveAttribute('aria-pressed', 'true')
     expect(within(card).getByText('WEAVIATE B.V.')).toBeInTheDocument()
     expect(within(card).getByText(/Bereits vorhanden/)).toBeInTheDocument()
     expect(within(card).queryByLabelText('Partner für WEAVIATE B.V')).not.toBeInTheDocument()
@@ -245,7 +277,13 @@ describe('UnidentifiedGroupsPanel', () => {
   it('laesst den vorgeschlagenen Partner verwerfen', async () => {
     listMock.mockResolvedValue({
       ...GROUPS,
-      groups: [{ ...GROUPS.groups[1], suggested_partner_id: 'p-msft', suggested_partner_name: 'Microsoft Ireland' }],
+      groups: [
+        {
+          ...GROUPS.groups[1],
+          suggested_partner_id: 'p-msft',
+          suggested_partner_name: 'Microsoft Ireland',
+        },
+      ],
     })
     renderPanel()
     const card = cardFor(await screen.findByText('MSFT').then(() => 'MSFT'))
@@ -296,7 +334,9 @@ describe('UnidentifiedGroupsPanel', () => {
 
     fireEvent.change(select, { target: { value: 'svc-lic' } })
     // Bei bestehender Leistung entfaellt das Namensfeld.
-    expect(within(card).queryByLabelText('Name der neuen Leistung für ANTHROPIC')).not.toBeInTheDocument()
+    expect(
+      within(card).queryByLabelText('Name der neuen Leistung für ANTHROPIC'),
+    ).not.toBeInTheDocument()
 
     await act(async () => {
       fireEvent.click(within(card).getByRole('button', { name: /Anlegen & 4 Buchung/ }))
@@ -327,7 +367,9 @@ describe('UnidentifiedGroupsPanel', () => {
 
     await pickExistingPartner(card, 'ANTHROPIC')
     await waitFor(() => expect(listServicesMock).toHaveBeenCalled())
-    expect(within(card).queryByRole('combobox', { name: 'Leistung für ANTHROPIC' })).not.toBeInTheDocument()
+    expect(
+      within(card).queryByRole('combobox', { name: 'Leistung für ANTHROPIC' }),
+    ).not.toBeInTheDocument()
 
     await act(async () => {
       fireEvent.click(within(card).getByRole('button', { name: /Anlegen & 4 Buchung/ }))
@@ -343,7 +385,10 @@ describe('UnidentifiedGroupsPanel', () => {
     const card = cardFor(await screen.findByText('ANTHROPIC').then(() => 'ANTHROPIC'))
 
     await pickExistingPartner(card, 'ANTHROPIC')
-    fireEvent.change(await within(card).findByRole('combobox', { name: 'Leistung für ANTHROPIC' }), { target: { value: 'svc-lic' } })
+    fireEvent.change(
+      await within(card).findByRole('combobox', { name: 'Leistung für ANTHROPIC' }),
+      { target: { value: 'svc-lic' } },
+    )
 
     fireEvent.click(within(card).getByRole('button', { name: 'Ändern' }))
     await pickExistingPartner(card, 'ANTHROPIC')

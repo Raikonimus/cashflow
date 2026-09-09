@@ -2,12 +2,25 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { useAuthStore } from '@/store/auth-store'
-import { listPartners, createPartner, deletePartner, type PartnerListItem, type PartnerSortField, type SortDirection } from '@/api/partners'
+import {
+  listPartners,
+  createPartner,
+  deletePartner,
+  type PartnerListItem,
+  type PartnerSortField,
+  type SortDirection,
+} from '@/api/partners'
 import type { ServiceType } from '@/api/services'
 import { BulkMergeDialog } from './BulkMergeDialog'
 
 const serviceTypeBadges: Record<
-  'customer' | 'supplier' | 'employee' | 'shareholder' | 'authority' | 'internal_transfer' | 'unknown',
+  | 'customer'
+  | 'supplier'
+  | 'employee'
+  | 'shareholder'
+  | 'authority'
+  | 'internal_transfer'
+  | 'unknown',
   { label: string; short: string; className: string }
 > = {
   customer: { label: 'Kunde', short: 'K', className: 'bg-emerald-100 text-emerald-700' },
@@ -15,7 +28,11 @@ const serviceTypeBadges: Record<
   employee: { label: 'Mitarbeiter', short: 'M', className: 'bg-amber-100 text-amber-700' },
   shareholder: { label: 'Gesellschafter', short: 'G', className: 'bg-rose-100 text-rose-700' },
   authority: { label: 'Behörde', short: 'B', className: 'bg-violet-100 text-violet-700' },
-  internal_transfer: { label: 'Interne Umbuchung', short: 'U', className: 'bg-teal-100 text-teal-700' },
+  internal_transfer: {
+    label: 'Interne Umbuchung',
+    short: 'U',
+    className: 'bg-teal-100 text-teal-700',
+  },
   unknown: { label: 'Unbekannt', short: '?', className: 'bg-slate-200 text-slate-700' },
 }
 
@@ -37,8 +54,27 @@ export function PartnersPage() {
   const queryClient = useQueryClient()
 
   const { data, isLoading, isFetching, isError } = useQuery({
-    queryKey: ['partners', mandantId, page, showInactive, search, serviceTypeFilter, sortBy, sortDir],
-    queryFn: () => listPartners(mandantId, page, 30, showInactive, search.trim(), serviceTypeFilter || undefined, sortBy, sortDir),
+    queryKey: [
+      'partners',
+      mandantId,
+      page,
+      showInactive,
+      search,
+      serviceTypeFilter,
+      sortBy,
+      sortDir,
+    ],
+    queryFn: () =>
+      listPartners(
+        mandantId,
+        page,
+        30,
+        showInactive,
+        search.trim(),
+        serviceTypeFilter || undefined,
+        sortBy,
+        sortDir,
+      ),
     placeholderData: (previousData) => previousData,
     enabled: !!mandantId,
   })
@@ -102,9 +138,7 @@ export function PartnersPage() {
         }
       }
       if (failed.length > 0) {
-        throw new Error(
-          `Folgende Partner konnten nicht gelöscht werden: ${failed.join(', ')}`,
-        )
+        throw new Error(`Folgende Partner konnten nicht gelöscht werden: ${failed.join(', ')}`)
       }
     },
     onSuccess: () => {
@@ -306,17 +340,49 @@ export function PartnersPage() {
                   type="checkbox"
                   aria-label="Alle auf dieser Seite auswählen"
                   checked={allOnPageSelected}
-                  ref={(el) => { if (el) el.indeterminate = someOnPageSelected && !allOnPageSelected }}
+                  ref={(el) => {
+                    if (el) el.indeterminate = someOnPageSelected && !allOnPageSelected
+                  }}
                   onChange={toggleSelectAll}
                   className="h-4 w-4 cursor-pointer rounded border-gray-300"
                 />
               </th>
-              <SortableHeader label="Name" align="left" active={sortBy === 'name'} direction={sortDir} onClick={() => toggleSort('name')} />
+              <SortableHeader
+                label="Name"
+                align="left"
+                active={sortBy === 'name'}
+                direction={sortDir}
+                onClick={() => toggleSort('name')}
+              />
               <th className="px-4 py-3 text-left">Leistungen</th>
-              <SortableHeader label="IBANs" align="right" active={sortBy === 'iban_count'} direction={sortDir} onClick={() => toggleSort('iban_count')} />
-              <SortableHeader label="Namen" align="right" active={sortBy === 'name_count'} direction={sortDir} onClick={() => toggleSort('name_count')} />
-              <SortableHeader label="Buchungen" align="right" active={sortBy === 'journal_line_count'} direction={sortDir} onClick={() => toggleSort('journal_line_count')} />
-              <SortableHeader label="Status" align="left" active={sortBy === 'status'} direction={sortDir} onClick={() => toggleSort('status')} />
+              <SortableHeader
+                label="IBANs"
+                align="right"
+                active={sortBy === 'iban_count'}
+                direction={sortDir}
+                onClick={() => toggleSort('iban_count')}
+              />
+              <SortableHeader
+                label="Namen"
+                align="right"
+                active={sortBy === 'name_count'}
+                direction={sortDir}
+                onClick={() => toggleSort('name_count')}
+              />
+              <SortableHeader
+                label="Buchungen"
+                align="right"
+                active={sortBy === 'journal_line_count'}
+                direction={sortDir}
+                onClick={() => toggleSort('journal_line_count')}
+              />
+              <SortableHeader
+                label="Status"
+                align="left"
+                active={sortBy === 'status'}
+                direction={sortDir}
+                onClick={() => toggleSort('status')}
+              />
               <th className="px-4 py-3" />
             </tr>
           </thead>
@@ -344,9 +410,7 @@ export function PartnersPage() {
                 </td>
                 <td className="px-4 py-3 font-medium text-gray-900">
                   {p.display_name ?? p.name}
-                  {p.display_name && (
-                    <span className="ml-2 text-xs text-gray-400">({p.name})</span>
-                  )}
+                  {p.display_name && <span className="ml-2 text-xs text-gray-400">({p.name})</span>}
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex flex-wrap gap-2">
@@ -370,7 +434,9 @@ export function PartnersPage() {
                 </td>
                 <td className="px-4 py-3 text-right text-gray-500">{p.iban_count}</td>
                 <td className="px-4 py-3 text-right text-gray-500">{p.name_count}</td>
-                <td className="px-4 py-3 text-right font-medium text-gray-700">{p.journal_line_count}</td>
+                <td className="px-4 py-3 text-right font-medium text-gray-700">
+                  {p.journal_line_count}
+                </td>
                 <td className="px-4 py-3">
                   <span
                     className={`rounded px-2 py-0.5 text-xs font-medium ${
@@ -383,10 +449,7 @@ export function PartnersPage() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-right">
-                  <Link
-                    to={`/partners/${p.id}`}
-                    className="text-sm text-blue-600 hover:underline"
-                  >
+                  <Link to={`/partners/${p.id}`} className="text-sm text-blue-600 hover:underline">
                     Details
                   </Link>
                 </td>

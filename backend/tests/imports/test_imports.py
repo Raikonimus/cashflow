@@ -5,7 +5,9 @@ Stories covered:
   002-mapping-application
   004-import-run-tracking
 """
+
 import io
+from datetime import UTC
 from decimal import Decimal
 
 import pytest
@@ -76,7 +78,9 @@ class TestCsvUpload:
         assert len(lines) == 1
         assert lines[0].partner_name_raw == "Amazon EU"
         assert lines[0].partner_iban_raw == "DE89370400440532013000"
-        assert lines[0].partner_id is not None  # Bolt 007: new partner auto-created via matching
+        assert (
+            lines[0].partner_id is not None
+        )  # Bolt 007: new partner auto-created via matching
 
     async def test_upload_no_mapping_returns_422(
         self, client: AsyncClient, db_session: AsyncSession
@@ -126,15 +130,17 @@ class TestCsvUpload:
         token = await get_auth_token(client, user, mandant)
 
         csv1 = make_csv(CSV_ROWS)
-        csv2 = make_csv([
-            {
-                "Valuta": "2026-02-01",
-                "Buchungsdatum": "2026-02-01",
-                "Betrag": "99.00",
-                "Auftraggeber": "MediaMarkt",
-                "IBAN": "DE12500105170648489890",
-            }
-        ])
+        csv2 = make_csv(
+            [
+                {
+                    "Valuta": "2026-02-01",
+                    "Buchungsdatum": "2026-02-01",
+                    "Betrag": "99.00",
+                    "Auftraggeber": "MediaMarkt",
+                    "IBAN": "DE12500105170648489890",
+                }
+            ]
+        )
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/accounts/{account.id}/imports",
             files=[
@@ -217,8 +223,20 @@ class TestCsvUpload:
         token = await get_auth_token(client, user, mandant)
 
         rows = [
-            {"Valuta": "2026-01-01", "Buchungsdatum": "2026-01-01", "Betrag": "10.00", "Auftraggeber": "A", "IBAN": ""},
-            {"Valuta": "2026-01-02", "Buchungsdatum": "2026-01-02", "Betrag": "20.00", "Auftraggeber": "B", "IBAN": ""},
+            {
+                "Valuta": "2026-01-01",
+                "Buchungsdatum": "2026-01-01",
+                "Betrag": "10.00",
+                "Auftraggeber": "A",
+                "IBAN": "",
+            },
+            {
+                "Valuta": "2026-01-02",
+                "Buchungsdatum": "2026-01-02",
+                "Betrag": "20.00",
+                "Auftraggeber": "B",
+                "IBAN": "",
+            },
         ]
         csv_bytes = make_csv(rows)
 
@@ -258,12 +276,42 @@ class TestCsvUpload:
             partner_iban_col=None,
             description_col="Verwendungszweck",
             column_assignments=[
-                {"source": "Valuta", "target": "valuta_date", "sort_order": 0, "duplicate_check": False},
-                {"source": "Buchungsdatum", "target": "booking_date", "sort_order": 1, "duplicate_check": False},
-                {"source": "Betrag", "target": "amount", "sort_order": 2, "duplicate_check": False},
-                {"source": "Auftraggeber", "target": "partner_name", "sort_order": 3, "duplicate_check": False},
-                {"source": "Verwendungszweck", "target": "description", "sort_order": 4, "duplicate_check": False},
-                {"source": "Referenz", "target": "unused", "sort_order": 5, "duplicate_check": True},
+                {
+                    "source": "Valuta",
+                    "target": "valuta_date",
+                    "sort_order": 0,
+                    "duplicate_check": False,
+                },
+                {
+                    "source": "Buchungsdatum",
+                    "target": "booking_date",
+                    "sort_order": 1,
+                    "duplicate_check": False,
+                },
+                {
+                    "source": "Betrag",
+                    "target": "amount",
+                    "sort_order": 2,
+                    "duplicate_check": False,
+                },
+                {
+                    "source": "Auftraggeber",
+                    "target": "partner_name",
+                    "sort_order": 3,
+                    "duplicate_check": False,
+                },
+                {
+                    "source": "Verwendungszweck",
+                    "target": "description",
+                    "sort_order": 4,
+                    "duplicate_check": False,
+                },
+                {
+                    "source": "Referenz",
+                    "target": "unused",
+                    "sort_order": 5,
+                    "duplicate_check": True,
+                },
             ],
             decimal_separator=".",
             date_format="%Y-%m-%d",
@@ -275,26 +323,30 @@ class TestCsvUpload:
         await db_session.commit()
         token = await get_auth_token(client, user, mandant)
 
-        first_csv = make_csv([
-            {
-                "Valuta": "2026-01-15",
-                "Buchungsdatum": "2026-01-15",
-                "Betrag": "123.45",
-                "Auftraggeber": "Amazon EU",
-                "Verwendungszweck": "Erster Import",
-                "Referenz": "REF-001",
-            }
-        ])
-        second_csv = make_csv([
-            {
-                "Valuta": "2026-01-16",
-                "Buchungsdatum": "2026-01-16",
-                "Betrag": "999.99",
-                "Auftraggeber": "Anderer Partner",
-                "Verwendungszweck": "Zweiter Import",
-                "Referenz": "REF-001",
-            }
-        ])
+        first_csv = make_csv(
+            [
+                {
+                    "Valuta": "2026-01-15",
+                    "Buchungsdatum": "2026-01-15",
+                    "Betrag": "123.45",
+                    "Auftraggeber": "Amazon EU",
+                    "Verwendungszweck": "Erster Import",
+                    "Referenz": "REF-001",
+                }
+            ]
+        )
+        second_csv = make_csv(
+            [
+                {
+                    "Valuta": "2026-01-16",
+                    "Buchungsdatum": "2026-01-16",
+                    "Betrag": "999.99",
+                    "Auftraggeber": "Anderer Partner",
+                    "Verwendungszweck": "Zweiter Import",
+                    "Referenz": "REF-001",
+                }
+            ]
+        )
 
         resp1 = await client.post(
             f"/api/v1/mandants/{mandant.id}/accounts/{account.id}/imports",
@@ -334,12 +386,42 @@ class TestCsvUpload:
             partner_iban_col=None,
             description_col="Verwendungszweck",
             column_assignments=[
-                {"source": "Valuta", "target": "valuta_date", "sort_order": 0, "duplicate_check": False},
-                {"source": "Buchungsdatum", "target": "booking_date", "sort_order": 1, "duplicate_check": False},
-                {"source": "Betrag", "target": "amount", "sort_order": 2, "duplicate_check": False},
-                {"source": "Auftraggeber", "target": "partner_name", "sort_order": 3, "duplicate_check": False},
-                {"source": "Verwendungszweck", "target": "description", "sort_order": 4, "duplicate_check": False},
-                {"source": "Referenz", "target": "unused", "sort_order": 5, "duplicate_check": True},
+                {
+                    "source": "Valuta",
+                    "target": "valuta_date",
+                    "sort_order": 0,
+                    "duplicate_check": False,
+                },
+                {
+                    "source": "Buchungsdatum",
+                    "target": "booking_date",
+                    "sort_order": 1,
+                    "duplicate_check": False,
+                },
+                {
+                    "source": "Betrag",
+                    "target": "amount",
+                    "sort_order": 2,
+                    "duplicate_check": False,
+                },
+                {
+                    "source": "Auftraggeber",
+                    "target": "partner_name",
+                    "sort_order": 3,
+                    "duplicate_check": False,
+                },
+                {
+                    "source": "Verwendungszweck",
+                    "target": "description",
+                    "sort_order": 4,
+                    "duplicate_check": False,
+                },
+                {
+                    "source": "Referenz",
+                    "target": "unused",
+                    "sort_order": 5,
+                    "duplicate_check": True,
+                },
             ],
             decimal_separator=".",
             date_format="%Y-%m-%d",
@@ -384,16 +466,18 @@ class TestCsvUpload:
 
         token = await get_auth_token(client, user, mandant)
 
-        duplicate_csv = make_csv([
-            {
-                "Valuta": "2026-01-16",
-                "Buchungsdatum": "2026-01-16",
-                "Betrag": "999.99",
-                "Auftraggeber": "Anderer Partner",
-                "Verwendungszweck": "Neuer Import",
-                "Referenz": "REF-001",
-            }
-        ])
+        duplicate_csv = make_csv(
+            [
+                {
+                    "Valuta": "2026-01-16",
+                    "Buchungsdatum": "2026-01-16",
+                    "Betrag": "999.99",
+                    "Auftraggeber": "Anderer Partner",
+                    "Verwendungszweck": "Neuer Import",
+                    "Referenz": "REF-001",
+                }
+            ]
+        )
 
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/accounts/{account.id}/imports",
@@ -425,10 +509,30 @@ class TestCsvUpload:
             partner_iban_col=None,
             description_col=None,
             column_assignments=[
-                {"source": "Valuta", "target": "valuta_date", "sort_order": 0, "duplicate_check": False},
-                {"source": "Buchungsdatum", "target": "booking_date", "sort_order": 1, "duplicate_check": False},
-                {"source": "Betrag", "target": "amount", "sort_order": 2, "duplicate_check": False},
-                {"source": "Referenz", "target": "unused", "sort_order": 3, "duplicate_check": True},
+                {
+                    "source": "Valuta",
+                    "target": "valuta_date",
+                    "sort_order": 0,
+                    "duplicate_check": False,
+                },
+                {
+                    "source": "Buchungsdatum",
+                    "target": "booking_date",
+                    "sort_order": 1,
+                    "duplicate_check": False,
+                },
+                {
+                    "source": "Betrag",
+                    "target": "amount",
+                    "sort_order": 2,
+                    "duplicate_check": False,
+                },
+                {
+                    "source": "Referenz",
+                    "target": "unused",
+                    "sort_order": 3,
+                    "duplicate_check": True,
+                },
             ],
             decimal_separator=".",
             date_format="%Y-%m-%d",
@@ -440,13 +544,15 @@ class TestCsvUpload:
         await db_session.commit()
         token = await get_auth_token(client, user, mandant)
 
-        csv_bytes = make_csv([
-            {
-                "Valuta": "2026-01-15",
-                "Buchungsdatum": "2026-01-15",
-                "Betrag": "123.45",
-            }
-        ])
+        csv_bytes = make_csv(
+            [
+                {
+                    "Valuta": "2026-01-15",
+                    "Buchungsdatum": "2026-01-15",
+                    "Betrag": "123.45",
+                }
+            ]
+        )
 
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/accounts/{account.id}/imports",
@@ -473,12 +579,42 @@ class TestCsvUpload:
             partner_iban_col=None,
             description_col="Verwendungszweck",
             column_assignments=[
-                {"source": "Valuta", "target": "valuta_date", "sort_order": 0, "duplicate_check": False},
-                {"source": "Buchungsdatum", "target": "booking_date", "sort_order": 1, "duplicate_check": False},
-                {"source": "Betrag", "target": "amount", "sort_order": 2, "duplicate_check": False},
-                {"source": "Auftraggeber", "target": "partner_name", "sort_order": 3, "duplicate_check": False},
-                {"source": "Verwendungszweck", "target": "description", "sort_order": 4, "duplicate_check": False},
-                {"source": "Referenz", "target": "booking_date", "sort_order": 5, "duplicate_check": True},
+                {
+                    "source": "Valuta",
+                    "target": "valuta_date",
+                    "sort_order": 0,
+                    "duplicate_check": False,
+                },
+                {
+                    "source": "Buchungsdatum",
+                    "target": "booking_date",
+                    "sort_order": 1,
+                    "duplicate_check": False,
+                },
+                {
+                    "source": "Betrag",
+                    "target": "amount",
+                    "sort_order": 2,
+                    "duplicate_check": False,
+                },
+                {
+                    "source": "Auftraggeber",
+                    "target": "partner_name",
+                    "sort_order": 3,
+                    "duplicate_check": False,
+                },
+                {
+                    "source": "Verwendungszweck",
+                    "target": "description",
+                    "sort_order": 4,
+                    "duplicate_check": False,
+                },
+                {
+                    "source": "Referenz",
+                    "target": "booking_date",
+                    "sort_order": 5,
+                    "duplicate_check": True,
+                },
             ],
             decimal_separator=".",
             date_format="%Y-%m-%d",
@@ -490,26 +626,30 @@ class TestCsvUpload:
         await db_session.commit()
         token = await get_auth_token(client, user, mandant)
 
-        first_csv = make_csv([
-            {
-                "Valuta": "2026-03-31",
-                "Buchungsdatum": "2026-03-31",
-                "Betrag": "123.45",
-                "Auftraggeber": "Amazon EU",
-                "Verwendungszweck": "Erster Import",
-                "Referenz": "REF-001",
-            }
-        ])
-        second_csv = make_csv([
-            {
-                "Valuta": "2026-04-01",
-                "Buchungsdatum": "2026-04-01",
-                "Betrag": "999.99",
-                "Auftraggeber": "Anderer Partner",
-                "Verwendungszweck": "Zweiter Import",
-                "Referenz": "REF-001",
-            }
-        ])
+        first_csv = make_csv(
+            [
+                {
+                    "Valuta": "2026-03-31",
+                    "Buchungsdatum": "2026-03-31",
+                    "Betrag": "123.45",
+                    "Auftraggeber": "Amazon EU",
+                    "Verwendungszweck": "Erster Import",
+                    "Referenz": "REF-001",
+                }
+            ]
+        )
+        second_csv = make_csv(
+            [
+                {
+                    "Valuta": "2026-04-01",
+                    "Buchungsdatum": "2026-04-01",
+                    "Betrag": "999.99",
+                    "Auftraggeber": "Anderer Partner",
+                    "Verwendungszweck": "Zweiter Import",
+                    "Referenz": "REF-001",
+                }
+            ]
+        )
 
         resp1 = await client.post(
             f"/api/v1/mandants/{mandant.id}/accounts/{account.id}/imports",
@@ -548,7 +688,7 @@ class TestMappingApplication:
         Two source columns mapped to same target (sort_order) → concatenated with \\n.
         This is tested here at the service level by verifying the JournalLine text field.
         """
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         user = await create_user(db_session, "acc@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)
@@ -556,7 +696,7 @@ class TestMappingApplication:
         account = await create_account_db(db_session, mandant.id)
 
         # Create mapping with description_col = "Verwendungszweck"
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         mapping = ColumnMappingConfig(
             account_id=account.id,
             valuta_date_col="Valuta",
@@ -578,13 +718,15 @@ class TestMappingApplication:
 
         token = await get_auth_token(client, user, mandant)
 
-        rows = [{
-            "Valuta": "2026-03-01",
-            "Buchungsdatum": "2026-03-01",
-            "Betrag": "50.00",
-            "Auftraggeber": "Rewe",
-            "Verwendungszweck": "Wocheneinkauf",
-        }]
+        rows = [
+            {
+                "Valuta": "2026-03-01",
+                "Buchungsdatum": "2026-03-01",
+                "Betrag": "50.00",
+                "Auftraggeber": "Rewe",
+                "Verwendungszweck": "Wocheneinkauf",
+            }
+        ]
         csv_bytes = make_csv(rows)
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/accounts/{account.id}/imports",
@@ -609,14 +751,16 @@ class TestMappingApplication:
         await create_mapping_db(db_session, account.id)
         token = await get_auth_token(client, user, mandant)
 
-        rows = [{
-            "Valuta": "2026-04-01",
-            "Buchungsdatum": "2026-04-01",
-            "Betrag": "75.00",
-            "Auftraggeber": "Lidl",
-            "IBAN": "",
-            "ExtraColumn": "some_value",
-        }]
+        rows = [
+            {
+                "Valuta": "2026-04-01",
+                "Buchungsdatum": "2026-04-01",
+                "Betrag": "75.00",
+                "Auftraggeber": "Lidl",
+                "IBAN": "",
+                "ExtraColumn": "some_value",
+            }
+        ]
         csv_bytes = make_csv(rows)
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/accounts/{account.id}/imports",
@@ -719,6 +863,7 @@ class TestImportRunTracking:
         token = await get_auth_token(client, user, mandant)
 
         import uuid
+
         resp = await client.get(
             f"/api/v1/mandants/{mandant.id}/accounts/{account.id}/imports/{uuid.uuid4()}",
             headers=_auth(token),

@@ -86,17 +86,22 @@ export function ServiceKeywordSettingsPage() {
     mutationFn: () => createServiceKeyword(mandantId, toPayload(createForm)),
     onSuccess: async () => {
       setCreateForm(emptyForm)
-      await refreshKeywords('Keyword-Regel gespeichert. Änderungen wirken auf künftige automatische Typ-Ermittlungen.')
+      await refreshKeywords(
+        'Keyword-Regel gespeichert. Änderungen wirken auf künftige automatische Typ-Ermittlungen.',
+      )
     },
     onError: (error) => setNotice({ tone: 'error', message: extractErrorMessage(error) }),
   })
 
   const updateMutation = useMutation({
-    mutationFn: (keywordId: string) => updateServiceKeyword(mandantId, keywordId, toPayload(editForm)),
+    mutationFn: (keywordId: string) =>
+      updateServiceKeyword(mandantId, keywordId, toPayload(editForm)),
     onSuccess: async () => {
       setEditingKeywordId(null)
       setEditForm(emptyForm)
-      await refreshKeywords('Keyword-Regel aktualisiert. Änderungen wirken auf künftige automatische Typ-Ermittlungen.')
+      await refreshKeywords(
+        'Keyword-Regel aktualisiert. Änderungen wirken auf künftige automatische Typ-Ermittlungen.',
+      )
     },
     onError: (error) => setNotice({ tone: 'error', message: extractErrorMessage(error) }),
   })
@@ -104,7 +109,9 @@ export function ServiceKeywordSettingsPage() {
   const deleteMutation = useMutation({
     mutationFn: (keywordId: string) => deleteServiceKeyword(mandantId, keywordId),
     onSuccess: async () => {
-      await refreshKeywords('Keyword-Regel gelöscht. Änderungen wirken auf künftige automatische Typ-Ermittlungen.')
+      await refreshKeywords(
+        'Keyword-Regel gelöscht. Änderungen wirken auf künftige automatische Typ-Ermittlungen.',
+      )
     },
     onError: (error) => setNotice({ tone: 'error', message: extractErrorMessage(error) }),
   })
@@ -128,22 +135,32 @@ export function ServiceKeywordSettingsPage() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
       <div className="mb-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Einstellungen</p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">Service-Keywords</h1>
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+          Einstellungen
+        </p>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">
+          Service-Keywords
+        </h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
-          Pflege mandantenspezifischer Begriffe für die automatische Erkennung von Mitarbeiter-, Gesellschafter- und Behörden-Leistungen.
+          Pflege mandantenspezifischer Begriffe für die automatische Erkennung von Mitarbeiter-,
+          Gesellschafter- und Behörden-Leistungen.
         </p>
       </div>
 
       {notice ? (
-        <div className={`mb-4 rounded-xl px-4 py-3 text-sm ${notice.tone === 'success' ? 'border border-emerald-200 bg-emerald-50 text-emerald-700' : 'border border-red-200 bg-red-50 text-red-700'}`}>
+        <div
+          className={`mb-4 rounded-xl px-4 py-3 text-sm ${notice.tone === 'success' ? 'border border-emerald-200 bg-emerald-50 text-emerald-700' : 'border border-red-200 bg-red-50 text-red-700'}`}
+        >
           {notice.message}
         </div>
       ) : null}
 
       <div className="mb-6 rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-base font-semibold text-slate-900">Neue Regel</h2>
-        <p className="mt-1 text-sm text-slate-500">String-Regeln suchen case-insensitiv per Textsuche, Regex-Regeln werden vor dem Speichern validiert.</p>
+        <p className="mt-1 text-sm text-slate-500">
+          String-Regeln suchen case-insensitiv per Textsuche, Regex-Regeln werden vor dem Speichern
+          validiert.
+        </p>
         <KeywordForm
           form={createForm}
           onChange={setCreateForm}
@@ -159,11 +176,16 @@ export function ServiceKeywordSettingsPage() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         {(['employee', 'shareholder', 'authority'] as const).map((targetType) => (
-          <section key={targetType} className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm">
+          <section
+            key={targetType}
+            className="rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm"
+          >
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">{targetLabels[targetType]}</h2>
-                <p className="mt-1 text-sm text-slate-500">Mandantenspezifische Regeln für {targetLabels[targetType].toLowerCase()}.</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  Mandantenspezifische Regeln für {targetLabels[targetType].toLowerCase()}.
+                </p>
               </div>
               <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">
                 {groupedItems[targetType].length} Regeln
@@ -177,7 +199,10 @@ export function ServiceKeywordSettingsPage() {
                 groupedItems[targetType].map((item) => {
                   const isEditing = editingKeywordId === item.id
                   return (
-                    <div key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div
+                      key={item.id}
+                      className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                    >
                       {isEditing ? (
                         <KeywordForm
                           form={editForm}
@@ -226,7 +251,10 @@ export function ServiceKeywordSettingsPage() {
                 {data?.system_defaults
                   .filter((item) => item.target_service_type === targetType)
                   .map((item, index) => (
-                    <span key={`${item.target_service_type}-${item.pattern}-${index}`} className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">
+                    <span
+                      key={`${item.target_service_type}-${item.pattern}-${index}`}
+                      className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600"
+                    >
                       {item.pattern} · {item.pattern_type === 'regex' ? 'Regex' : 'String'}
                     </span>
                   ))}
@@ -255,7 +283,9 @@ function KeywordRuleRow({
       <div>
         <div className="flex items-center gap-2">
           <code className="font-mono text-sm text-slate-900">{item.pattern}</code>
-          <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${item.pattern_type === 'regex' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
+          <span
+            className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${item.pattern_type === 'regex' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}
+          >
             {item.pattern_type === 'regex' ? 'Regex' : 'String'}
           </span>
         </div>
@@ -304,7 +334,9 @@ function KeywordForm({
     <div className="mt-4">
       <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px_180px]">
         <label htmlFor={patternInputId} className="text-sm text-slate-600">
-          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Pattern</span>
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Pattern
+          </span>
           <input
             id={patternInputId}
             value={form.pattern}
@@ -315,11 +347,18 @@ function KeywordForm({
         </label>
 
         <label htmlFor={patternTypeSelectId} className="text-sm text-slate-600">
-          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Typ</span>
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Typ
+          </span>
           <select
             id={patternTypeSelectId}
             value={form.pattern_type}
-            onChange={(event) => onChange({ ...form, pattern_type: event.target.value as KeywordFormState['pattern_type'] })}
+            onChange={(event) =>
+              onChange({
+                ...form,
+                pattern_type: event.target.value as KeywordFormState['pattern_type'],
+              })
+            }
             className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
           >
             <option value="string">String</option>
@@ -328,11 +367,18 @@ function KeywordForm({
         </label>
 
         <label htmlFor={targetTypeSelectId} className="text-sm text-slate-600">
-          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Zieltyp</span>
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Zieltyp
+          </span>
           <select
             id={targetTypeSelectId}
             value={form.target_service_type}
-            onChange={(event) => onChange({ ...form, target_service_type: event.target.value as KeywordFormState['target_service_type'] })}
+            onChange={(event) =>
+              onChange({
+                ...form,
+                target_service_type: event.target.value as KeywordFormState['target_service_type'],
+              })
+            }
             className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
           >
             <option value="employee">Mitarbeiter</option>
@@ -378,7 +424,10 @@ function extractErrorMessage(error: unknown): string {
   }
 
   if (Array.isArray(detail)) {
-    return detail.map((entry) => entry.msg).filter(Boolean).join(', ')
+    return detail
+      .map((entry) => entry.msg)
+      .filter(Boolean)
+      .join(', ')
   }
 
   return 'Die Keyword-Regel konnte nicht gespeichert werden.'

@@ -1,4 +1,5 @@
 """Tests for Journal & Audit (Bolt 009)."""
+
 from decimal import Decimal
 
 import pytest
@@ -26,6 +27,7 @@ def _auth(token: str) -> dict:
 
 
 # ─── List Journal Lines ───────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 class TestListJournalLines:
@@ -78,7 +80,9 @@ class TestListJournalLines:
         account = await create_account_db(db_session, mandant.id)
         run = await create_import_run_db(db_session, account.id, mandant.id, user.id)
         partner = await create_partner_db(db_session, mandant.id, "Amazon EU")
-        line = await create_journal_line_db(db_session, account.id, run.id, partner_id=partner.id)
+        line = await create_journal_line_db(
+            db_session, account.id, run.id, partner_id=partner.id
+        )
         service = Service(
             partner_id=partner.id,
             name="Hosting",
@@ -91,11 +95,17 @@ class TestListJournalLines:
         await db_session.commit()
         await db_session.refresh(service)
 
-        db_session.add(JournalLineSplit(
-            journal_line_id=line.id, service_id=service.id,
-            amount=line.amount, assignment_mode="auto",
-            amount_consistency_ok=False, created_at=utcnow(), updated_at=utcnow(),
-        ))
+        db_session.add(
+            JournalLineSplit(
+                journal_line_id=line.id,
+                service_id=service.id,
+                amount=line.amount,
+                assignment_mode="auto",
+                amount_consistency_ok=False,
+                created_at=utcnow(),
+                updated_at=utcnow(),
+            )
+        )
 
         prior_year_line = await create_journal_line_db(
             db_session,
@@ -105,11 +115,17 @@ class TestListJournalLines:
             valuta_date="2025-11-20",
             amount=Decimal("48.00"),
         )
-        db_session.add(JournalLineSplit(
-            journal_line_id=prior_year_line.id, service_id=service.id,
-            amount=Decimal("48.00"), assignment_mode="auto",
-            amount_consistency_ok=False, created_at=utcnow(), updated_at=utcnow(),
-        ))
+        db_session.add(
+            JournalLineSplit(
+                journal_line_id=prior_year_line.id,
+                service_id=service.id,
+                amount=Decimal("48.00"),
+                assignment_mode="auto",
+                amount_consistency_ok=False,
+                created_at=utcnow(),
+                updated_at=utcnow(),
+            )
+        )
         await db_session.commit()
 
         token = await get_auth_token(client, user, mandant)
@@ -125,7 +141,9 @@ class TestListJournalLines:
     async def test_hides_internal_import_metadata_from_unmapped_data(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        user = await create_user(db_session, "viewer-unmapped@test.com", UserRole.viewer)
+        user = await create_user(
+            db_session, "viewer-unmapped@test.com", UserRole.viewer
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         account = await create_account_db(db_session, mandant.id)
@@ -201,11 +219,17 @@ class TestListJournalLines:
             run.id,
             partner_id=partner.id,
         )
-        db_session.add(JournalLineSplit(
-            journal_line_id=matching_line.id, service_id=service.id,
-            amount=matching_line.amount, assignment_mode="auto",
-            amount_consistency_ok=False, created_at=utcnow(), updated_at=utcnow(),
-        ))
+        db_session.add(
+            JournalLineSplit(
+                journal_line_id=matching_line.id,
+                service_id=service.id,
+                amount=matching_line.amount,
+                assignment_mode="auto",
+                amount_consistency_ok=False,
+                created_at=utcnow(),
+                updated_at=utcnow(),
+            )
+        )
 
         other_line = await create_journal_line_db(
             db_session,
@@ -229,16 +253,18 @@ class TestListJournalLines:
         assert data["items"][0]["id"] == str(matching_line.id)
         assert data["items"][0]["splits"][0]["service_id"] == str(service.id)
 
-    async def test_filter_by_year(
-        self, client: AsyncClient, db_session: AsyncSession
-    ):
+    async def test_filter_by_year(self, client: AsyncClient, db_session: AsyncSession):
         user = await create_user(db_session, "v@t.com", UserRole.viewer)
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         acc = await create_account_db(db_session, mandant.id)
         run = await create_import_run_db(db_session, acc.id, mandant.id, user.id)
-        await create_journal_line_db(db_session, acc.id, run.id, valuta_date="2024-12-01")
-        await create_journal_line_db(db_session, acc.id, run.id, valuta_date="2025-03-10")
+        await create_journal_line_db(
+            db_session, acc.id, run.id, valuta_date="2024-12-01"
+        )
+        await create_journal_line_db(
+            db_session, acc.id, run.id, valuta_date="2025-03-10"
+        )
         token = await get_auth_token(client, user, mandant)
 
         resp = await client.get(
@@ -257,8 +283,12 @@ class TestListJournalLines:
         await assign_user_to_mandant(db_session, user, mandant)
         acc = await create_account_db(db_session, mandant.id)
         run = await create_import_run_db(db_session, acc.id, mandant.id, user.id)
-        await create_journal_line_db(db_session, acc.id, run.id, valuta_date="2025-03-10")
-        await create_journal_line_db(db_session, acc.id, run.id, valuta_date="2025-04-01")
+        await create_journal_line_db(
+            db_session, acc.id, run.id, valuta_date="2025-03-10"
+        )
+        await create_journal_line_db(
+            db_session, acc.id, run.id, valuta_date="2025-04-01"
+        )
         token = await get_auth_token(client, user, mandant)
 
         resp = await client.get(
@@ -361,6 +391,7 @@ class TestListJournalLines:
 
 # ─── Bulk-Assign ──────────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 class TestBulkAssign:
 
@@ -379,7 +410,10 @@ class TestBulkAssign:
 
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/journal/bulk-assign",
-            json={"line_ids": [str(line1.id), str(line2.id)], "partner_id": str(partner.id)},
+            json={
+                "line_ids": [str(line1.id), str(line2.id)],
+                "partner_id": str(partner.id),
+            },
             headers=_auth(token),
         )
         assert resp.status_code == 200
@@ -404,7 +438,10 @@ class TestBulkAssign:
 
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/journal/bulk-assign",
-            json={"line_ids": [str(line1.id), str(line2.id)], "partner_id": str(partner.id)},
+            json={
+                "line_ids": [str(line1.id), str(line2.id)],
+                "partner_id": str(partner.id),
+            },
             headers=_auth(token),
         )
         assert resp.status_code == 200
@@ -450,6 +487,7 @@ class TestBulkAssign:
         token = await get_auth_token(client, user, mandant)
 
         import uuid
+
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/journal/bulk-assign",
             json={"line_ids": [str(uuid.uuid4())], "partner_id": str(uuid.uuid4())},
@@ -476,6 +514,7 @@ class TestBulkAssign:
 
 
 # ─── Audit Log ───────────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 class TestAuditLog:
@@ -549,7 +588,9 @@ class TestAuditLog:
         run = await create_import_run_db(db_session, acc.id, mandant.id, admin.id)
         source_partner = await create_partner_db(db_session, mandant.id, "Alt")
         target_partner = await create_partner_db(db_session, mandant.id, "Neu")
-        line = await create_journal_line_db(db_session, acc.id, run.id, partner_id=source_partner.id)
+        line = await create_journal_line_db(
+            db_session, acc.id, run.id, partner_id=source_partner.id
+        )
 
         now = utcnow()
         db_session.add(
@@ -586,11 +627,17 @@ class TestAuditLog:
 
         remaining = (
             await db_session.exec(
-                select(ReviewItem).where(ReviewItem.journal_line_id == line.id, ReviewItem.status == "open")
+                select(ReviewItem).where(
+                    ReviewItem.journal_line_id == line.id, ReviewItem.status == "open"
+                )
             )
         ).all()
-        assert not any(review.item_type == "name_match_with_iban" for review in remaining)
-        assert not any(review.context.get("reason") == "multiple_matches" for review in remaining)
+        assert not any(
+            review.item_type == "name_match_with_iban" for review in remaining
+        )
+        assert not any(
+            review.context.get("reason") == "multiple_matches" for review in remaining
+        )
 
 
 @pytest.mark.asyncio
@@ -627,11 +674,17 @@ class TestIncomeExpenseMatrix:
             valuta_date="2026-01-15",
             amount=Decimal("120.00"),
         )
-        db_session.add(JournalLineSplit(
-            journal_line_id=line.id, service_id=service.id,
-            amount=Decimal("120.00"), assignment_mode="auto",
-            amount_consistency_ok=False, created_at=utcnow(), updated_at=utcnow(),
-        ))
+        db_session.add(
+            JournalLineSplit(
+                journal_line_id=line.id,
+                service_id=service.id,
+                amount=Decimal("120.00"),
+                assignment_mode="auto",
+                amount_consistency_ok=False,
+                created_at=utcnow(),
+                updated_at=utcnow(),
+            )
+        )
 
         prior_year_line = await create_journal_line_db(
             db_session,
@@ -641,11 +694,17 @@ class TestIncomeExpenseMatrix:
             valuta_date="2025-11-20",
             amount=Decimal("48.00"),
         )
-        db_session.add(JournalLineSplit(
-            journal_line_id=prior_year_line.id, service_id=service.id,
-            amount=Decimal("48.00"), assignment_mode="auto",
-            amount_consistency_ok=False, created_at=utcnow(), updated_at=utcnow(),
-        ))
+        db_session.add(
+            JournalLineSplit(
+                journal_line_id=prior_year_line.id,
+                service_id=service.id,
+                amount=Decimal("48.00"),
+                assignment_mode="auto",
+                amount_consistency_ok=False,
+                created_at=utcnow(),
+                updated_at=utcnow(),
+            )
+        )
         await db_session.commit()
 
         token = await get_auth_token(client, user, mandant)
@@ -660,14 +719,22 @@ class TestIncomeExpenseMatrix:
         assert set(payload["sections"].keys()) == {"income", "expense", "neutral"}
         assert payload["sections"]["income"]["totals"]["jan"]["gross"] == "120.00"
         assert payload["sections"]["income"]["totals"]["jan"]["net"] == "100.00"
-        assert payload["sections"]["income"]["groups"][0]["services"][0]["partner_name"] == "Matrix Partner"
+        assert (
+            payload["sections"]["income"]["groups"][0]["services"][0]["partner_name"]
+            == "Matrix Partner"
+        )
         assert payload["sections"]["income"]["groups"][0]["assigned_service_count"] == 1
-        assert payload["sections"]["income"]["groups"][0]["active_years"] == [2025, 2026]
+        assert payload["sections"]["income"]["groups"][0]["active_years"] == [
+            2025,
+            2026,
+        ]
 
     async def test_viewer_can_read_matrix_endpoint(
         self, client: AsyncClient, db_session: AsyncSession
     ):
-        viewer = await create_user(db_session, "viewer-only-matrix@test.com", UserRole.viewer)
+        viewer = await create_user(
+            db_session, "viewer-only-matrix@test.com", UserRole.viewer
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, viewer, mandant)
         token = await get_auth_token(client, viewer, mandant)

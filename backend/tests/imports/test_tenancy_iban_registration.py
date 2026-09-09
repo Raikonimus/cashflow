@@ -5,6 +5,7 @@ gehoeren darf. Der Lookup beim Import filtert dagegen korrekt auf den eigenen
 Mandanten. Beides zusammen ergibt eine Luecke: Hat Mandant A eine IBAN registriert,
 kann der Partner von Mandant B sie nie bekommen — und wird nie per IBAN gematcht.
 """
+
 import pytest
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -37,7 +38,9 @@ async def _partner_mit_iban(
     return partner
 
 
-async def test_fremde_iban_wird_nicht_dem_falschen_mandanten_zugeordnet(db_session: AsyncSession):
+async def test_fremde_iban_wird_nicht_dem_falschen_mandanten_zugeordnet(
+    db_session: AsyncSession,
+):
     """Die Grundregel haelt: der Lookup bleibt im eigenen Mandanten."""
     fremder = await create_mandant(db_session, name="Mandant A")
     eigener = await create_mandant(db_session, name="Mandant B")
@@ -50,13 +53,16 @@ async def test_fremde_iban_wird_nicht_dem_falschen_mandanten_zugeordnet(db_sessi
     assert result.outcome is not MatchOutcome.iban_match
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "BEFUND A1-2 (offen): ADR-008 macht die IBAN global eindeutig, der Import-Lookup "
-    "filtert aber auf den eigenen Mandanten. Die Registrierung ueberspringt still, was "
-    "ein fremder Mandant belegt hat. Fix erfordert eine Entscheidung ueber ADR-008 — "
-    "entweder IBAN pro Mandant eindeutig, oder der Import legt ein Review-Item an, statt "
-    "stillschweigend nichts zu tun."
-))
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "BEFUND A1-2 (offen): ADR-008 macht die IBAN global eindeutig, der Import-Lookup "
+        "filtert aber auf den eigenen Mandanten. Die Registrierung ueberspringt still, was "
+        "ein fremder Mandant belegt hat. Fix erfordert eine Entscheidung ueber ADR-008 — "
+        "entweder IBAN pro Mandant eindeutig, oder der Import legt ein Review-Item an, statt "
+        "stillschweigend nichts zu tun."
+    ),
+)
 async def test_iban_wird_beim_import_auch_registriert_wenn_ein_fremder_mandant_sie_hat(
     db_session: AsyncSession,
 ):
@@ -86,13 +92,16 @@ async def test_iban_wird_beim_import_auch_registriert_wenn_ein_fremder_mandant_s
     )
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "BEFUND A1-2 (offen): ADR-008 macht die IBAN global eindeutig, der Import-Lookup "
-    "filtert aber auf den eigenen Mandanten. Die Registrierung ueberspringt still, was "
-    "ein fremder Mandant belegt hat. Fix erfordert eine Entscheidung ueber ADR-008 — "
-    "entweder IBAN pro Mandant eindeutig, oder der Import legt ein Review-Item an, statt "
-    "stillschweigend nichts zu tun."
-))
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "BEFUND A1-2 (offen): ADR-008 macht die IBAN global eindeutig, der Import-Lookup "
+        "filtert aber auf den eigenen Mandanten. Die Registrierung ueberspringt still, was "
+        "ein fremder Mandant belegt hat. Fix erfordert eine Entscheidung ueber ADR-008 — "
+        "entweder IBAN pro Mandant eindeutig, oder der Import legt ein Review-Item an, statt "
+        "stillschweigend nichts zu tun."
+    ),
+)
 async def test_zweiter_import_erkennt_den_partner_wieder(db_session: AsyncSession):
     """Folgefehler: beim zweiten Import muesste iban_match herauskommen."""
     fremder = await create_mandant(db_session, name="Mandant A")

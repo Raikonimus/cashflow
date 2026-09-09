@@ -1,4 +1,3 @@
-
 export const reviewTypeLabels: Record<string, string> = {
   name_match: 'Partner-Prüfung',
   name_match_with_iban: 'IBAN-Abweichung',
@@ -45,7 +44,8 @@ export function formatReviewReason(reason: string | undefined) {
   if (reason in reviewReasonLabels) return reviewReasonLabels[reason]
   if (reason === 'multiple_matches') return 'Mehrere Matcher passen auf diese Buchung.'
   if (reason === 'single_match') return 'Ein Matcher passt eindeutig auf diese Buchung.'
-  if (reason === 'no_match_base_service') return 'Keine passende Leistung gefunden, Basisleistung gewählt.'
+  if (reason === 'no_match_base_service')
+    return 'Keine passende Leistung gefunden, Basisleistung gewählt.'
   if (reason.startsWith('keyword:')) return `Keyword-Regel: ${reason.replace('keyword:', '')}`
   if (reason === 'amount<=0') return 'Automatisch aus negativem Betrag abgeleitet.'
   if (reason === 'amount>0') return 'Automatisch aus positivem Betrag abgeleitet.'
@@ -60,7 +60,9 @@ export function InlineNotice({
   message: string
 }>) {
   return (
-    <div className={`mb-5 rounded-2xl border px-4 py-3 text-sm ${tone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
+    <div
+      className={`mb-5 rounded-2xl border px-4 py-3 text-sm ${tone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-700'}`}
+    >
       {message}
     </div>
   )

@@ -1,4 +1,3 @@
-from typing import Optional
 from uuid import UUID
 
 import structlog
@@ -41,27 +40,37 @@ mandants_router = APIRouter(prefix="/mandants", tags=["mandants"])
 
 # ─── Dependency factories ───────────────────────────────────────────────────
 
+
 def _auth_service(session: AsyncSession = Depends(get_session)) -> AuthService:
     return AuthService(session)
 
 
-def _reset_service(session: AsyncSession = Depends(get_session)) -> PasswordResetService:
+def _reset_service(
+    session: AsyncSession = Depends(get_session),
+) -> PasswordResetService:
     return PasswordResetService(session)
 
 
-def _user_mgmt_service(session: AsyncSession = Depends(get_session)) -> UserManagementService:
+def _user_mgmt_service(
+    session: AsyncSession = Depends(get_session),
+) -> UserManagementService:
     return UserManagementService(session)
 
 
-def _invitation_service(session: AsyncSession = Depends(get_session)) -> InvitationService:
+def _invitation_service(
+    session: AsyncSession = Depends(get_session),
+) -> InvitationService:
     return InvitationService(session)
 
 
-def _mandant_assignment_service(session: AsyncSession = Depends(get_session)) -> MandantAssignmentService:
+def _mandant_assignment_service(
+    session: AsyncSession = Depends(get_session),
+) -> MandantAssignmentService:
     return MandantAssignmentService(session)
 
 
 # ─── Auth endpoints ──────────────────────────────────────────────────────────
+
 
 @router.post("/login", response_model=LoginResponse)
 async def login(
@@ -92,7 +101,7 @@ async def logout(
     current_user: User = Depends(get_current_user),
     svc: AuthService = Depends(_auth_service),
 ) -> None:
-    mandant_id: Optional[UUID] = None
+    mandant_id: UUID | None = None
     raw = payload.get("mandant_id")
     if raw:
         try:
@@ -134,7 +143,7 @@ async def get_me(
     current_user: User = Depends(get_current_user),
     payload: dict = Depends(get_jwt_payload),
 ) -> UserResponse:
-    mandant_id_str: Optional[str] = payload.get("mandant_id")
+    mandant_id_str: str | None = payload.get("mandant_id")
     mandant_id = UUID(mandant_id_str) if mandant_id_str else None
     return UserResponse(
         id=current_user.id,
@@ -147,6 +156,7 @@ async def get_me(
 
 # ─── User management endpoints ───────────────────────────────────────────────
 
+
 @users_router.get("", response_model=list[UserDetailResponse])
 async def list_users(
     actor: User = Depends(require_role("mandant_admin")),
@@ -157,17 +167,21 @@ async def list_users(
     result = []
     for user in users:
         inv_status = await inv_svc.get_invitation_status(user.id)
-        result.append(UserDetailResponse(
-            id=user.id,
-            email=user.email,
-            role=UserRole(user.role),
-            is_active=user.is_active,
-            invitation_status=inv_status,
-        ))
+        result.append(
+            UserDetailResponse(
+                id=user.id,
+                email=user.email,
+                role=UserRole(user.role),
+                is_active=user.is_active,
+                invitation_status=inv_status,
+            )
+        )
     return result
 
 
-@users_router.post("", response_model=UserDetailResponse, status_code=status.HTTP_201_CREATED)
+@users_router.post(
+    "", response_model=UserDetailResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_user(
     req: CreateUserRequest,
     actor: User = Depends(require_role("mandant_admin")),
@@ -243,6 +257,7 @@ async def resend_invitation(
     inv_status = await inv_svc.get_invitation_status(user.id)
     if inv_status == "accepted":
         from fastapi import HTTPException
+
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User has already accepted their invitation",
@@ -253,7 +268,12 @@ async def resend_invitation(
 
 # ─── Mandant assignment endpoints (Admin only) ────────────────────────────────
 
-@mandants_router.post("/{mandant_id}/users", response_model=MandantUserResponse, status_code=status.HTTP_201_CREATED)
+
+@mandants_router.post(
+    "/{mandant_id}/users",
+    response_model=MandantUserResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def assign_user_to_mandant(
     mandant_id: UUID,
     req: MandantUserAssignRequest,
@@ -268,7 +288,9 @@ async def assign_user_to_mandant(
     )
 
 
-@mandants_router.delete("/{mandant_id}/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@mandants_router.delete(
+    "/{mandant_id}/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT
+)
 async def unassign_user_from_mandant(
     mandant_id: UUID,
     user_id: UUID,

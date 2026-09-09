@@ -5,11 +5,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import require_mandant_access, require_role
 from app.core.database import get_session
+from app.services.models import ServiceGroupSection
 from app.services.schemas import (
     AssignServiceGroupRequest,
+    CreateServiceGroupRequest,
     CreateServiceMatcherRequest,
     CreateServiceRequest,
-    CreateServiceGroupRequest,
     CreateServiceTypeKeywordRequest,
     DeleteServiceGroupRequest,
     MatcherPreviewResponse,
@@ -24,13 +25,14 @@ from app.services.schemas import (
     UpdateServiceRequest,
     UpdateServiceTypeKeywordRequest,
 )
-from app.services.models import ServiceGroupSection
 from app.services.service import ServiceManagementService
 
 services_router = APIRouter(prefix="/mandants", tags=["services"])
 
 
-def _services_svc(session: AsyncSession = Depends(get_session)) -> ServiceManagementService:
+def _services_svc(
+    session: AsyncSession = Depends(get_session),
+) -> ServiceManagementService:
     return ServiceManagementService(session)
 
 

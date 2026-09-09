@@ -1,11 +1,6 @@
 import { Fragment, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import {
-  createSnapshot,
-  deleteSnapshot,
-  getSnapshot,
-  listSnapshots,
-} from '@/api/forecast'
+import { createSnapshot, deleteSnapshot, getSnapshot, listSnapshots } from '@/api/forecast'
 import type { SnapshotSummary } from '@/api/forecast'
 import { formatPeriod } from './labels'
 
@@ -28,13 +23,7 @@ function formatDate(iso: string): string {
   return year && month && day ? `${day}.${month}.${year}` : iso
 }
 
-function SnapshotDetailTable({
-  mandantId,
-  snapshotId,
-}: {
-  mandantId: string
-  snapshotId: string
-}) {
+function SnapshotDetailTable({ mandantId, snapshotId }: { mandantId: string; snapshotId: string }) {
   const { data, isLoading } = useQuery({
     queryKey: ['forecast-snapshot', mandantId, snapshotId],
     queryFn: () => getSnapshot(mandantId, snapshotId),
@@ -52,11 +41,9 @@ function SnapshotDetailTable({
       ) : (
         <p className="mb-3 text-sm text-gray-600">
           Über {data.elapsed_months}{' '}
-          {data.elapsed_months === 1 ? 'abgelaufenen Monat' : 'abgelaufene Monate'} weicht der
-          Saldo im Mittel um{' '}
-          <span className="font-medium tabular-nums">
-            {money(data.mean_absolute_deviation)}
-          </span>{' '}
+          {data.elapsed_months === 1 ? 'abgelaufenen Monat' : 'abgelaufene Monate'} weicht der Saldo
+          im Mittel um{' '}
+          <span className="font-medium tabular-nums">{money(data.mean_absolute_deviation)}</span>{' '}
           vom Plan ab.
         </p>
       )}
@@ -83,9 +70,7 @@ function SnapshotDetailTable({
                     <span className="ml-1 text-[10px] text-gray-400">(läuft)</span>
                   ) : null}
                 </td>
-                <td className="px-2 py-1.5 text-right tabular-nums">
-                  {money(month.planned_net)}
-                </td>
+                <td className="px-2 py-1.5 text-right tabular-nums">{money(month.planned_net)}</td>
                 <td className="px-2 py-1.5 text-right tabular-nums">{money(month.actual_net)}</td>
                 <td
                   className={`px-2 py-1.5 text-right tabular-nums ${deviationClass(month.net_deviation)}`}
@@ -112,13 +97,7 @@ function SnapshotDetailTable({
   )
 }
 
-export function ForecastSnapshots({
-  mandantId,
-  canEdit,
-}: {
-  mandantId: string
-  canEdit: boolean
-}) {
+export function ForecastSnapshots({ mandantId, canEdit }: { mandantId: string; canEdit: boolean }) {
   const queryClient = useQueryClient()
   const [openId, setOpenId] = useState<string | null>(null)
   const [label, setLabel] = useState('')
@@ -155,8 +134,8 @@ export function ForecastSnapshots({
       <h2 className="mb-1 text-lg font-semibold text-gray-900">Plan gegen Ist</h2>
       <p className="mb-4 text-sm text-gray-500">
         Ein Planstand friert die heutige Liquiditätskurve ein. Sobald Monate ablaufen, steht
-        daneben, was tatsächlich geflossen ist — verglichen wird gegen alle Kontobewegungen,
-        nicht nur gegen die prognostizierten Leistungen.
+        daneben, was tatsächlich geflossen ist — verglichen wird gegen alle Kontobewegungen, nicht
+        nur gegen die prognostizierten Leistungen.
       </p>
 
       {canEdit && (

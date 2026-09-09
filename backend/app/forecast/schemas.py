@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
@@ -46,14 +46,14 @@ class BacktestResponse(BaseModel):
     ran: bool
     reason: str
     holdout_months: int = 0
-    holdout_from: Optional[str] = None
-    holdout_to: Optional[str] = None
+    holdout_from: str | None = None
+    holdout_to: str | None = None
     #: Σ|Ist| im Prüfzeitraum.
     actual_volume: str = "0.00"
     #: Monatsfehler im Verhältnis zum monatlichen Ist-Volumen, als Anteil.
-    relative_error: Optional[str] = None
+    relative_error: str | None = None
     #: Gemessene Szenariobandbreite, als Anteil.
-    spread: Optional[str] = None
+    spread: str | None = None
     #: Ob die Regel besser trifft als "gar nichts vorhersagen".
     beats_baseline: bool = False
     #: Ob der Rückvergleich den Profilervorschlag verworfen hat.
@@ -66,10 +66,10 @@ class BacktestResponse(BaseModel):
 class ForecastRuleResponse(BaseModel):
     service_id: UUID
     service_name: str
-    partner_name: Optional[str] = None
+    partner_name: str | None = None
     mode: ForecastMode
-    rule_type: Optional[str] = None
-    params: Optional[dict[str, Any]] = None
+    rule_type: str | None = None
+    params: dict[str, Any] | None = None
     adjustment_pct: Decimal
     shift_months: int
 
@@ -83,18 +83,20 @@ class ForecastRuleResponse(BaseModel):
     #: Was tatsächlich gerechnet wird.
     effective_rule_type: str
     effective_reason: str
-    confidence: Optional[str] = None
+    confidence: str | None = None
     preview: list[ForecastPreviewMonth] = []
-    backtest: Optional[BacktestResponse] = None
+    backtest: BacktestResponse | None = None
 
     model_config = {"from_attributes": True}
 
 
 class UpdateForecastRuleRequest(BaseModel):
     mode: ForecastMode = ForecastMode.auto
-    rule_type: Optional[str] = None
-    params: Optional[dict[str, Any]] = None
-    adjustment_pct: Decimal = Field(default=Decimal("0.00"), ge=Decimal("-100"), le=Decimal("1000"))
+    rule_type: str | None = None
+    params: dict[str, Any] | None = None
+    adjustment_pct: Decimal = Field(
+        default=Decimal("0.00"), ge=Decimal("-100"), le=Decimal("1000")
+    )
     shift_months: int = Field(default=0, ge=0, le=12)
 
     @model_validator(mode="after")
@@ -103,7 +105,9 @@ class UpdateForecastRuleRequest(BaseModel):
             if not self.rule_type:
                 raise ValueError("rule_type is required when mode is 'manual'")
             if self.rule_type not in SELECTABLE_RULE_TYPES:
-                raise ValueError(f"rule_type must be one of {sorted(SELECTABLE_RULE_TYPES)}")
+                raise ValueError(
+                    f"rule_type must be one of {sorted(SELECTABLE_RULE_TYPES)}"
+                )
         return self
 
 
@@ -111,15 +115,15 @@ class ForecastServiceOverviewRow(BaseModel):
     service_id: UUID
     service_name: str
     partner_id: UUID
-    partner_name: Optional[str] = None
+    partner_name: str | None = None
     section: str
     mode: ForecastMode
     effective_rule_type: str
     effective_reason: str
-    confidence: Optional[str] = None
+    confidence: str | None = None
     detected_cadence: str
     occurrence_count: int
-    last_booking_period: Optional[str] = None
+    last_booking_period: str | None = None
     #: Summe der nächsten zwölf Prognosemonate — sortierbares Maß für die Relevanz.
     next_12_months: str
     planned_item_count: int = 0
@@ -131,7 +135,7 @@ class ForecastServiceOverviewRow(BaseModel):
     #: Die Entscheidung fällt im Backend, damit Zählung und Filter nicht auseinanderlaufen.
     customised: bool = False
     #: Gemessener relativer Fehler aus dem Rückvergleich, als Anteil. None = nicht messbar.
-    relative_error: Optional[str] = None
+    relative_error: str | None = None
     backtest_ran: bool = False
     beats_baseline: bool = False
     replaced_detected: bool = False
@@ -154,14 +158,14 @@ class ForecastOverviewResponse(BaseModel):
     #: Davon: Regel läuft weiter, trifft aber schlechter als "gar nichts vorhersagen".
     weak_forecasts: int = 0
     #: Typischer relativer Fehler über alle gemessenen Leistungen (Median).
-    median_relative_error: Optional[str] = None
+    median_relative_error: str | None = None
 
 
 # ─── Plan-Ist-Snapshots ───────────────────────────────────────────────────────
 
 
 class CreateSnapshotRequest(BaseModel):
-    label: Optional[str] = Field(default=None, max_length=200)
+    label: str | None = Field(default=None, max_length=200)
     scenario: str = Field(default="expected")
 
 
@@ -170,20 +174,20 @@ class SnapshotMonthComparison(BaseModel):
     planned_net: str
     planned_closing: str
     #: None, solange der Monat noch in der Zukunft liegt.
-    actual_net: Optional[str] = None
-    actual_closing: Optional[str] = None
+    actual_net: str | None = None
+    actual_closing: str | None = None
     #: Ist minus Plan in diesem Monat — zeigt, welcher Monat aus dem Ruder lief.
-    net_deviation: Optional[str] = None
+    net_deviation: str | None = None
     #: Ist-Endsaldo minus Plan-Endsaldo, also die aufgelaufene Abweichung. Sie ist die
     #: für die Liquidität entscheidende Zahl: Ein guter Monat gleicht einen schlechten aus.
-    deviation: Optional[str] = None
+    deviation: str | None = None
     #: Ob der Monat vollständig abgelaufen ist. Der laufende zählt nur anteilig.
     is_complete: bool = False
 
 
 class SnapshotSummary(BaseModel):
     id: UUID
-    label: Optional[str] = None
+    label: str | None = None
     scenario: str
     as_of: str
     currency: str
@@ -193,13 +197,13 @@ class SnapshotSummary(BaseModel):
     #: Anzahl vollständig abgelaufener Monate — nur diese gehen in die Messung ein.
     elapsed_months: int = 0
     #: Abweichung des Endsaldos im jüngsten vollständig abgelaufenen Monat.
-    latest_deviation: Optional[str] = None
+    latest_deviation: str | None = None
 
 
 class SnapshotDetail(SnapshotSummary):
     months: list[SnapshotMonthComparison] = []
     #: Mittlere absolute Abweichung des Monatssaldos über die abgelaufenen Monate.
-    mean_absolute_deviation: Optional[str] = None
+    mean_absolute_deviation: str | None = None
 
 
 class PlannedItemStatus(StrEnum):
@@ -223,11 +227,11 @@ class PlannedItemStatus(StrEnum):
 class PlannedItemResponse(BaseModel):
     id: UUID
     service_id: UUID
-    service_name: Optional[str] = None
-    partner_name: Optional[str] = None
+    service_name: str | None = None
+    partner_name: str | None = None
     period: str
     amount: Decimal
-    note: Optional[str] = None
+    note: str | None = None
     created_at: datetime
     updated_at: datetime
     status: PlannedItemStatus = PlannedItemStatus.active
@@ -243,10 +247,10 @@ class CreatePlannedItemRequest(BaseModel):
     service_id: UUID
     period: str = Field(pattern=PERIOD_PATTERN)
     amount: Decimal
-    note: Optional[str] = Field(default=None, max_length=500)
+    note: str | None = Field(default=None, max_length=500)
 
 
 class UpdatePlannedItemRequest(BaseModel):
-    period: Optional[str] = Field(default=None, pattern=PERIOD_PATTERN)
-    amount: Optional[Decimal] = None
-    note: Optional[str] = Field(default=None, max_length=500)
+    period: str | None = Field(default=None, pattern=PERIOD_PATTERN)
+    amount: Decimal | None = None
+    note: str | None = Field(default=None, max_length=500)

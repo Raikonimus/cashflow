@@ -53,8 +53,7 @@ class CleanupPlanRow:
     created_at: str
 
 
-PLAN_QUERY = text(
-    """
+PLAN_QUERY = text("""
         WITH grouped AS (
             SELECT
                 jl.account_id,
@@ -186,8 +185,7 @@ PLAN_QUERY = text(
     FROM dup_groups dg
     JOIN keeper_map km ON km.group_key = dg.group_key
     ORDER BY dg.valuta_date, dg.booking_date, dg.amount_2, dg.text, dg.created_at_text, dg.id
-    """
-)
+    """)
 
 
 async def build_cleanup_plan(session: Any) -> list[CleanupPlanRow]:
@@ -263,7 +261,9 @@ async def _recount_import_runs(session: Any, import_run_ids: set[UUID]) -> None:
         row_count = len(
             (
                 await session.exec(
-                    select(JournalLine.id).where(JournalLine.import_run_id == import_run_id)
+                    select(JournalLine.id).where(
+                        JournalLine.import_run_id == import_run_id
+                    )
                 )
             ).all()
         )
@@ -274,12 +274,13 @@ async def _recount_import_runs(session: Any, import_run_ids: set[UUID]) -> None:
         )
 
 
-async def apply_cleanup_plan(session: Any, plan: list[CleanupPlanRow]) -> dict[str, int]:
+async def apply_cleanup_plan(
+    session: Any, plan: list[CleanupPlanRow]
+) -> dict[str, int]:
     keep_rows = [row for row in plan if row.action == "keep"]
     delete_rows = [row for row in plan if row.action == "delete"]
     replacements = {
-        str(row.journal_line_id): str(row.keep_journal_line_id)
-        for row in delete_rows
+        str(row.journal_line_id): str(row.keep_journal_line_id) for row in delete_rows
     }
     affected_import_run_ids = {row.import_run_id for row in plan}
 
@@ -289,7 +290,11 @@ async def apply_cleanup_plan(session: Any, plan: list[CleanupPlanRow]) -> dict[s
 
     for row in delete_rows:
         loser_reviews = (
-            await session.exec(select(ReviewItem).where(ReviewItem.journal_line_id == row.journal_line_id))
+            await session.exec(
+                select(ReviewItem).where(
+                    ReviewItem.journal_line_id == row.journal_line_id
+                )
+            )
         ).all()
         for review in loser_reviews:
             existing = (
@@ -312,7 +317,9 @@ async def apply_cleanup_plan(session: Any, plan: list[CleanupPlanRow]) -> dict[s
 
     delete_ids = [row.journal_line_id for row in delete_rows]
     if delete_ids:
-        await session.exec(delete(JournalLine).where(JournalLine.__table__.c.id.in_(delete_ids)))
+        await session.exec(
+            delete(JournalLine).where(JournalLine.__table__.c.id.in_(delete_ids))
+        )
 
     await _recount_import_runs(session, affected_import_run_ids)
 
@@ -384,7 +391,9 @@ def _parse_args() -> argparse.Namespace:
         description="Cleanup false duplicates caused only by unmapped_data enrichment."
     )
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--apply", action="store_true", help="Apply the cleanup transaction.")
+    mode.add_argument(
+        "--apply", action="store_true", help="Apply the cleanup transaction."
+    )
     mode.add_argument(
         "--dry-run",
         action="store_true",
@@ -402,7 +411,10 @@ async def _run(args: argparse.Namespace) -> None:
     from app.core.config import settings
 
     if settings.env == "production":
-        print("ERROR: Cleanup script refused to run in production environment.", file=sys.stderr)
+        print(
+            "ERROR: Cleanup script refused to run in production environment.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     from app.core.database import AsyncSessionLocal

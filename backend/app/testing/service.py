@@ -106,7 +106,9 @@ class TestingService:
         )
 
         if not account_ids:
-            return ServiceAmountConsistencyTestResponse(total_checked_services=0, inconsistent_services=[])
+            return ServiceAmountConsistencyTestResponse(
+                total_checked_services=0, inconsistent_services=[]
+            )
 
         # Splits laden für alle Lines dieses Mandanten
         all_splits = list(
@@ -121,7 +123,9 @@ class TestingService:
         )
 
         if not all_splits:
-            return ServiceAmountConsistencyTestResponse(total_checked_services=0, inconsistent_services=[])
+            return ServiceAmountConsistencyTestResponse(
+                total_checked_services=0, inconsistent_services=[]
+            )
 
         # JournalLines für Datumsfelder nachladen
         line_ids = list({sp.journal_line_id for sp in all_splits})
@@ -138,7 +142,7 @@ class TestingService:
                 await self._session.exec(
                     select(Service, Partner)
                     .join(Partner, Partner.id == Service.partner_id)  # type: ignore[arg-type]
-                    .where(sa.literal_column('services.id').in_(service_ids))
+                    .where(sa.literal_column("services.id").in_(service_ids))
                 )
             ).all()
         )
@@ -239,7 +243,9 @@ class TestingService:
         lines = list(
             (
                 await self._session.exec(
-                    select(JournalLine).where(sa.literal_column('journal_lines.account_id').in_(account_ids))
+                    select(JournalLine).where(
+                        sa.literal_column("journal_lines.account_id").in_(account_ids)
+                    )
                 )
             ).all()
         )
@@ -255,7 +261,9 @@ class TestingService:
             ).all()
         )
         partner_name_by_id: dict[UUID, str] = {
-            p.id: (p.display_name or p.name) for p in active_partners if p.id is not None
+            p.id: (p.display_name or p.name)
+            for p in active_partners
+            if p.id is not None
         }
 
         # IBAN and account are globally unique in this model.
@@ -327,7 +335,9 @@ class TestingService:
                 )
             ).all()
         )
-        service_by_id: dict[UUID, Service] = {s.id: s for s in services if s.id is not None}
+        service_by_id: dict[UUID, Service] = {
+            s.id: s for s in services if s.id is not None
+        }
 
         matchers = list(
             (
@@ -352,9 +362,7 @@ class TestingService:
 
         current_service_names = {
             s.id: s.name
-            for s in (
-                await self._session.exec(select(Service))
-            ).all()
+            for s in (await self._session.exec(select(Service))).all()
             if s.id is not None
         }
 
@@ -414,7 +422,9 @@ class TestingService:
                 )
 
         if line.partner_name_raw:
-            name_ids = list(partner_ids_by_name.get(line.partner_name_raw.lower(), set()))
+            name_ids = list(
+                partner_ids_by_name.get(line.partner_name_raw.lower(), set())
+            )
             if len(name_ids) == 1:
                 return ExpectedAssignment(
                     outcome="name_match",
@@ -428,7 +438,9 @@ class TestingService:
                     reason_text=f"Name-Match ist mehrdeutig ({len(name_ids)} Partner)",
                 )
 
-        searchable = "\n".join(filter(None, [line.text or "", line.partner_name_raw or ""]))
+        searchable = "\n".join(
+            filter(None, [line.text or "", line.partner_name_raw or ""])
+        )
         searchable_lower = searchable.lower()
         service_matched_partners: list[UUID] = []
         for partner_id, matchers in partner_matchers.items():

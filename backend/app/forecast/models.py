@@ -1,15 +1,15 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import Column, JSON, Numeric
+from sqlalchemy import JSON, Column, Numeric
 from sqlmodel import Field, SQLModel, UniqueConstraint
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class ForecastMode(StrEnum):
@@ -34,12 +34,12 @@ class ServiceForecastRule(SQLModel, table=True):
         UniqueConstraint("service_id", name="uq_service_forecast_rules_service"),
     )
 
-    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
+    id: UUID | None = Field(default_factory=uuid4, primary_key=True)
     mandant_id: UUID = Field(foreign_key="mandants.id", index=True)
     service_id: UUID = Field(foreign_key="services.id", index=True)
     mode: str = Field(default=ForecastMode.auto.value, max_length=10)
     #: Nur bei mode='manual' ausgewertet.
-    rule_type: Optional[str] = Field(default=None, max_length=30)
+    rule_type: str | None = Field(default=None, max_length=30)
     #: Parameter des Regeltyps, siehe app/forecast/rules.py.
     params: Any = Field(default=None, sa_column=Column(JSON, nullable=True))
     #: Prozentuale Anpassung: +3 für eine Indexierung, -30 für einen Sicherheitsabschlag.
@@ -49,7 +49,7 @@ class ServiceForecastRule(SQLModel, table=True):
     )
     #: Zahlungsverzug in vollen Monaten — feiner geht das Monatsraster nicht her.
     shift_months: int = Field(default=0)
-    updated_by: Optional[UUID] = Field(default=None, foreign_key="users.id")
+    updated_by: UUID | None = Field(default=None, foreign_key="users.id")
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 
@@ -67,13 +67,13 @@ class ForecastPlannedItem(SQLModel, table=True):
 
     __tablename__ = "forecast_planned_items"
 
-    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
+    id: UUID | None = Field(default_factory=uuid4, primary_key=True)
     mandant_id: UUID = Field(foreign_key="mandants.id", index=True)
     service_id: UUID = Field(foreign_key="services.id", index=True)
     period: str = Field(max_length=7, index=True)  # "YYYY-MM"
     amount: Decimal = Field(sa_column=Column(Numeric(15, 2), nullable=False))
-    note: Optional[str] = Field(default=None, max_length=500)
-    created_by: Optional[UUID] = Field(default=None, foreign_key="users.id")
+    note: str | None = Field(default=None, max_length=500)
+    created_by: UUID | None = Field(default=None, foreign_key="users.id")
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 
@@ -92,9 +92,9 @@ class ForecastSnapshot(SQLModel, table=True):
 
     __tablename__ = "forecast_snapshots"
 
-    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
+    id: UUID | None = Field(default_factory=uuid4, primary_key=True)
     mandant_id: UUID = Field(foreign_key="mandants.id", index=True)
-    label: Optional[str] = Field(default=None, max_length=200)
+    label: str | None = Field(default=None, max_length=200)
     scenario: str = Field(default="expected", max_length=10)
     #: Stichtag der Prognose. Alles, was danach gebucht wurde, zählt zum Ist.
     as_of: str = Field(max_length=10)  # "YYYY-MM-DD"
@@ -103,5 +103,5 @@ class ForecastSnapshot(SQLModel, table=True):
     #: [{"period", "inflow", "outflow", "net", "closing_balance"}] als Zeichenketten,
     #: damit beim Serialisieren nichts an Genauigkeit verloren geht.
     months: Any = Field(default=None, sa_column=Column(JSON, nullable=False))
-    created_by: Optional[UUID] = Field(default=None, foreign_key="users.id")
+    created_by: UUID | None = Field(default=None, foreign_key="users.id")
     created_at: datetime = Field(default_factory=utcnow)

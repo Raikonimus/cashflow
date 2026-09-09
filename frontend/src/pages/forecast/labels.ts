@@ -1,7 +1,18 @@
 import type { ForecastMode, ForecastRuleType, PlannedItemStatus } from '@/api/forecast'
 
 export const MONTHS = [
-  'Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez',
+  'Jan',
+  'Feb',
+  'Mär',
+  'Apr',
+  'Mai',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Okt',
+  'Nov',
+  'Dez',
 ]
 
 export const MODE_LABELS: Record<ForecastMode, string> = {

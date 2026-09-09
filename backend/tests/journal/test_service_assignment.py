@@ -4,10 +4,10 @@ from decimal import Decimal
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 
 from app.auth.models import UserRole
 from app.imports.models import JournalLineSplit, utcnow
-from sqlmodel import select
 from app.services.models import Service
 from app.services.service import ensure_base_service
 from tests.journal import (
@@ -57,13 +57,17 @@ class TestManualServiceAssignment:
         client: AsyncClient,
         db_session: AsyncSession,
     ):
-        user = await create_user(db_session, "journal-svc@test.com", UserRole.accountant)
+        user = await create_user(
+            db_session, "journal-svc@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         account = await create_account_db(db_session, mandant.id)
         run = await create_import_run_db(db_session, account.id, mandant.id, user.id)
         partner = await create_partner_db(db_session, mandant.id)
-        line = await create_journal_line_db(db_session, account.id, run.id, partner_id=partner.id)
+        line = await create_journal_line_db(
+            db_session, account.id, run.id, partner_id=partner.id
+        )
         token = await get_auth_token(client, user, mandant)
 
         await ensure_base_service(db_session, partner.id)
@@ -79,9 +83,13 @@ class TestManualServiceAssignment:
         assert any(sp["service_id"] == str(service.id) for sp in payload["splits"])
         assert any(sp["assignment_mode"] == "manual" for sp in payload["splits"])
 
-        split = (await db_session.exec(
-            select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id)
-        )).first()
+        split = (
+            await db_session.exec(
+                select(JournalLineSplit).where(
+                    JournalLineSplit.journal_line_id == line.id
+                )
+            )
+        ).first()
         assert split is not None
         assert split.service_id == service.id
         assert split.assignment_mode == "manual"
@@ -91,19 +99,25 @@ class TestManualServiceAssignment:
         client: AsyncClient,
         db_session: AsyncSession,
     ):
-        user = await create_user(db_session, "journal-wrong@test.com", UserRole.accountant)
+        user = await create_user(
+            db_session, "journal-wrong@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         account = await create_account_db(db_session, mandant.id)
         run = await create_import_run_db(db_session, account.id, mandant.id, user.id)
         partner = await create_partner_db(db_session, mandant.id, "Partner A")
         other_partner = await create_partner_db(db_session, mandant.id, "Partner B")
-        line = await create_journal_line_db(db_session, account.id, run.id, partner_id=partner.id)
+        line = await create_journal_line_db(
+            db_session, account.id, run.id, partner_id=partner.id
+        )
         token = await get_auth_token(client, user, mandant)
 
         await ensure_base_service(db_session, partner.id)
         await ensure_base_service(db_session, other_partner.id)
-        other_service = await _create_service(db_session, other_partner.id, "Fremdleistung")
+        other_service = await _create_service(
+            db_session, other_partner.id, "Fremdleistung"
+        )
 
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/journal/{line.id}/assign-service",
@@ -117,17 +131,27 @@ class TestManualServiceAssignment:
         client: AsyncClient,
         db_session: AsyncSession,
     ):
-        user = await create_user(db_session, "journal-date@test.com", UserRole.accountant)
+        user = await create_user(
+            db_session, "journal-date@test.com", UserRole.accountant
+        )
         mandant = await create_mandant(db_session)
         await assign_user_to_mandant(db_session, user, mandant)
         account = await create_account_db(db_session, mandant.id)
         run = await create_import_run_db(db_session, account.id, mandant.id, user.id)
         partner = await create_partner_db(db_session, mandant.id)
-        line = await create_journal_line_db(db_session, account.id, run.id, partner_id=partner.id, valuta_date="2025-01-15")
+        line = await create_journal_line_db(
+            db_session,
+            account.id,
+            run.id,
+            partner_id=partner.id,
+            valuta_date="2025-01-15",
+        )
         token = await get_auth_token(client, user, mandant)
 
         await ensure_base_service(db_session, partner.id)
-        service = await _create_service(db_session, partner.id, "Zeitlich begrenzt", valid_from=date(2026, 1, 1))
+        service = await _create_service(
+            db_session, partner.id, "Zeitlich begrenzt", valid_from=date(2026, 1, 1)
+        )
 
         resp = await client.post(
             f"/api/v1/mandants/{mandant.id}/journal/{line.id}/assign-service",

@@ -4,6 +4,7 @@ Gleiches Muster wie bei den Import-Endpunkten: `require_mandant_access` prueft d
 `mandant_id` aus dem Pfad, nicht die `account_id`. Dieser Pfad *schreibt* — er ordnet
 Buchungszeilen neu zu. Ohne Pruefung des Kontos wuerden fremde Buchungen umgeschrieben.
 """
+
 from httpx import AsyncClient
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -20,7 +21,9 @@ from tests.tenants.conftest import (  # noqa: F401
 )
 
 
-async def create_account_db(session: AsyncSession, mandant_id, name: str = "Konto") -> Account:
+async def create_account_db(
+    session: AsyncSession, mandant_id, name: str = "Konto"
+) -> Account:
     now = utcnow()
     account = Account(
         mandant_id=mandant_id, name=name, currency="EUR", created_at=now, updated_at=now
@@ -30,6 +33,7 @@ async def create_account_db(session: AsyncSession, mandant_id, name: str = "Kont
     await session.refresh(account)
     return account
 
+
 IBAN = "DE89370400440532013000"
 
 
@@ -38,17 +42,25 @@ async def test_fremdes_konto_kann_nicht_neu_zugeordnet_werden(
 ):
     eigener = await create_mandant(db_session, name="Mandant A")
     fremder = await create_mandant(db_session, name="Mandant B")
-    nutzer = await create_user(db_session, email="a@example.com", role=UserRole.accountant)
+    nutzer = await create_user(
+        db_session, email="a@example.com", role=UserRole.accountant
+    )
     await assign_user_to_mandant(db_session, nutzer, eigener)
 
     fremdes_konto = await create_account_db(db_session, fremder.id, name="Konto B")
     now = utcnow()
     fremder_partner = Partner(
-        mandant_id=fremder.id, name="Partner B", is_active=True, created_at=now, updated_at=now
+        mandant_id=fremder.id,
+        name="Partner B",
+        is_active=True,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(fremder_partner)
     await db_session.flush()
-    db_session.add(PartnerIban(partner_id=fremder_partner.id, iban=IBAN, created_at=now))
+    db_session.add(
+        PartnerIban(partner_id=fremder_partner.id, iban=IBAN, created_at=now)
+    )
     lauf = ImportRun(
         account_id=fremdes_konto.id,
         mandant_id=fremder.id,
@@ -92,14 +104,15 @@ async def test_fremdes_konto_kann_nicht_neu_zugeordnet_werden(
         headers={"Authorization": f"Bearer {token}"},
     )
 
-    assert resp.status_code in (403, 404), (
-        f"Fremdes Konto wurde verarbeitet: {resp.status_code} {resp.text}"
-    )
+    assert resp.status_code in (
+        403,
+        404,
+    ), f"Fremdes Konto wurde verarbeitet: {resp.status_code} {resp.text}"
 
     danach = (
         await db_session.exec(select(JournalLine).where(JournalLine.id == zeile_id))
     ).first()
     assert danach is not None
-    assert danach.partner_id == partner_vorher, (
-        "Die Buchungszeile eines fremden Mandanten wurde umgeschrieben."
-    )
+    assert (
+        danach.partner_id == partner_vorher
+    ), "Die Buchungszeile eines fremden Mandanten wurde umgeschrieben."

@@ -34,8 +34,7 @@ function BacktestSection({ backtest }: { backtest: Backtest }) {
           Rückvergleich
         </h4>
         <p className="text-xs text-gray-500">
-          {backtest.reason}. Die Bandbreite dieser Leistung ist deshalb geschätzt, nicht
-          gemessen.
+          {backtest.reason}. Die Bandbreite dieser Leistung ist deshalb geschätzt, nicht gemessen.
         </p>
       </section>
     )
@@ -76,8 +75,8 @@ function BacktestSection({ backtest }: { backtest: Backtest }) {
       )}
       {!backtest.beats_baseline && !backtest.service_stopped && (
         <p className="mt-1 text-xs text-red-700">
-          Diese Regel trifft schlechter als gar keine Prognose. Ein Planposten oder
-          „Keine Prognose" bildet die Realität hier ehrlicher ab.
+          Diese Regel trifft schlechter als gar keine Prognose. Ein Planposten oder „Keine Prognose"
+          bildet die Realität hier ehrlicher ab.
         </p>
       )}
 
@@ -89,7 +88,9 @@ function BacktestSection({ backtest }: { backtest: Backtest }) {
             aria-expanded={open}
             className="mt-1 text-xs text-blue-600 hover:underline"
           >
-            {open ? 'Geprüfte Regeln ausblenden' : `Alle ${backtest.candidates.length} geprüften Regeln`}
+            {open
+              ? 'Geprüfte Regeln ausblenden'
+              : `Alle ${backtest.candidates.length} geprüften Regeln`}
           </button>
           {open && (
             <div className="mt-2">
@@ -159,7 +160,9 @@ function toFormState(rule: ForecastRule): FormState {
   const factors = Object.values(special)
   return {
     mode: rule.mode,
-    ruleType: rule.rule_type ?? (rule.detected_rule_type === 'none' ? 'fixed_recurring' : rule.detected_rule_type),
+    ruleType:
+      rule.rule_type ??
+      (rule.detected_rule_type === 'none' ? 'fixed_recurring' : rule.detected_rule_type),
     amount: formatAmountInput(params.amount ?? rule.median_amount),
     intervalMonths: params.interval_months ?? 1,
     anchorMonth: params.anchor_month ?? 1,
@@ -249,7 +252,8 @@ export function ForecastRuleEditor({
       setDraft(null)
       invalidateForecasts()
     },
-    onError: (err: unknown) => setError(extractErrorMessage(err, 'Regel konnte nicht gespeichert werden')),
+    onError: (err: unknown) =>
+      setError(extractErrorMessage(err, 'Regel konnte nicht gespeichert werden')),
   })
 
   const resetMutation = useMutation({
@@ -334,7 +338,10 @@ export function ForecastRuleEditor({
             {form.ruleType === 'fixed_recurring' && (
               <div className="flex flex-wrap items-end gap-3">
                 <div>
-                  <label htmlFor="rule-amount" className="mb-1 block text-xs font-medium text-gray-600">
+                  <label
+                    htmlFor="rule-amount"
+                    className="mb-1 block text-xs font-medium text-gray-600"
+                  >
                     Betrag je Zahlung
                   </label>
                   <input
@@ -347,7 +354,10 @@ export function ForecastRuleEditor({
                   />
                 </div>
                 <div>
-                  <label htmlFor="rule-interval" className="mb-1 block text-xs font-medium text-gray-600">
+                  <label
+                    htmlFor="rule-interval"
+                    className="mb-1 block text-xs font-medium text-gray-600"
+                  >
                     Rhythmus
                   </label>
                   <select
@@ -367,7 +377,10 @@ export function ForecastRuleEditor({
                 </div>
                 {form.intervalMonths > 1 && (
                   <div>
-                    <label htmlFor="rule-anchor" className="mb-1 block text-xs font-medium text-gray-600">
+                    <label
+                      htmlFor="rule-anchor"
+                      className="mb-1 block text-xs font-medium text-gray-600"
+                    >
                       Zahlungsmonat
                     </label>
                     <select
@@ -425,7 +438,9 @@ export function ForecastRuleEditor({
                           aria-label="Faktor der Sondermonate"
                           value={form.specialFactor}
                           disabled={!canEdit}
-                          onChange={(event) => setForm({ ...form, specialFactor: event.target.value })}
+                          onChange={(event) =>
+                            setForm({ ...form, specialFactor: event.target.value })
+                          }
                           className="w-14 rounded border border-gray-300 px-1.5 py-0.5 text-right text-xs"
                         />
                       )}
@@ -437,7 +452,10 @@ export function ForecastRuleEditor({
 
             {form.ruleType === 'rolling_average' && (
               <div>
-                <label htmlFor="rule-window" className="mb-1 block text-xs font-medium text-gray-600">
+                <label
+                  htmlFor="rule-window"
+                  className="mb-1 block text-xs font-medium text-gray-600"
+                >
                   Fenster
                 </label>
                 <select
@@ -467,7 +485,10 @@ export function ForecastRuleEditor({
         {form.mode !== 'off' && (
           <div className="flex flex-wrap items-end gap-4">
             <div>
-              <label htmlFor="rule-adjustment" className="mb-1 block text-xs font-medium text-gray-600">
+              <label
+                htmlFor="rule-adjustment"
+                className="mb-1 block text-xs font-medium text-gray-600"
+              >
                 Anpassung in %
               </label>
               <input
@@ -612,7 +633,8 @@ function PlannedItemsSection({
       setError(null)
       onChanged()
     },
-    onError: (err: unknown) => setError(extractErrorMessage(err, 'Planposten konnte nicht angelegt werden')),
+    onError: (err: unknown) =>
+      setError(extractErrorMessage(err, 'Planposten konnte nicht angelegt werden')),
   })
 
   const deleteMutation = useMutation({
@@ -645,44 +667,42 @@ function PlannedItemsSection({
           {items.map((item) => {
             const state = plannedStatus(item.status)
             return (
-            <li
-              key={item.id}
-              className={`flex items-center justify-between gap-3 px-3 py-1.5 ${
-                state.muted ? 'bg-gray-50 text-gray-400' : ''
-              }`}
-            >
-              <span className={state.muted ? '' : 'text-gray-700'}>
-                {formatPeriod(item.period)}{' '}
-                <span
-                  className={`tabular-nums font-medium ${state.muted ? 'line-through' : ''}`}
-                >
-                  {formatMoney(item.amount)}
+              <li
+                key={item.id}
+                className={`flex items-center justify-between gap-3 px-3 py-1.5 ${
+                  state.muted ? 'bg-gray-50 text-gray-400' : ''
+                }`}
+              >
+                <span className={state.muted ? '' : 'text-gray-700'}>
+                  {formatPeriod(item.period)}{' '}
+                  <span className={`tabular-nums font-medium ${state.muted ? 'line-through' : ''}`}>
+                    {formatMoney(item.amount)}
+                  </span>
+                  {state.badge ? (
+                    <span
+                      title={state.title}
+                      className="ml-2 rounded bg-gray-200 px-1.5 py-0.5 text-[11px] font-medium text-gray-600"
+                    >
+                      {state.badge}
+                    </span>
+                  ) : null}
+                  {item.status === 'partly_used' ? (
+                    <span className="ml-1.5 text-[11px] tabular-nums text-gray-500">
+                      noch {formatMoney(item.remaining_in_month)}
+                    </span>
+                  ) : null}
+                  {item.note ? <span className="ml-2 text-gray-500">{item.note}</span> : null}
                 </span>
-                {state.badge ? (
-                  <span
-                    title={state.title}
-                    className="ml-2 rounded bg-gray-200 px-1.5 py-0.5 text-[11px] font-medium text-gray-600"
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => deleteMutation.mutate(item.id)}
+                    className="text-xs text-red-500 hover:underline"
                   >
-                    {state.badge}
-                  </span>
-                ) : null}
-                {item.status === 'partly_used' ? (
-                  <span className="ml-1.5 text-[11px] tabular-nums text-gray-500">
-                    noch {formatMoney(item.remaining_in_month)}
-                  </span>
-                ) : null}
-                {item.note ? <span className="ml-2 text-gray-500">{item.note}</span> : null}
-              </span>
-              {canEdit && (
-                <button
-                  type="button"
-                  onClick={() => deleteMutation.mutate(item.id)}
-                  className="text-xs text-red-500 hover:underline"
-                >
-                  Entfernen
-                </button>
-              )}
-            </li>
+                    Entfernen
+                  </button>
+                )}
+              </li>
             )
           })}
         </ul>
@@ -691,7 +711,10 @@ function PlannedItemsSection({
       {canEdit && (
         <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
           <div>
-            <label htmlFor="planned-period" className="mb-1 block text-xs font-medium text-gray-600">
+            <label
+              htmlFor="planned-period"
+              className="mb-1 block text-xs font-medium text-gray-600"
+            >
               Monat
             </label>
             <input
@@ -703,7 +726,10 @@ function PlannedItemsSection({
             />
           </div>
           <div>
-            <label htmlFor="planned-amount" className="mb-1 block text-xs font-medium text-gray-600">
+            <label
+              htmlFor="planned-amount"
+              className="mb-1 block text-xs font-medium text-gray-600"
+            >
               Betrag
             </label>
             <input

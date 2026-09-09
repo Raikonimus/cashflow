@@ -29,9 +29,9 @@ export interface UpdateAccountRequest {
 // ─── Column-Mapping ───────────────────────────────────────────────────────────
 
 export interface ColumnAssignment {
-  source: string      // Name der CSV-Spalte
-  target: string      // valuta_date | booking_date | amount | partner_iban | partner_name | description | unused
-  sort_order: number  // Reihenfolge bei Mehrfach-Belegung
+  source: string // Name der CSV-Spalte
+  target: string // valuta_date | booking_date | amount | partner_iban | partner_name | description | unused
+  sort_order: number // Reihenfolge bei Mehrfach-Belegung
   duplicate_check: boolean
 }
 
@@ -59,9 +59,7 @@ export type SaveMappingRequest = Partial<Omit<ColumnMapping, 'id' | 'account_id'
 // ─── Account CRUD ─────────────────────────────────────────────────────────────
 
 export async function listAccounts(mandantId: string): Promise<AccountListItem[]> {
-  const resp = await apiClient.get<AccountListItem[]>(
-    `/mandants/${mandantId}/accounts`,
-  )
+  const resp = await apiClient.get<AccountListItem[]>(`/mandants/${mandantId}/accounts`)
   return resp.data
 }
 
@@ -69,10 +67,7 @@ export async function createAccount(
   mandantId: string,
   data: CreateAccountRequest,
 ): Promise<AccountListItem> {
-  const resp = await apiClient.post<AccountListItem>(
-    `/mandants/${mandantId}/accounts`,
-    data,
-  )
+  const resp = await apiClient.post<AccountListItem>(`/mandants/${mandantId}/accounts`, data)
   return resp.data
 }
 
@@ -180,7 +175,6 @@ export async function applyExcludedIdentifiers(
   )
   return resp.data
 }
-
 
 export interface CsvPreviewResult {
   columns: string[]

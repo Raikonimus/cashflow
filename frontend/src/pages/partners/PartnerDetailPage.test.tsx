@@ -86,35 +86,53 @@ describe('PartnerDetailPage', () => {
     }
 
     server.use(
-      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () => HttpResponse.json(currentPartner)),
-      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/neighbors`, () => HttpResponse.json({ prev: null, next: null })),
-      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () => HttpResponse.json([])),
-      http.get(`/api/v1/mandants/${MANDANT_ID}/journal`, () => HttpResponse.json({ items: [], total: 0, page: 1, size: 25, pages: 1 })),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () =>
+        HttpResponse.json(currentPartner),
+      ),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/neighbors`, () =>
+        HttpResponse.json({ prev: null, next: null }),
+      ),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () =>
+        HttpResponse.json([]),
+      ),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/journal`, () =>
+        HttpResponse.json({ items: [], total: 0, page: 1, size: 25, pages: 1 }),
+      ),
       http.post(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/accounts/preview`, () =>
         HttpResponse.json({ matched_lines: [], total: 0 }),
       ),
-      http.post(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/accounts`, async ({ request }) => {
-        const body = await request.json() as { account_number: string; blz?: string; bic?: string }
-        const created = {
-          id: 'account-2',
-          account_number: body.account_number,
-          blz: body.blz ?? null,
-          bic: body.bic ?? null,
-          created_at: '2026-04-02T00:00:00Z',
-        }
-        currentPartner = {
-          ...currentPartner,
-          accounts: [...currentPartner.accounts, created],
-        }
-        return HttpResponse.json(created, { status: 201 })
-      }),
-      http.delete(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/accounts/account-1`, () => {
-        currentPartner = {
-          ...currentPartner,
-          accounts: currentPartner.accounts.filter((account) => account.id !== 'account-1'),
-        }
-        return new HttpResponse(null, { status: 204 })
-      }),
+      http.post(
+        `/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/accounts`,
+        async ({ request }) => {
+          const body = (await request.json()) as {
+            account_number: string
+            blz?: string
+            bic?: string
+          }
+          const created = {
+            id: 'account-2',
+            account_number: body.account_number,
+            blz: body.blz ?? null,
+            bic: body.bic ?? null,
+            created_at: '2026-04-02T00:00:00Z',
+          }
+          currentPartner = {
+            ...currentPartner,
+            accounts: [...currentPartner.accounts, created],
+          }
+          return HttpResponse.json(created, { status: 201 })
+        },
+      ),
+      http.delete(
+        `/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/accounts/account-1`,
+        () => {
+          currentPartner = {
+            ...currentPartner,
+            accounts: currentPartner.accounts.filter((account) => account.id !== 'account-1'),
+          }
+          return new HttpResponse(null, { status: 204 })
+        },
+      ),
     )
 
     await act(async () => {
@@ -127,7 +145,9 @@ describe('PartnerDetailPage', () => {
     fireEvent.change(screen.getByLabelText('BLZ'), { target: { value: '20030040' } })
     fireEvent.change(screen.getByLabelText('BIC'), { target: { value: 'GENODEF1XXX' } })
     fireEvent.click(screen.getAllByRole('button', { name: /testen/i })[1])
-    await waitFor(() => expect(screen.getAllByRole('button', { name: /hinzufügen/i })[1]).toBeEnabled())
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: /hinzufügen/i })[1]).toBeEnabled(),
+    )
     fireEvent.click(screen.getAllByRole('button', { name: /hinzufügen/i })[1])
 
     await waitFor(() => expect(screen.getByText('7654321')).toBeInTheDocument())
@@ -173,21 +193,31 @@ describe('PartnerDetailPage', () => {
         tax_rate_manual: false,
         created_at: '2026-04-02T00:00:00Z',
         updated_at: '2026-04-02T00:00:00Z',
-        matchers: [{
-          id: 'matcher-1',
-          pattern: 'hosting',
-          pattern_type: 'string',
-          created_at: '2026-04-02T00:00:00Z',
-          updated_at: '2026-04-02T00:00:00Z',
-        }],
+        matchers: [
+          {
+            id: 'matcher-1',
+            pattern: 'hosting',
+            pattern_type: 'string',
+            created_at: '2026-04-02T00:00:00Z',
+            updated_at: '2026-04-02T00:00:00Z',
+          },
+        ],
       },
     ]
 
     server.use(
-      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () => HttpResponse.json(partnerDetail)),
-      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/neighbors`, () => HttpResponse.json({ prev: null, next: null })),
-      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () => HttpResponse.json(services)),
-      http.get(`/api/v1/mandants/${MANDANT_ID}/journal`, () => HttpResponse.json({ items: [], total: 0, page: 1, size: 25, pages: 1 })),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () =>
+        HttpResponse.json(partnerDetail),
+      ),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/neighbors`, () =>
+        HttpResponse.json({ prev: null, next: null }),
+      ),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () =>
+        HttpResponse.json(services),
+      ),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/journal`, () =>
+        HttpResponse.json({ items: [], total: 0, page: 1, size: 25, pages: 1 }),
+      ),
     )
 
     await act(async () => {
@@ -201,20 +231,34 @@ describe('PartnerDetailPage', () => {
     expect(screen.getByText(/Typ: Lieferant/)).toBeInTheDocument()
     expect(screen.getByText(/Steuer: 10.00%/)).toBeInTheDocument()
     expect(screen.getByText(/Matcher: 1/)).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /leistungen verwalten/i })).toHaveAttribute('href', `/partners/${PARTNER_ID}/services`)
+    expect(screen.getByRole('link', { name: /leistungen verwalten/i })).toHaveAttribute(
+      'href',
+      `/partners/${PARTNER_ID}/services`,
+    )
   })
 
   it('shows a warning when deleting a partner with bookings is blocked', async () => {
     setup()
 
     server.use(
-      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () => HttpResponse.json(partnerDetail)),
-      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/neighbors`, () => HttpResponse.json({ prev: null, next: null })),
-      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () => HttpResponse.json([])),
-      http.get(`/api/v1/mandants/${MANDANT_ID}/journal`, () => HttpResponse.json({ items: [], total: 0, page: 1, size: 25, pages: 1 })),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () =>
+        HttpResponse.json(partnerDetail),
+      ),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/neighbors`, () =>
+        HttpResponse.json({ prev: null, next: null }),
+      ),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () =>
+        HttpResponse.json([]),
+      ),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/journal`, () =>
+        HttpResponse.json({ items: [], total: 0, page: 1, size: 25, pages: 1 }),
+      ),
       http.delete(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () =>
         HttpResponse.json(
-          { detail: 'Partner has journal entries. Move the bookings first before deleting this partner.' },
+          {
+            detail:
+              'Partner has journal entries. Move the bookings first before deleting this partner.',
+          },
           { status: 409 },
         ),
       ),
@@ -226,11 +270,17 @@ describe('PartnerDetailPage', () => {
       renderPage()
     })
 
-    await waitFor(() => expect(screen.getByRole('button', { name: /partner löschen/i })).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /partner löschen/i })).toBeInTheDocument(),
+    )
 
     fireEvent.click(screen.getByRole('button', { name: /partner löschen/i }))
 
-    await waitFor(() => expect(screen.getByText(/verschiebe zuerst alle buchungen auf einen anderen partner/i)).toBeInTheDocument())
+    await waitFor(() =>
+      expect(
+        screen.getByText(/verschiebe zuerst alle buchungen auf einen anderen partner/i),
+      ).toBeInTheDocument(),
+    )
 
     confirmSpy.mockRestore()
   })
@@ -239,9 +289,15 @@ describe('PartnerDetailPage', () => {
     setup()
 
     server.use(
-      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () => HttpResponse.json(partnerDetail)),
-      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/neighbors`, () => HttpResponse.json({ prev: null, next: null })),
-      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () => HttpResponse.json([])),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () =>
+        HttpResponse.json(partnerDetail),
+      ),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/neighbors`, () =>
+        HttpResponse.json({ prev: null, next: null }),
+      ),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () =>
+        HttpResponse.json([]),
+      ),
       http.get(`/api/v1/mandants/${MANDANT_ID}/journal`, () =>
         HttpResponse.json({
           items: [
@@ -253,7 +309,15 @@ describe('PartnerDetailPage', () => {
               partner_name: 'Amazon EU',
               service_id: 'service-1',
               service_name: 'Hosting',
-              splits: [{ service_id: 'service-1', service_name: 'Hosting', amount: '-49.00', assignment_mode: 'manual', amount_consistency_ok: false }],
+              splits: [
+                {
+                  service_id: 'service-1',
+                  service_name: 'Hosting',
+                  amount: '-49.00',
+                  assignment_mode: 'manual',
+                  amount_consistency_ok: false,
+                },
+              ],
               valuta_date: '2026-04-01',
               booking_date: '2026-04-01',
               amount: '-49.00',
@@ -280,7 +344,9 @@ describe('PartnerDetailPage', () => {
       renderPage()
     })
 
-    await waitFor(() => expect(screen.getByRole('columnheader', { name: /leistung/i })).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByRole('columnheader', { name: /leistung/i })).toBeInTheDocument(),
+    )
     expect(screen.getByText('Hosting')).toBeInTheDocument()
   })
 
@@ -290,18 +356,28 @@ describe('PartnerDetailPage', () => {
     let currentPartner = { ...partnerDetail, manual_assignment: false }
 
     server.use(
-      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () => HttpResponse.json(currentPartner)),
-      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/neighbors`, () => HttpResponse.json({ prev: null, next: null })),
-      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () => HttpResponse.json([])),
-      http.get(`/api/v1/mandants/${MANDANT_ID}/journal`, () => HttpResponse.json({ items: [], total: 0, page: 1, size: 25, pages: 1 })),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () =>
+        HttpResponse.json(currentPartner),
+      ),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/neighbors`, () =>
+        HttpResponse.json({ prev: null, next: null }),
+      ),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () =>
+        HttpResponse.json([]),
+      ),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/journal`, () =>
+        HttpResponse.json({ items: [], total: 0, page: 1, size: 25, pages: 1 }),
+      ),
       http.patch(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, async ({ request }) => {
-        const body = await request.json() as Record<string, unknown>
+        const body = (await request.json()) as Record<string, unknown>
         currentPartner = { ...currentPartner, ...body }
         return HttpResponse.json(currentPartner)
       }),
     )
 
-    await act(async () => { renderPage() })
+    await act(async () => {
+      renderPage()
+    })
 
     const checkbox = await screen.findByRole('checkbox', { name: /manuelle zuordnung/i })
     expect(checkbox).not.toBeChecked()
@@ -318,13 +394,23 @@ describe('PartnerDetailPage', () => {
     setup('viewer')
 
     server.use(
-      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () => HttpResponse.json(partnerDetail)),
-      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/neighbors`, () => HttpResponse.json({ prev: null, next: null })),
-      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () => HttpResponse.json([])),
-      http.get(`/api/v1/mandants/${MANDANT_ID}/journal`, () => HttpResponse.json({ items: [], total: 0, page: 1, size: 25, pages: 1 })),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}`, () =>
+        HttpResponse.json(partnerDetail),
+      ),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/neighbors`, () =>
+        HttpResponse.json({ prev: null, next: null }),
+      ),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/partners/${PARTNER_ID}/services`, () =>
+        HttpResponse.json([]),
+      ),
+      http.get(`/api/v1/mandants/${MANDANT_ID}/journal`, () =>
+        HttpResponse.json({ items: [], total: 0, page: 1, size: 25, pages: 1 }),
+      ),
     )
 
-    await act(async () => { renderPage() })
+    await act(async () => {
+      renderPage()
+    })
 
     await waitFor(() => expect(screen.getByText('Amazon EU')).toBeInTheDocument())
     expect(screen.queryByRole('checkbox', { name: /manuelle zuordnung/i })).not.toBeInTheDocument()

@@ -1,7 +1,6 @@
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import Column, Numeric
@@ -9,7 +8,7 @@ from sqlmodel import Field, SQLModel, UniqueConstraint
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class ServiceType(str, Enum):
@@ -67,12 +66,14 @@ class Service(SQLModel, table=True):
         UniqueConstraint("partner_id", "name", name="uq_services_partner_name"),
     )
 
-    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
+    id: UUID | None = Field(default_factory=uuid4, primary_key=True)
     partner_id: UUID = Field(foreign_key="partners.id", index=True)
     name: str = Field(max_length=255)
     description: str | None = Field(default=None, max_length=1000)
     service_type: str = Field(default=ServiceType.unknown.value, max_length=20)
-    tax_rate: Decimal = Field(default=Decimal("20.00"), sa_column=Column(Numeric(5, 2), nullable=False))
+    tax_rate: Decimal = Field(
+        default=Decimal("20.00"), sa_column=Column(Numeric(5, 2), nullable=False)
+    )
     erfolgsneutral: bool = Field(default=False)
     valid_from: date | None = Field(default=None)
     valid_to: date | None = Field(default=None)
@@ -86,10 +87,15 @@ class Service(SQLModel, table=True):
 class ServiceMatcher(SQLModel, table=True):
     __tablename__ = "service_matchers"
     __table_args__ = (
-        UniqueConstraint("service_id", "pattern", "pattern_type", name="uq_service_matchers_service_pattern"),
+        UniqueConstraint(
+            "service_id",
+            "pattern",
+            "pattern_type",
+            name="uq_service_matchers_service_pattern",
+        ),
     )
 
-    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
+    id: UUID | None = Field(default_factory=uuid4, primary_key=True)
     service_id: UUID = Field(foreign_key="services.id", index=True)
     pattern: str = Field(max_length=500)
     pattern_type: str = Field(max_length=10)
@@ -110,7 +116,7 @@ class ServiceTypeKeyword(SQLModel, table=True):
         ),
     )
 
-    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
+    id: UUID | None = Field(default_factory=uuid4, primary_key=True)
     mandant_id: UUID | None = Field(default=None, foreign_key="mandants.id", index=True)
     pattern: str = Field(max_length=500)
     pattern_type: str = Field(max_length=10)
@@ -122,10 +128,12 @@ class ServiceTypeKeyword(SQLModel, table=True):
 class ServiceGroup(SQLModel, table=True):
     __tablename__ = "service_groups"
     __table_args__ = (
-        UniqueConstraint("mandant_id", "section", "name", name="uq_service_groups_scope_name"),
+        UniqueConstraint(
+            "mandant_id", "section", "name", name="uq_service_groups_scope_name"
+        ),
     )
 
-    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
+    id: UUID | None = Field(default_factory=uuid4, primary_key=True)
     mandant_id: UUID = Field(foreign_key="mandants.id", index=True)
     section: str = Field(max_length=20)
     name: str = Field(max_length=255)
@@ -141,7 +149,7 @@ class ServiceGroupAssignment(SQLModel, table=True):
         UniqueConstraint("service_id", name="uq_service_group_assignments_service"),
     )
 
-    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
+    id: UUID | None = Field(default_factory=uuid4, primary_key=True)
     mandant_id: UUID = Field(foreign_key="mandants.id", index=True)
     service_id: UUID = Field(foreign_key="services.id", index=True)
     service_group_id: UUID = Field(foreign_key="service_groups.id", index=True)

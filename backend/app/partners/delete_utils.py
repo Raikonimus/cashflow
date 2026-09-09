@@ -1,5 +1,3 @@
-from uuid import UUID
-
 from fastapi import HTTPException, status
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,7 +22,9 @@ async def delete_partner_clean(
     """
     partner_id = partner.id
     if partner_id is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Partner not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Partner not found"
+        )
 
     service_ids = list(
         (
@@ -63,12 +63,18 @@ async def delete_partner_clean(
         await session.exec(  # type: ignore[attr-defined]
             delete(JournalLineSplit).where(JournalLineSplit.service_id.in_(service_ids))  # type: ignore[attr-defined]
         )
-        await session.exec(delete(ReviewItem).where(ReviewItem.service_id.in_(service_ids)))
-        await session.exec(delete(ServiceMatcher).where(ServiceMatcher.service_id.in_(service_ids)))
+        await session.exec(
+            delete(ReviewItem).where(ReviewItem.service_id.in_(service_ids))
+        )
+        await session.exec(
+            delete(ServiceMatcher).where(ServiceMatcher.service_id.in_(service_ids))
+        )
         await session.exec(delete(Service).where(Service.id.in_(service_ids)))
 
     await session.exec(delete(PartnerIban).where(PartnerIban.partner_id == partner_id))
-    await session.exec(delete(PartnerAccount).where(PartnerAccount.partner_id == partner_id))
+    await session.exec(
+        delete(PartnerAccount).where(PartnerAccount.partner_id == partner_id)
+    )
     await session.exec(delete(PartnerName).where(PartnerName.partner_id == partner_id))
 
     await session.delete(partner)

@@ -1,14 +1,14 @@
 """Tests für _recheck_new_partner_reviews: nur treffende Zeilen dürfen verschoben werden."""
+
 from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
 
 from app.auth.models import UserRole
-from app.imports.models import JournalLine, utcnow
-from app.services.models import Service, ServiceMatcher
+from app.imports.models import utcnow
+from app.services.models import Service
 from app.services.service import ensure_base_service
 from tests.journal import (
     assign_user_to_mandant,
@@ -72,7 +72,9 @@ class TestMatcherRecheckOnlyMovesMatchingLines:
 
         # Zeile 1 trifft den Matcher (enthält "INVOICE-42")
         line_matching = await create_journal_line_db(
-            db_session, account.id, run.id,
+            db_session,
+            account.id,
+            run.id,
             partner_id=partner_a.id,
             partner_name_raw="Partner A",
         )
@@ -82,7 +84,9 @@ class TestMatcherRecheckOnlyMovesMatchingLines:
 
         # Zeile 2 trifft den Matcher NICHT
         line_non_matching = await create_journal_line_db(
-            db_session, account.id, run.id,
+            db_session,
+            account.id,
+            run.id,
             partner_id=partner_a.id,
             partner_name_raw="Partner A",
         )
@@ -93,7 +97,9 @@ class TestMatcherRecheckOnlyMovesMatchingLines:
 
         # Partner B: Basisleistung + eigene Leistung vorbereiten
         await ensure_base_service(db_session, partner_b.id)
-        service_b = await _create_non_base_service(db_session, partner_b.id, "Rechnungen")
+        service_b = await _create_non_base_service(
+            db_session, partner_b.id, "Rechnungen"
+        )
 
         # Matcher bei Partner B anlegen → löst _recheck_new_partner_reviews aus
         resp = await client.post(
@@ -105,15 +111,15 @@ class TestMatcherRecheckOnlyMovesMatchingLines:
 
         # Zeile 1 muss jetzt bei Partner B sein
         await db_session.refresh(line_matching)
-        assert line_matching.partner_id == partner_b.id, (
-            "Die treffende Zeile muss zu Partner B verschoben worden sein"
-        )
+        assert (
+            line_matching.partner_id == partner_b.id
+        ), "Die treffende Zeile muss zu Partner B verschoben worden sein"
 
         # Zeile 2 muss WEITERHIN bei Partner A sein
         await db_session.refresh(line_non_matching)
-        assert line_non_matching.partner_id == partner_a.id, (
-            "Die nicht-treffende Zeile darf NICHT verschoben werden"
-        )
+        assert (
+            line_non_matching.partner_id == partner_a.id
+        ), "Die nicht-treffende Zeile darf NICHT verschoben werden"
 
     async def test_source_partner_deleted_only_when_all_lines_moved(
         self, client: AsyncClient, db_session: AsyncSession
@@ -129,7 +135,9 @@ class TestMatcherRecheckOnlyMovesMatchingLines:
         run = await create_import_run_db(db_session, account.id, mandant.id, user.id)
         token = await get_auth_token(client, user, mandant)
 
-        partner_a = await create_partner_db(db_session, mandant.id, "Partner A bleibend")
+        partner_a = await create_partner_db(
+            db_session, mandant.id, "Partner A bleibend"
+        )
         partner_b = await create_partner_db(db_session, mandant.id, "Partner B")
 
         # Zwei Zeilen bei A: nur eine trifft
@@ -159,8 +167,11 @@ class TestMatcherRecheckOnlyMovesMatchingLines:
 
         # Partner A darf NICHT gelöscht worden sein (hat noch Zeile 2)
         from app.partners.models import Partner
+
         remaining_a = await db_session.get(Partner, partner_a.id)
-        assert remaining_a is not None, "Partner A darf nicht gelöscht werden, hat noch Zeilen"
+        assert (
+            remaining_a is not None
+        ), "Partner A darf nicht gelöscht werden, hat noch Zeilen"
 
     async def test_source_partner_deleted_when_all_lines_match(
         self, client: AsyncClient, db_session: AsyncSession
@@ -175,7 +186,9 @@ class TestMatcherRecheckOnlyMovesMatchingLines:
         run = await create_import_run_db(db_session, account.id, mandant.id, user.id)
         token = await get_auth_token(client, user, mandant)
 
-        partner_a = await create_partner_db(db_session, mandant.id, "Partner A wird gelöscht")
+        partner_a = await create_partner_db(
+            db_session, mandant.id, "Partner A wird gelöscht"
+        )
         partner_b = await create_partner_db(db_session, mandant.id, "Partner B")
 
         # Beide Zeilen bei A treffen den Matcher
@@ -198,5 +211,8 @@ class TestMatcherRecheckOnlyMovesMatchingLines:
         assert resp.status_code == 201
 
         from app.partners.models import Partner
+
         deleted_a = await db_session.get(Partner, partner_a.id)
-        assert deleted_a is None, "Partner A muss gelöscht worden sein, da alle Zeilen verschoben wurden"
+        assert (
+            deleted_a is None
+        ), "Partner A muss gelöscht worden sein, da alle Zeilen verschoben wurden"

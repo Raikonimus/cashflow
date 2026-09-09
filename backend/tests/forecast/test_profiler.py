@@ -1,4 +1,5 @@
 """Tests für die Mustererkennung — die Beispiele aus dem Konzept, an echten Fällen orientiert."""
+
 from datetime import date
 from decimal import Decimal
 
@@ -33,7 +34,9 @@ class TestGehalt:
                 if year == 2026 and month > 8:
                     continue
                 doubled = month in (6, 11)
-                points[month_index(year, month)] = Decimal("-6000") if doubled else Decimal("-3000")
+                points[month_index(year, month)] = (
+                    Decimal("-6000") if doubled else Decimal("-3000")
+                )
         return points
 
     def test_erkennt_monatlichen_fixbetrag(self):

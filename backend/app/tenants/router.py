@@ -5,17 +5,17 @@ from uuid import UUID
 
 def _detect_encoding(raw: bytes) -> str:
     """Erkennt Zeichensatz via BOM, dann Trial-decode."""
-    if raw[:2] == b'\xff\xfe' or raw[:2] == b'\xfe\xff':
-        return 'utf-16'
-    if raw[:3] == b'\xef\xbb\xbf':
-        return 'utf-8-sig'
-    for enc in ('utf-8', 'cp1252', 'latin-1'):
+    if raw[:2] == b"\xff\xfe" or raw[:2] == b"\xfe\xff":
+        return "utf-16"
+    if raw[:3] == b"\xef\xbb\xbf":
+        return "utf-8-sig"
+    for enc in ("utf-8", "cp1252", "latin-1"):
         try:
             raw.decode(enc)
             return enc
         except UnicodeDecodeError:
             continue
-    return 'utf-8'
+    return "utf-8"
 
 
 def _detect_delimiter(text: str, fallback: str) -> str:
@@ -28,17 +28,16 @@ def _detect_delimiter(text: str, fallback: str) -> str:
     except csv.Error:
         return fallback
 
+
 from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import get_current_user, require_mandant_access, require_role
+from app.auth.dependencies import require_mandant_access, require_role
 from app.auth.models import User
 from app.core.database import get_session
 from app.tenants.schemas import (
     AccountResponse,
     ApplyExcludedResponse,
-    ExecuteMandantCleanupRequest,
-    ExecuteMandantCleanupResponse,
     ColumnMappingRequest,
     ColumnMappingResponse,
     CreateAccountRequest,
@@ -46,6 +45,8 @@ from app.tenants.schemas import (
     CsvPreviewResponse,
     ExcludedIdentifierCreate,
     ExcludedIdentifierResponse,
+    ExecuteMandantCleanupRequest,
+    ExecuteMandantCleanupResponse,
     MandantCleanupPreviewResponse,
     MandantResponse,
     RemappingTriggerResponse,
@@ -68,6 +69,7 @@ def _account_svc(session: AsyncSession = Depends(get_session)) -> AccountService
 
 # ─── Mandant endpoints ────────────────────────────────────────────────────────
 
+
 @tenants_router.get("", response_model=list[MandantResponse])
 async def list_mandants(
     actor: User = Depends(require_role("admin")),
@@ -77,7 +79,9 @@ async def list_mandants(
     return [MandantResponse.model_validate(m) for m in mandants]
 
 
-@tenants_router.post("", response_model=MandantResponse, status_code=status.HTTP_201_CREATED)
+@tenants_router.post(
+    "", response_model=MandantResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_mandant(
     body: CreateMandantRequest,
     actor: User = Depends(require_role("admin")),
@@ -108,7 +112,9 @@ async def update_mandant(
     return MandantResponse.model_validate(mandant)
 
 
-@tenants_router.get("/{mandant_id}/cleanup-preview", response_model=MandantCleanupPreviewResponse)
+@tenants_router.get(
+    "/{mandant_id}/cleanup-preview", response_model=MandantCleanupPreviewResponse
+)
 async def get_mandant_cleanup_preview(
     mandant_id: UUID,
     actor: User = Depends(require_role("admin")),
@@ -117,7 +123,9 @@ async def get_mandant_cleanup_preview(
     return await svc.get_cleanup_preview(mandant_id)
 
 
-@tenants_router.post("/{mandant_id}/cleanup", response_model=ExecuteMandantCleanupResponse)
+@tenants_router.post(
+    "/{mandant_id}/cleanup", response_model=ExecuteMandantCleanupResponse
+)
 async def execute_mandant_cleanup(
     mandant_id: UUID,
     body: ExecuteMandantCleanupRequest,
@@ -137,6 +145,7 @@ async def deactivate_mandant(
 
 
 # ─── Account endpoints ────────────────────────────────────────────────────────
+
 
 @accounts_router.get("/{mandant_id}/accounts", response_model=list[AccountResponse])
 async def list_accounts(
@@ -171,7 +180,9 @@ async def create_account(
     return AccountResponse.model_validate(account)
 
 
-@accounts_router.get("/{mandant_id}/accounts/{account_id}", response_model=AccountResponse)
+@accounts_router.get(
+    "/{mandant_id}/accounts/{account_id}", response_model=AccountResponse
+)
 async def get_account(
     mandant_id: UUID,
     account_id: UUID,
@@ -186,7 +197,9 @@ async def get_account(
     return resp
 
 
-@accounts_router.patch("/{mandant_id}/accounts/{account_id}", response_model=AccountResponse)
+@accounts_router.patch(
+    "/{mandant_id}/accounts/{account_id}", response_model=AccountResponse
+)
 async def update_account(
     mandant_id: UUID,
     account_id: UUID,
@@ -218,7 +231,10 @@ async def get_column_mapping(
     mapping = await svc.get_column_mapping(account_id)
     if mapping is None:
         from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="No column mapping configured for this account")
+
+        raise HTTPException(
+            status_code=404, detail="No column mapping configured for this account"
+        )
     return ColumnMappingResponse.model_validate(mapping)
 
 
@@ -244,7 +260,7 @@ async def preview_csv_columns(
     try:
         decoded = content.decode(detected_encoding)
     except UnicodeDecodeError:
-        decoded = content.decode('utf-8', errors='replace')
+        decoded = content.decode("utf-8", errors="replace")
 
     # Kopfzeilen vor der Spaltenueberschrift verwerfen - genauso wie beim Import,
     # sonst konfiguriert man gegen eine andere Zeile als spaeter gelesen wird.
@@ -260,7 +276,12 @@ async def preview_csv_columns(
     sample_rows: list[dict[str, str]] = []
     for row in reader:
         sample_rows.append({k: (v or "") for k, v in row.items() if k})
-    return CsvPreviewResponse(columns=columns, detected_delimiter=detected, detected_encoding=detected_encoding, sample_rows=sample_rows)
+    return CsvPreviewResponse(
+        columns=columns,
+        detected_delimiter=detected,
+        detected_encoding=detected_encoding,
+        sample_rows=sample_rows,
+    )
 
 
 @accounts_router.put(
@@ -294,10 +315,13 @@ async def trigger_remapping(
 ) -> RemappingTriggerResponse:
     await svc.get_account(account_id, mandant_id)
     await svc.trigger_remapping(account_id, actor.id)
-    return RemappingTriggerResponse(message="Remapping triggered", account_id=account_id)
+    return RemappingTriggerResponse(
+        message="Remapping triggered", account_id=account_id
+    )
 
 
 # ─── Excluded Identifiers ──────────────────────────────────────────────────
+
 
 @accounts_router.get(
     "/{mandant_id}/accounts/{account_id}/excluded-identifiers",
