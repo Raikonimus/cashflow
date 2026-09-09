@@ -7,7 +7,6 @@ und tut es auch.
 """
 from decimal import Decimal
 
-import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.auth.models import UserRole
@@ -96,20 +95,13 @@ async def test_brutto_addiert_sich_zur_jahressumme(db_session: AsyncSession):
     assert monate == Decimal(row.cells.year_total.gross) == Decimal("1200.00")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "BEFUND A2-1 (offen): Die Jahressumme netto ist round(jahresbrutto/divisor), "
-        "die Monatszellen sind je round(monatsbrutto/divisor). Beides ist fuer sich "
-        "richtig, aber die Spalte addiert sich nicht. Der Excel-Export summiert "
-        "dagegen die Monate per Formel und weicht deshalb von der Seite ab. "
-        "Fix erfordert eine Entscheidung: Restcent auf die Monate verteilen (wie in "
-        "_replace_splits), oder Seite und Export auf dieselbe Regel bringen."
-    ),
-)
 async def test_netto_addiert_sich_zur_jahressumme(db_session: AsyncSession):
-    """12 x 100,00 brutto bei 20 % — jeder Monat 83,33 netto, die Summe 999,96,
-    die Jahressumme aber 1000,00."""
+    """12 x 100,00 brutto bei 20 %: jeder Monat 83,33 netto, die Jahreszelle 999,96.
+
+    Nicht 1.000,00 — das waere jahresbrutto/divisor. Die Jahreszelle ist bewusst die
+    Summe der angezeigten Monate, damit die Spalte aufgeht und der Excel-Export,
+    der die Monate per Formel summiert, dasselbe Ergebnis liefert.
+    """
     matrix = await _matrix_mit_gleichem_monatsbetrag(db_session, "100.00", "20.00")
     row = _zeile(matrix)
 

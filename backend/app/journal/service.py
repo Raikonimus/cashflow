@@ -79,8 +79,12 @@ def _sanitize_unmapped_data(unmapped_data: Any) -> Any:
     return sanitized or None
 
 
+def _round_money(value: Decimal) -> Decimal:
+    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
 def _as_money(value: Decimal) -> str:
-    return str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    return str(_round_money(value))
 
 
 def _empty_cells() -> dict[str, dict[str, Decimal]]:
@@ -870,16 +874,29 @@ class JournalService:
                             service_flags["year_total"] or service_flags[month_key]
                         )
 
+                    # Netto wird hier — und nur hier — gerundet. Alles darueber
+                    # entsteht durch Summieren dieser Werte, damit sich die Anzeige
+                    # in beide Richtungen addiert: die Monate zur Jahreszelle und die
+                    # Leistungszeilen zur Zwischen- und Gesamtsumme. Der Preis ist,
+                    # dass die Jahreszelle nicht exakt jahresbrutto/divisor ist,
+                    # sondern um wenige Cent davon abweichen kann. Das ist der
+                    # bewusste Tausch: eine Tabelle, die aufgeht, gegen eine
+                    # Jahressumme, die niemand nachrechnet.
                     tax_rate = Decimal(str(service.tax_rate))
                     divisor = Decimal("1") + (tax_rate / Decimal("100"))
-                    for cell_key in ["year_total", *MONTH_KEYS]:
-                        gross_value = service_cells[cell_key]["gross"]
-                        service_cells[cell_key]["net"] = (
-                            (gross_value / divisor)
+                    for month_key in MONTH_KEYS:
+                        gross_value = service_cells[month_key]["gross"]
+                        service_cells[month_key]["net"] = (
+                            _round_money(gross_value / divisor)
                             if divisor != Decimal("0")
                             else gross_value
                         )
+                    service_cells["year_total"]["net"] = sum(
+                        (service_cells[month_key]["net"] for month_key in MONTH_KEYS),
+                        Decimal("0"),
+                    )
 
+                    for cell_key in ["year_total", *MONTH_KEYS]:
                         subtotal[cell_key]["gross"] += service_cells[cell_key]["gross"]
                         subtotal[cell_key]["net"] += service_cells[cell_key]["net"]
                         subtotal_flags[cell_key] = (
