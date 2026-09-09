@@ -1,7 +1,7 @@
 """Shared fixtures for journal & audit tests."""
 
 from collections.abc import AsyncGenerator
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
 

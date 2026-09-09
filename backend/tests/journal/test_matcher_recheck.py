@@ -78,7 +78,6 @@ class TestMatcherRecheckOnlyMovesMatchingLines:
             partner_id=partner_a.id,
             partner_name_raw="Partner A",
         )
-        now = utcnow()
         line_matching.text = "INVOICE-42 Bezahlung"
         db_session.add(line_matching)
 

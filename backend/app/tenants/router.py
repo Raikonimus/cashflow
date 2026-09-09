@@ -2,6 +2,32 @@ import csv
 import io
 from uuid import UUID
 
+from fastapi import APIRouter, Depends, File, Query, UploadFile, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.auth.dependencies import require_mandant_access, require_role
+from app.auth.models import User
+from app.core.database import get_session
+from app.tenants.schemas import (
+    AccountResponse,
+    ApplyExcludedResponse,
+    ColumnMappingRequest,
+    ColumnMappingResponse,
+    CreateAccountRequest,
+    CreateMandantRequest,
+    CsvPreviewResponse,
+    ExcludedIdentifierCreate,
+    ExcludedIdentifierResponse,
+    ExecuteMandantCleanupRequest,
+    ExecuteMandantCleanupResponse,
+    MandantCleanupPreviewResponse,
+    MandantResponse,
+    RemappingTriggerResponse,
+    UpdateAccountRequest,
+    UpdateMandantRequest,
+)
+from app.tenants.service import AccountService, MandantService
+
 
 def _detect_encoding(raw: bytes) -> str:
     """Erkennt Zeichensatz via BOM, dann Trial-decode."""
@@ -28,32 +54,6 @@ def _detect_delimiter(text: str, fallback: str) -> str:
     except csv.Error:
         return fallback
 
-
-from fastapi import APIRouter, Depends, File, Query, UploadFile, status
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.auth.dependencies import require_mandant_access, require_role
-from app.auth.models import User
-from app.core.database import get_session
-from app.tenants.schemas import (
-    AccountResponse,
-    ApplyExcludedResponse,
-    ColumnMappingRequest,
-    ColumnMappingResponse,
-    CreateAccountRequest,
-    CreateMandantRequest,
-    CsvPreviewResponse,
-    ExcludedIdentifierCreate,
-    ExcludedIdentifierResponse,
-    ExecuteMandantCleanupRequest,
-    ExecuteMandantCleanupResponse,
-    MandantCleanupPreviewResponse,
-    MandantResponse,
-    RemappingTriggerResponse,
-    UpdateAccountRequest,
-    UpdateMandantRequest,
-)
-from app.tenants.service import AccountService, MandantService
 
 tenants_router = APIRouter(prefix="/mandants", tags=["tenants"])
 accounts_router = APIRouter(prefix="/mandants", tags=["accounts"])

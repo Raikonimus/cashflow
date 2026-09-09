@@ -3,7 +3,7 @@
 # pylint: disable=redefined-outer-name
 import io
 from collections.abc import AsyncGenerator
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest_asyncio
@@ -15,7 +15,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.auth.models import MandantUser, User, UserRole
 from app.auth.security import hash_password
 from app.main import app
-from app.partners.models import Partner, PartnerAccount, PartnerIban, PartnerName
+from app.partners.models import Partner, PartnerAccount, PartnerIban
 from app.tenants.models import Account, ColumnMappingConfig, Mandant
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"

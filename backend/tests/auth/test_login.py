@@ -113,7 +113,7 @@ class TestSelectMandant:
         assert resp.json()["access_token"]
 
     async def test_select_mandant_no_access_returns_403(self, client, db_session):
-        user = await create_user(db_session)
+        await create_user(db_session)
         other_mandant = await create_mandant(db_session, "Other GmbH")
 
         login = await client.post(
@@ -132,7 +132,7 @@ class TestSelectMandant:
 
 class TestGetMe:
     async def test_me_returns_user_info(self, client, db_session):
-        user = await create_user(db_session, role=UserRole.accountant)
+        await create_user(db_session, role=UserRole.accountant)
         login = await client.post(
             "/api/v1/auth/login",
             json={"email": "test@example.com", "password": "secret123"},

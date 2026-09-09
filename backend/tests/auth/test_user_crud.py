@@ -114,9 +114,7 @@ class TestCreateUser:
 
 class TestGetUser:
     async def test_admin_can_get_any_user(self, client, db_session):
-        admin = await create_user(
-            db_session, email="admin@test.com", role=UserRole.admin
-        )
+        await create_user(db_session, email="admin@test.com", role=UserRole.admin)
         target = await create_user(
             db_session, email="target@test.com", role=UserRole.viewer
         )

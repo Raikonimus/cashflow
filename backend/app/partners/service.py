@@ -1,6 +1,7 @@
 import math
 from datetime import UTC, datetime
 from enum import Enum
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 import structlog
@@ -39,6 +40,9 @@ from app.partners.schemas import (
 )
 from app.services.models import Service, ServiceType
 from app.services.service import ServiceManagementService
+
+if TYPE_CHECKING:
+    from app.partners.schemas import AccountPreviewResponse
 
 log = structlog.get_logger()
 
@@ -1174,8 +1178,8 @@ class AuditLogService:
 
         # Zeige Einträge dieses Mandanten UND system-weite Einträge (mandant_id IS NULL)
         where_clause = (AuditLog.mandant_id == mandant_id) | (
-            AuditLog.mandant_id == None
-        )  # noqa: E711
+            AuditLog.mandant_id.is_(None)
+        )
 
         total = len(
             (

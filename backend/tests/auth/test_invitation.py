@@ -59,7 +59,7 @@ class TestCreateUserSendsInvitation:
         from app.auth.models import User
 
         token = await _admin_token(client, db_session)
-        data = await _create_invited_user(client, token)
+        await _create_invited_user(client, token)
 
         result = await db_session.exec(
             select(User).where(User.email == "invited@example.com")
@@ -82,7 +82,7 @@ class TestCreateUserSendsInvitation:
 class TestAcceptInvitation:
     async def test_accept_with_valid_token_sets_password(self, client, db_session):
         token = await _admin_token(client, db_session)
-        user_data = await _create_invited_user(client, token)
+        await _create_invited_user(client, token)
 
         from sqlmodel import select
 
@@ -124,7 +124,7 @@ class TestAcceptInvitation:
         from datetime import datetime, timedelta
 
         token = await _admin_token(client, db_session)
-        user_data = await _create_invited_user(client, token)
+        await _create_invited_user(client, token)
 
         from sqlmodel import select
 
@@ -208,7 +208,7 @@ class TestResendInvitation:
         from app.auth.models import User
 
         adm_token = await _admin_token(client, db_session)
-        user_data = await _create_invited_user(client, adm_token)
+        await _create_invited_user(client, adm_token)
 
         result = await db_session.exec(
             select(User).where(User.email == "invited@example.com")

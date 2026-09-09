@@ -2,8 +2,25 @@ import csv
 import io
 from collections import Counter
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
+from uuid import UUID, uuid4
 
+import structlog
+from fastapi import HTTPException, UploadFile, status
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
+
+from app.imports.matching import (
+    PartnerMatchingService,
+    ReviewItemFactory,
+    _normalize_account,
+    _normalize_iban,
+)
+from app.imports.models import ImportRun, ImportStatus, JournalLine, ReviewItem, utcnow
+from app.partners.models import AuditLog
+from app.tenants.models import Account, ColumnMappingConfig
+from app.tenants.service import AccountService
 
 
 def _detect_encoding(raw: bytes) -> str:
@@ -31,25 +48,6 @@ def _detect_delimiter(text: str, fallback: str) -> str:
     except csv.Error:
         return fallback
 
-
-from decimal import Decimal, InvalidOperation
-from uuid import UUID, uuid4
-
-import structlog
-from fastapi import HTTPException, UploadFile, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
-
-from app.imports.matching import (
-    PartnerMatchingService,
-    ReviewItemFactory,
-    _normalize_account,
-    _normalize_iban,
-)
-from app.imports.models import ImportRun, ImportStatus, JournalLine, ReviewItem, utcnow
-from app.partners.models import AuditLog
-from app.tenants.models import Account, ColumnMappingConfig
-from app.tenants.service import AccountService
 
 log = structlog.get_logger()
 
@@ -246,7 +244,7 @@ class ImportService:
         mandant_id: UUID,
         files: list[UploadFile],
     ) -> list[ImportRun]:
-        account = await self._require_account(account_id, mandant_id)
+        await self._require_account(account_id, mandant_id)
 
         # Load column mapping config
         mapping = await self._load_mapping(account_id)

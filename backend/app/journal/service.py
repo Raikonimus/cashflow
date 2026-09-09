@@ -141,6 +141,11 @@ def _month_key_from_valuta_date(valuta_date: str) -> str | None:
     return MONTH_KEYS[month - 1]
 
 
+# Sortierung: partner_name / service_name brauchen JOINs, diese hier sind
+# einfache SQL-Spalten.
+_SQL_SORT_COLS = {"valuta_date", "booking_date", "amount", "text"}
+
+
 class JournalService:
     def __init__(self, session: AsyncSession, *, today: date | None = None) -> None:
         self._session = session
@@ -233,10 +238,8 @@ class JournalService:
                 )
             )
 
-        # Sorting: partner_name / service_name require JOINs; others are plain SQL columns
-        SQL_SORT_COLS = {"valuta_date", "booking_date", "amount", "text"}
         order_dir = "DESC" if sort_dir == "desc" else "ASC"
-        if sort_by in SQL_SORT_COLS:
+        if sort_by in _SQL_SORT_COLS:
             order_expr = text(f"{sort_by} {order_dir}")
         elif sort_by == "partner_name":
             # JOIN partners so we can ORDER BY coalesce(display_name, name) globally

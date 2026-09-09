@@ -7,6 +7,16 @@ export function SelectMandant() {
   const navigate = useNavigate()
   const { mandants, selectMandant: storeSelectMandant, token } = useAuthStore()
 
+  async function handleSelect(mandant: MandantInfo) {
+    try {
+      const data = await selectMandant(mandant.id)
+      storeSelectMandant(mandant, data.access_token)
+      navigate('/', { replace: true })
+    } catch {
+      // stay on page, user can retry
+    }
+  }
+
   useEffect(() => {
     if (!token || mandants.length === 0) {
       navigate('/login', { replace: true })
@@ -28,16 +38,6 @@ export function SelectMandant() {
   // Single-mandant: auto-select is running in the effect above — show nothing
   if (mandants.length === 1) {
     return null
-  }
-
-  async function handleSelect(mandant: MandantInfo) {
-    try {
-      const data = await selectMandant(mandant.id)
-      storeSelectMandant(mandant, data.access_token)
-      navigate('/', { replace: true })
-    } catch {
-      // stay on page, user can retry
-    }
   }
 
   return (

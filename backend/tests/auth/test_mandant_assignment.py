@@ -133,7 +133,7 @@ class TestMandantAssignment:
 
     async def test_assigned_user_can_select_mandant(self, client, db_session):
         """After assignment, user should be able to select the mandant."""
-        adm_token = await _admin_token(client, db_session)
+        await _admin_token(client, db_session)
         user = await create_user(
             db_session, email="user@test.com", role=UserRole.accountant
         )
