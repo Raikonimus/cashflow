@@ -413,6 +413,9 @@ ist deshalb als Stresstest zu lesen, nicht als Wahrscheinlichkeitsband — die O
 beim Umschalten auch dazu. Ein echtes Konfidenzintervall bräuchte die gemessene Treffsicherheit
 je Regel aus Phase 3.
 
+> Die drei Zahlen oben sind der Stand nach Phase 2 und dienen dem Vergleich. Phase 3 hat sie
+> verändert — maßgeblich ist die Tabelle in Abschnitt 13.
+
 
 ---
 
@@ -457,11 +460,12 @@ Der Prüfzeitraum enthält per Konstruktion mindestens zwei erwartete Zahlungen.
 Schwellwertregel des Profilers („seit mehr als zwei Perioden nichts gebucht"), die eine
 ausgelaufene Leistung noch monatelang weiterprojiziert.
 
-Beim Beispielmandanten betraf das 67 Leistungen mit zusammen **+35.097 € Phantomvolumen** auf
-zwölf Monate — überwiegend Einnahmen, darunter „Lizenzen AI-Concierge" mit +22.392 € ohne eine
-einzige Buchung im Prüfzeitraum. Diese Leistungen werden jetzt automatisch abgeschaltet; der
-erwartete Tiefstand verschlechtert sich dadurch von −316.909 auf −361.694 €. Wer die Leistung
-für weiterlaufend hält, setzt einen händischen Regeltyp oder einen Planposten.
+Beim Beispielmandanten betraf das **67 Leistungen**. 19 davon hätten weiter Geld prognostiziert,
+netto **+21.801 €** auf zwölf Monate (brutto +39.552 Einnahmen gegen −17.751 Ausgaben) — die
+größte davon „Lizenzen AI-Concierge" mit +22.392 € ohne eine einzige Buchung im Prüfzeitraum.
+Diese Leistungen werden jetzt automatisch abgeschaltet; der erwartete Tiefstand verschlechtert
+sich dadurch von −237.067 auf −266.978 €. Wer eine Leistung für weiterlaufend hält, setzt einen
+händischen Regeltyp oder einen Planposten.
 
 ### Treffsicherheit ersetzt geschätzte Confidence
 
@@ -519,12 +523,12 @@ abgeleitetes Band vorhersehen. Das bleibt so und wird nicht wegmodelliert.
 
 Aktuell (Stand 08/2026) ergibt sich:
 
-| | Tiefstand bis 12/2027 |
+| | Saldo 12/2027 |
 |---|---|
-| oberes Band | +153.525 |
-| erwartet | −361.694 |
-| unteres Band | −876.913 |
-| Stresstest „alle Regeln irren zugleich" | −1.040.211 |
+| oberes Band | +84.251 |
+| erwartet | **−266.978** |
+| unteres Band | −738.041 |
+| Stresstest „alle Regeln irren zugleich" | −896.873 |
 
 `ERROR_CORRELATION` ist eine dokumentierte Konstante in `app/forecast/backtest.py` und an einer
 Stelle änderbar. Sie ist an einem Mandanten über sechs Monate kalibriert — mit wachsender Zahl
@@ -583,6 +587,7 @@ Monat einen schlechten ausgleicht).
 | Kennzahl | Wert |
 |---|---|
 | Leistungen | 410 |
+| davon ohne Prognose | 312 |
 | davon rückverglichen | 132 |
 | Regel durch Messung gewechselt | 36 |
 | als beendet erkannt | 67 |
