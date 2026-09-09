@@ -28,6 +28,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      - name: Konfiguration bereitstellen
+        # Die Settings verlangen DATABASE_URL und JWT_SECRET_KEY ohne Default, und
+        # `.env` ist zu Recht nicht im Repo. Die Tests laufen gegen In-Memory-SQLite,
+        # brauchen die Werte also nur formal. Der Umweg ueber .env.example prueft
+        # nebenbei, ob die Beispieldatei noch vollstaendig ist.
+        run: cp .env.example .env
+
       - name: Ruff
         run: ruff check app tests
 
