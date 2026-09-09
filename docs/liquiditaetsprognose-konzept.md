@@ -463,8 +463,8 @@ ausgelaufene Leistung noch monatelang weiterprojiziert.
 Beim Beispielmandanten betraf das **67 Leistungen**. 19 davon hätten weiter Geld prognostiziert,
 netto **+21.801 €** auf zwölf Monate (brutto +39.552 Einnahmen gegen −17.751 Ausgaben) — die
 größte davon „Lizenzen AI-Concierge" mit +22.392 € ohne eine einzige Buchung im Prüfzeitraum.
-Diese Leistungen werden jetzt automatisch abgeschaltet; der erwartete Tiefstand verschlechtert
-sich dadurch von −237.067 auf −266.978 €. Wer eine Leistung für weiterlaufend hält, setzt einen
+Diese Leistungen werden jetzt automatisch abgeschaltet; der erwartete Saldo 12/2027
+verschlechtert sich dadurch von −178.694 auf −208.604 €. Wer eine Leistung für weiterlaufend hält, setzt einen
 händischen Regeltyp oder einen Planposten.
 
 ### Treffsicherheit ersetzt geschätzte Confidence
@@ -521,14 +521,30 @@ Der verbleibende Fehlschlag ist **März 2026** — und zwar nach *oben*: Eine Le
 +5.000 prognostiziert waren, brachte +104.880. Einen neuen Großkunden kann kein aus Historie
 abgeleitetes Band vorhersehen. Das bleibt so und wird nicht wegmodelliert.
 
-Aktuell (Stand 08/2026) ergibt sich:
+Am Beispielmandanten (Datenstand 09.09.2026 11:12 — die Beispieldatenbank wird weiter
+bearbeitet, die Beträge verschieben sich mit jeder Regeländerung):
 
 | | Saldo 12/2027 |
 |---|---|
-| oberes Band | +84.251 |
-| erwartet | **−266.978** |
-| unteres Band | −738.041 |
-| Stresstest „alle Regeln irren zugleich" | −896.873 |
+| Stresstest optimistisch | +408.168 |
+| oberes Band | +252.364 |
+| **erwartet** | **−208.604** |
+| unteres Band | −669.572 |
+| Stresstest pessimistisch | −825.376 |
+
+Dass der Stresstest **außerhalb** des Bands liegt, ist kein Widerspruch, sondern
+Konstruktion: Er ist der Fall ρ = 1 — jede Regel irrt gleichzeitig in dieselbe Richtung —,
+das Band rechnet mit ρ = 0,5. Beide Grenzen des Stresstests müssen deshalb weiter außen
+liegen als die des Bands. Alle fünf Zahlen sind hier auf derselben Grundlage angegeben, dem
+Saldo im Endmonat; ein Vergleich von Tiefstand gegen Höchstwert würde die Reihenfolge
+scheinbar umkehren.
+
+Eine Eigenart des optimistischen Stresstests: Sein *Tiefstand* liegt bei +86.075 und damit
+exakt auf dem heutigen Kontostand — die Kurve fällt dort nie unter das Ausgangsniveau. Das
+liegt an den gedeckelten Bandbreiten: Bei einer Leistung mit 100 % gemessenem Fehler hebt das
+optimistische Szenario eine Ausgabe vollständig auf. Für eine Regel, die so schlecht trifft,
+ist „findet vielleicht gar nicht statt" eine ehrliche Aussage — die Summe daraus ist aber
+kein realistischer Verlauf, sondern die äußerste Ecke des Möglichkeitsraums.
 
 `ERROR_CORRELATION` ist eine dokumentierte Konstante in `app/forecast/backtest.py` und an einer
 Stelle änderbar. Sie ist an einem Mandanten über sechs Monate kalibriert — mit wachsender Zahl
