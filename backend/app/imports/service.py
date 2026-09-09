@@ -249,6 +249,40 @@ class ImportService:
             results.append(run)
         return results
 
+    async def _log_failed_import(
+        self,
+        mandant_id: UUID,
+        actor_id: UUID,
+        account_id: UUID,
+        filename: str,
+        exc: BaseException,
+    ) -> None:
+        """Schreibt import.failed, wenn die Verarbeitung mit einer Ausnahme endet.
+
+        Die laufende Transaktion ist danach unbrauchbar — der Importlauf und alles,
+        was bis dahin eingefuegt wurde, faellt weg. Deshalb erst zuruecknehmen, dann
+        den Eintrag als eigene Transaktion schreiben. Scheitert auch das, darf es die
+        urspruengliche Ausnahme nicht verdecken.
+        """
+        try:
+            await self._session.rollback()
+            self._session.add(
+                AuditLog(
+                    mandant_id=mandant_id,
+                    event_type="import.failed",
+                    actor_id=actor_id,
+                    payload={
+                        "account_id": str(account_id),
+                        "filename": filename,
+                        "error": type(exc).__name__,
+                        "detail": str(getattr(exc, "detail", exc))[:500],
+                    },
+                )
+            )
+            await self._session.commit()
+        except Exception:  # pragma: no cover — Notnagel
+            log.exception("import_failed_audit_not_written", filename=filename)
+
     async def _process_file(
         self,
         actor_id: UUID,
@@ -269,18 +303,28 @@ class ImportService:
 
         run.status = ImportStatus.processing.value
 
-        decoded = await self._decode_upload(file)
-        reader = self._build_csv_reader(decoded, mapping)
-        self._validate_duplicate_check_columns(reader.fieldnames, mapping)
-        lines_to_insert, errors = self._collect_lines_to_insert(
-            reader, mapping, run.id, account_id
-        )
-
-        inserted, skipped, review_items, duplicates, zero_skipped = (
-            await self._bulk_insert_with_matching(
-                lines_to_insert, mandant_id, run.id, account_id
+        try:
+            decoded = await self._decode_upload(file)
+            reader = self._build_csv_reader(decoded, mapping)
+            self._validate_duplicate_check_columns(reader.fieldnames, mapping)
+            lines_to_insert, errors = self._collect_lines_to_insert(
+                reader, mapping, run.id, account_id
             )
-        )
+
+            inserted, skipped, review_items, duplicates, zero_skipped = (
+                await self._bulk_insert_with_matching(
+                    lines_to_insert, mandant_id, run.id, account_id
+                )
+            )
+        except Exception as exc:
+            # ADR-017 verspricht import.failed im Audit-Log. Bisher entstand der
+            # Eintrag erst am Ende; brach die Verarbeitung vorher ab, blieb der
+            # eigentliche Fehlschlag der einzige, der nicht protokolliert wurde.
+            await self._log_failed_import(
+                mandant_id, actor_id, account_id, run.filename, exc
+            )
+            raise
+
         self._finalize_run(run, inserted, skipped, errors, duplicates, zero_skipped)
 
         for ri in review_items:
@@ -764,7 +808,19 @@ class ImportService:
 
         required_sources = _assignment_duplicate_sources(assignments)
         if not required_sources:
-            return
+            # Ohne Vergleichsspalten gibt es keine Dublettenerkennung: derselbe
+            # Kontoauszug ein zweites Mal eingelesen verdoppelt jede Buchung, ohne
+            # Hinweis. In einer Finanzauswertung ist das die schlimmere Ueberraschung
+            # als eine Fehlermeldung, die sagt, was zu tun ist.
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=(
+                    "Keine Spalte fuer die Dublettenpruefung markiert. Ohne sie wuerde "
+                    "ein wiederholter Import jede Buchung verdoppeln. Bitte in der "
+                    "Spaltenzuordnung mindestens eine Spalte fuer die Dublettenpruefung "
+                    "auswaehlen."
+                ),
+            )
 
         available = set(fieldnames or [])
         missing = [source for source in required_sources if source not in available]

@@ -167,3 +167,133 @@ async def test_integritaetsfehler_verwirft_nicht_die_vorherigen_zeilen(
         f"Der Lauf meldet {gemeldet} importierte Zeilen, in der Datenbank "
         f"liegen {len(zeilen)}."
     )
+
+
+async def test_ohne_vergleichsspalte_wird_der_import_abgelehnt(
+    db_session: AsyncSession, client: AsyncClient
+):
+    """Ohne Dublettenpruefung wuerde ein wiederholter Import alles verdoppeln.
+
+    Die Fehlermeldung muss sagen, was zu tun ist — sonst ist der Nutzer geblockt.
+    """
+    from app.tenants.models import ColumnMappingConfig
+
+    user = await create_user(db_session, "ohnedup@test.com", UserRole.accountant)
+    mandant = await create_mandant(db_session)
+    await assign_user_to_mandant(db_session, user, mandant)
+    account = await create_account_db(db_session, mandant.id)
+    db_session.add(
+        ColumnMappingConfig(
+            account_id=account.id,
+            valuta_date_col="Valuta",
+            booking_date_col="Buchungsdatum",
+            amount_col="Betrag",
+            partner_name_col="Auftraggeber",
+            partner_iban_col="IBAN",
+            date_format="%Y-%m-%d",
+            decimal_separator=".",
+            delimiter=",",
+            column_assignments=[
+                {
+                    "source": "Valuta",
+                    "target": "valuta_date",
+                    "sort_order": 0,
+                    "duplicate_check": False,
+                },
+                {
+                    "source": "Buchungsdatum",
+                    "target": "booking_date",
+                    "sort_order": 1,
+                    "duplicate_check": False,
+                },
+                {
+                    "source": "Betrag",
+                    "target": "amount",
+                    "sort_order": 2,
+                    "duplicate_check": False,
+                },
+            ],
+        )
+    )
+    await db_session.commit()
+    token = await get_auth_token(client, user, mandant)
+
+    resp = await client.post(
+        f"/api/v1/mandants/{mandant.id}/accounts/{account.id}/imports",
+        files=[
+            (
+                "files",
+                ("a.csv", io.BytesIO(make_csv([_zeile(1, "100.00")])), "text/csv"),
+            )
+        ],
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert "Dublettenpruefung" in resp.json()["detail"]
+
+
+async def test_abgebrochener_import_wird_protokolliert(
+    db_session: AsyncSession, client: AsyncClient
+):
+    """ADR-017: import.failed gehoert ins Audit-Log — auch auf dem Ausnahmepfad."""
+    from app.partners.models import AuditLog
+    from app.tenants.models import ColumnMappingConfig
+
+    user = await create_user(db_session, "abbruch@test.com", UserRole.accountant)
+    mandant = await create_mandant(db_session)
+    await assign_user_to_mandant(db_session, user, mandant)
+    account = await create_account_db(db_session, mandant.id)
+    mandant_id = mandant.id
+    db_session.add(
+        ColumnMappingConfig(
+            account_id=account.id,
+            valuta_date_col="Valuta",
+            booking_date_col="Buchungsdatum",
+            amount_col="Betrag",
+            date_format="%Y-%m-%d",
+            decimal_separator=".",
+            delimiter=",",
+            column_assignments=[
+                {
+                    "source": "Valuta",
+                    "target": "valuta_date",
+                    "sort_order": 0,
+                    "duplicate_check": True,
+                },
+                {
+                    "source": "Buchungsreferenz",
+                    "target": "unused",
+                    "sort_order": 1,
+                    "duplicate_check": True,
+                },
+            ],
+        )
+    )
+    await db_session.commit()
+    token = await get_auth_token(client, user, mandant)
+
+    # Die CSV traegt die konfigurierte Vergleichsspalte "Buchungsreferenz" nicht —
+    # das bricht die Verarbeitung mitten im Lauf ab.
+    resp = await client.post(
+        f"/api/v1/mandants/{mandant_id}/accounts/{account.id}/imports",
+        files=[
+            (
+                "files",
+                ("a.csv", io.BytesIO(make_csv([_zeile(1, "100.00")])), "text/csv"),
+            )
+        ],
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 422, resp.text
+    assert "duplicate-check" in resp.json()["detail"]
+
+    eintraege = (
+        await db_session.exec(select(AuditLog).where(AuditLog.mandant_id == mandant_id))
+    ).all()
+    fehlgeschlagen = [e for e in eintraege if e.event_type == "import.failed"]
+    assert fehlgeschlagen, (
+        "Der Import brach ab, ohne einen import.failed-Eintrag zu hinterlassen. "
+        f"Vorhanden: {[e.event_type for e in eintraege]}"
+    )
+    assert fehlgeschlagen[0].payload["filename"] == "a.csv"
