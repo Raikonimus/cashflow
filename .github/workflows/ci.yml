@@ -1,0 +1,75 @@
+# Setzt durch, was memory-bank/standards/coding-standards.md fordert:
+# "Both formatters are non-negotiable; CI must enforce them."
+#
+# Bis zum Code-Review vom 2026-09-09 gab es keinen einzigen Workflow — Ruff und
+# Black waren konfiguriert, aber nicht einmal installiert.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Abhaengigkeiten installieren
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Ruff
+        run: ruff check app tests
+
+      - name: Black
+        run: black --check app tests
+
+      - name: Mandantentrennung
+        # Bricht ab, sobald eine Query auf einer mandantengebundenen Tabelle ohne
+        # Filter auftaucht oder ein Endpunkt mit zweiter Kennung die mandant_id
+        # nicht durchreicht. Beide Faelle waren in Etappe 1 echte Fehler.
+        run: python checks/check_tenancy.py --strict --max-offen 43
+
+      - name: Tests
+        run: pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Abhaengigkeiten installieren
+        run: npm ci
+
+      - name: Prettier
+        run: npm run format:check
+
+      - name: ESLint
+        # --max-warnings 21 deckelt die bekannten Altbefunde aus Etappe 0.
+        # Die Zahl darf nur sinken; siehe Kommentar in eslint.config.js.
+        run: npm run lint
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Tests
+        run: npx vitest run

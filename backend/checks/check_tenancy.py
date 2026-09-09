@@ -14,8 +14,23 @@ Zwei Klassen von Tabellen:
   validiert wurde. Letzteres kann ein statisches Skript nicht sehen — solche Stellen
   werden als PRUEFEN gemeldet und von Hand gelesen.
 
-Aufruf:  python checks/check_tenancy.py [--strict]
-``--strict`` setzt den Exit-Code auf 1, sobald ein Befund der Klasse OFFEN auftritt.
+Aufruf:  python checks/check_tenancy.py [--strict] [--max-offen N]
+
+``--strict`` setzt den Exit-Code auf 1, wenn
+
+* ein Endpunkt mit zweiter Kennung im Pfad die ``mandant_id`` nicht an den Service
+  durchreicht (Pruefung 2) — diese Pruefung ist exakt und steht auf null, oder
+* die Zahl der OFFEN-Befunde ueber ``--max-offen`` steigt.
+
+Warum eine Ratsche statt einer Null: Die OFFEN-Klasse aus Pruefung 1 enthaelt
+Fehlalarme, die sich statisch nicht ausschliessen lassen — Funktionen, die den
+Mandanten nachtraeglich in Python filtern, und bewusst globale Abfragen nach ADR-008.
+Alle 43 wurden am 2026-09-09 einzeln gelesen (siehe docs/code-review-befunde.md).
+Die Zahl darf nur sinken; steigt sie, ist eine ungepruefte Query dazugekommen.
+
+Der Nachteil ist bekannt: Wird gleichzeitig einer behoben und einer hinzugefuegt,
+bleibt die Zahl gleich und die Ratsche schweigt. Dagegen hilft nur, die Zahl beim
+Beheben mitzusenken.
 """
 
 from __future__ import annotations
@@ -374,7 +389,15 @@ def check_service_methods() -> list[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--strict", action="store_true", help="Exit-Code 1 bei OFFEN")
+    parser.add_argument(
+        "--strict", action="store_true", help="Exit-Code 1 bei Ueberschreitung"
+    )
+    parser.add_argument(
+        "--max-offen",
+        type=int,
+        default=0,
+        help="erlaubte Zahl triagierter OFFEN-Befunde (Stand 2026-09-09: 43)",
+    )
     parser.add_argument("--only", help="nur Befunde dieser Klasse zeigen")
     args = parser.parse_args()
 
@@ -404,7 +427,7 @@ def main() -> int:
     methoden = check_service_methods()
     if not args.only:
         print()
-        print(f"Endpunkte mit ungeprueften zweiter Kennung: {len(endpunkte)}")
+        print(f"Endpunkte mit ungepruefter zweiter Kennung: {len(endpunkte)}")
         for zeile in endpunkte:
             print("  " + zeile)
         print()
@@ -412,8 +435,20 @@ def main() -> int:
         for zeile in methoden:
             print("  " + zeile)
 
-    offen = counts["OFFEN"] + len(endpunkte)
-    return 1 if args.strict and offen else 0
+    if not args.strict:
+        return 0
+
+    fehler = []
+    if endpunkte:
+        fehler.append(f"{len(endpunkte)} Endpunkt(e) reichen die mandant_id nicht durch")
+    if counts["OFFEN"] > args.max_offen:
+        fehler.append(
+            f"{counts['OFFEN']} OFFEN-Befunde, erlaubt sind {args.max_offen} — "
+            "eine ungepruefte Query ist dazugekommen"
+        )
+    for zeile in fehler:
+        print(f"FEHLER: {zeile}")
+    return 1 if fehler else 0
 
 
 if __name__ == "__main__":
