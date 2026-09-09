@@ -288,7 +288,7 @@ ist, bleibt eine empirische Frage — belegt ist er gegen sechs Monate Realität
 
 ---
 
-## A2-1 — Seite und Excel-Export weisen verschiedene Jahressummen aus · **mittel** · offen
+## A2-1 — Seite und Excel-Export weisen verschiedene Jahressummen aus · **mittel** · behoben
 
 **Ort:** [journal/service.py:873](../backend/app/journal/service.py#L873) (Netto-Berechnung),
 [IncomeExpensePage.tsx:155](../frontend/src/pages/cashflow/IncomeExpensePage.tsx#L155)
@@ -337,20 +337,39 @@ falsch. Der Schaden ist Vertrauen: Wer eine Spalte nachrechnet oder den Export g
 den Bildschirm hält, findet eine Differenz und weiß nicht, welcher Zahl er glauben
 soll. Genau die Klasse „still das Falsche" aus Abschnitt 2 des Konzepts.
 
-**Vorschlag:** Den Restcent auf die Monatszellen verteilen, statt ihn verschwinden zu
-lassen — dasselbe Verfahren, das
-[`_replace_splits`](../backend/app/services/service.py#L1890) für die Aufteilung auf
-mehrere Leistungen bereits verwendet und das dort nachweislich funktioniert. Dann
-stimmen Spalte, Jahreszelle und Export überein, ohne dass die Jahressumme ungenauer
-wird. Alternativ Seite und Export auf dieselbe Regel bringen — aber dann stimmt die
-Jahressumme netto nicht mehr zur Jahressumme brutto.
+**Behoben — anders als ursprünglich vorgeschlagen.** Der erste Vorschlag war, den
+Restcent auf die Monate zu verteilen. Das hätte nur die Zeilenrichtung geheilt: Die
+Spalten (Leistungszeilen → Zwischensumme → Gesamtsumme) gingen weiterhin nicht auf,
+weil dort dasselbe Problem eine Ebene höher auftritt.
+
+Umgesetzt ist stattdessen die Regel, die beide Richtungen zugleich löst: **Netto wird
+genau einmal gerundet, auf Zellenebene, und alles darüber entsteht durch Summieren.**
+Die Jahreszelle ist die Summe der zwölf angezeigten Monate, die Zwischensumme die
+Summe der angezeigten Leistungszeilen, die Gesamtsumme die Summe der Zwischensummen.
+
+Der Preis ist benannt und im Code dokumentiert: Die Jahreszelle netto ist nicht mehr
+exakt `jahresbrutto / divisor`, sondern kann davon um wenige Cent abweichen. Das ist
+der bewusste Tausch — eine Tabelle, die aufgeht, gegen eine Jahressumme, die niemand
+nachrechnet.
+
+Nebeneffekt ohne Zusatzarbeit: Der Excel-Export brauchte keine Änderung. Er summiert
+die Monate ohnehin per Formel und stimmt jetzt von selbst mit der Seite überein.
+
+**Nachweis auf den echten Daten, nach der Änderung:**
+
+| | vorher | nachher |
+|---|---|---|
+| Zeilen, deren Monate sich nicht zur Jahreszelle addieren | 29 von 408 | **0** |
+| Summe der Zeilen minus Zwischensummen | −0,04 | **0,00** |
+| Summe der Zwischensummen minus Gesamtsumme | −0,01 | **0,00** |
+| Abweichung Seite ↔ Excel (6 Summen) | bis 0,16 € in 5 von 6 | **0,00 in allen 6** |
 
 **Test:** [tests/journal/test_netto_summen.py](../backend/tests/journal/test_netto_summen.py) —
-als `xfail(strict=True)`. Die Gegenprobe, dass sich brutto sauber addiert, läuft grün.
+ohne den Fix rot, mit Gegenprobe für brutto.
 
 ---
 
-## A2-2 — Zwei Rundungsverfahren nebeneinander · **niedrig** · offen
+## A2-2 — Zwei Rundungsverfahren nebeneinander · **niedrig** · behoben
 
 **Ort:** [services/service.py:1890](../backend/app/services/service.py#L1890)
 
@@ -364,8 +383,9 @@ während dieselbe Zahl in der Anzeige auf 0,03 gerundet würde. Das Risiko ist d
 nächste Änderung: Wer die Restausgleich-Zeile entfernt oder das Verfahren kopiert,
 erbt eine Rundung, die im Rest des Systems nicht gilt.
 
-**Vorschlag:** `rounding=ROUND_HALF_UP` ergänzen. Einzeilig, verhaltensneutral für die
-Summe.
+**Behoben:** `_round_money()` in `services/service.py` macht den Modus explizit und
+trägt die Begründung als Docstring. Für die Summe verhaltensneutral, für den einzelnen
+Split jetzt dieselbe Zahl wie in der Anzeige.
 
 ---
 
@@ -389,8 +409,8 @@ tragen, solange es einen Mandanten mit einer Währung gibt.
 
 ## Offen aus Etappe 2
 
-| Punkt | Entscheidung nötig |
+| Punkt | Stand |
 |---|---|
-| A2-1 | Restcent verteilen (Empfehlung), oder Seite und Export angleichen? |
-| A2-2 | `ROUND_HALF_UP` ergänzen — ja/nein? |
-| A2-3 | Kontowährung statt Literal — jetzt oder mit der Mandantenfähigkeit? |
+| A2-1 | behoben |
+| A2-2 | behoben |
+| A2-3 | offen — gehört zum vorgemerkten Punkt Mandantenfähigkeit und wird mit ihm entschieden |
