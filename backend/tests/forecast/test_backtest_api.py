@@ -116,6 +116,109 @@ class TestUebersichtMitTreffsicherheit:
 
 
 @pytest.mark.asyncio
+class TestHandgesetztesErkennen:
+    """Wo von Hand eingegriffen wurde, muss die Liste es zeigen — sonst sieht eine
+    Leistung mit +100 % Anpassung aus wie eine unberührte."""
+
+    async def _rows(self, client: AsyncClient, mandant, headers):
+        resp = await client.get(
+            f"/api/v1/mandants/{mandant.id}/forecast/services", headers=headers
+        )
+        return resp.json()
+
+    async def test_unberuehrte_leistung_gilt_als_nicht_angepasst(
+        self, client: AsyncClient, db_session: SQLModelSession
+    ):
+        user, mandant, *_ = await setup_salary(db_session)
+        headers = await auth(client, user, mandant)
+
+        body = await self._rows(client, mandant, headers)
+
+        assert body["customised"] == 0
+        row = next(r for r in body["services"] if r["service_name"] == "Gehalt")
+        assert row["customised"] is False
+        assert Decimal(row["adjustment_pct"]) == Decimal("0")
+        assert row["shift_months"] == 0
+
+    async def test_anpassung_im_automatikmodus_wird_sichtbar(
+        self, client: AsyncClient, db_session: SQLModelSession
+    ):
+        """Der Fall, der in der Praxis untergegangen ist: Modus bleibt 'auto',
+        aber der Betrag ist verdoppelt."""
+        user, mandant, _, _, _, service = await setup_salary(db_session)
+        headers = await auth(client, user, mandant)
+        await client.put(
+            f"/api/v1/mandants/{mandant.id}/services/{service.id}/forecast-rule",
+            json={"mode": "auto", "adjustment_pct": "100.00", "shift_months": 0},
+            headers=headers,
+        )
+
+        body = await self._rows(client, mandant, headers)
+
+        assert body["customised"] == 1
+        row = next(r for r in body["services"] if r["service_name"] == "Gehalt")
+        assert row["mode"] == "auto"  # der Modus verraet es eben nicht
+        assert row["customised"] is True
+        assert Decimal(row["adjustment_pct"]) == Decimal("100")
+
+    async def test_zahlungsverzug_zaehlt_ebenfalls(
+        self, client: AsyncClient, db_session: SQLModelSession
+    ):
+        user, mandant, _, _, _, service = await setup_salary(db_session)
+        headers = await auth(client, user, mandant)
+        await client.put(
+            f"/api/v1/mandants/{mandant.id}/services/{service.id}/forecast-rule",
+            json={"mode": "auto", "adjustment_pct": "0.00", "shift_months": 2},
+            headers=headers,
+        )
+
+        row = next(
+            r for r in (await self._rows(client, mandant, headers))["services"]
+            if r["service_name"] == "Gehalt"
+        )
+        assert row["customised"] is True
+        assert row["shift_months"] == 2
+
+    async def test_planposten_zaehlt_ebenfalls(
+        self, client: AsyncClient, db_session: SQLModelSession
+    ):
+        user, mandant, _, _, _, service = await setup_salary(db_session)
+        headers = await auth(client, user, mandant)
+        await client.post(
+            f"/api/v1/mandants/{mandant.id}/forecast/planned-items",
+            json={
+                "service_id": str(service.id),
+                "period": "2027-04",
+                "amount": "-1000.00",
+            },
+            headers=headers,
+        )
+
+        body = await self._rows(client, mandant, headers)
+        assert body["customised"] == 1
+        row = next(r for r in body["services"] if r["service_name"] == "Gehalt")
+        assert row["customised"] is True
+
+    async def test_zuruecksetzen_entfernt_die_markierung(
+        self, client: AsyncClient, db_session: SQLModelSession
+    ):
+        user, mandant, _, _, _, service = await setup_salary(db_session)
+        headers = await auth(client, user, mandant)
+        url = f"/api/v1/mandants/{mandant.id}/services/{service.id}/forecast-rule"
+        await client.put(
+            url,
+            json={"mode": "manual", "rule_type": "rolling_average", "params": {},
+                  "adjustment_pct": "5.00", "shift_months": 1},
+            headers=headers,
+        )
+        assert (await self._rows(client, mandant, headers))["customised"] == 1
+
+        await client.delete(url, headers=headers)
+
+        assert (await self._rows(client, mandant, headers))["customised"] == 0
+
+
+@pytest.mark.asyncio
 class TestUnsicherheitsband:
     async def test_band_umschliesst_den_erwartungswert_und_waechst(
         self, db_session: SQLModelSession

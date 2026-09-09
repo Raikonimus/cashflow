@@ -122,6 +122,13 @@ class ForecastServiceOverviewRow(BaseModel):
     #: Summe der nächsten zwölf Prognosemonate — sortierbares Maß für die Relevanz.
     next_12_months: str
     planned_item_count: int = 0
+    #: Modifikatoren, damit in der Liste sichtbar wird, wo von Hand eingegriffen wurde.
+    #: Ohne sie sähe eine Leistung mit +100 % Anpassung wie eine unberührte aus.
+    adjustment_pct: Decimal = Decimal("0.00")
+    shift_months: int = 0
+    #: Ob überhaupt etwas von Hand eingestellt ist — Modus, Modifikator oder Planposten.
+    #: Die Entscheidung fällt im Backend, damit Zählung und Filter nicht auseinanderlaufen.
+    customised: bool = False
     #: Gemessener relativer Fehler aus dem Rückvergleich, als Anteil. None = nicht messbar.
     relative_error: Optional[str] = None
     backtest_ran: bool = False
@@ -135,6 +142,8 @@ class ForecastOverviewResponse(BaseModel):
     total: int
     #: Anzahl Leistungen ohne wirksame Regel — die Lücke der Prognose.
     without_rule: int
+    #: Anzahl Leistungen, an denen von Hand etwas eingestellt ist.
+    customised: int = 0
     #: Leistungen, deren Regel am Rückvergleich gemessen werden konnte.
     backtested: int = 0
     #: Davon: Regel wurde wegen des Rückvergleichs gewechselt.

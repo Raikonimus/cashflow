@@ -96,6 +96,12 @@ export interface ForecastServiceOverviewRow {
   last_booking_period: string | null
   next_12_months: string
   planned_item_count: number
+  /** Modifikatoren — ohne sie saehe eine Leistung mit +100 % wie eine unberuehrte aus. */
+  adjustment_pct: string
+  shift_months: number
+  /** Ob ueberhaupt etwas von Hand eingestellt ist. Wird im Backend entschieden, damit
+   *  Zaehlung und Filter nicht auseinanderlaufen. */
+  customised: boolean
   relative_error: string | null
   backtest_ran: boolean
   beats_baseline: boolean
@@ -107,6 +113,7 @@ export interface ForecastOverview {
   services: ForecastServiceOverviewRow[]
   total: number
   without_rule: number
+  customised: number
   backtested: number
   replaced_by_backtest: number
   stopped_by_backtest: number

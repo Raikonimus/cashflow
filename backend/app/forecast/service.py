@@ -446,6 +446,7 @@ class ForecastService:
 
         rows: list[ForecastServiceOverviewRow] = []
         without_rule = 0
+        customised = 0
         backtested = 0
         replaced = 0
         stopped = 0
@@ -456,8 +457,16 @@ class ForecastService:
             profile = context.profiles[service_id]
             report = context.backtests[service_id]
             has_rule = context.has_rule(service_id)
+            planned_count = len(context.planned.get(service_id, {}))
+            is_customised = (
+                effective.mode is not ForecastMode.auto
+                or effective.adjustment_pct != _ZERO
+                or effective.shift_months > 0
+                or planned_count > 0
+            )
             if not has_rule:
                 without_rule += 1
+            customised += is_customised
             if report.ran:
                 backtested += 1
                 replaced += report.replaced_detected
@@ -505,7 +514,10 @@ class ForecastService:
                         self._period(profile.last_index) if profile.last_index else None
                     ),
                     next_12_months=_money(next_12),
-                    planned_item_count=len(context.planned.get(service_id, {})),
+                    planned_item_count=planned_count,
+                    adjustment_pct=effective.adjustment_pct,
+                    shift_months=effective.shift_months,
+                    customised=is_customised,
                     relative_error=_ratio(report.relative_error),
                     backtest_ran=report.ran,
                     beats_baseline=report.beats_baseline,
@@ -519,6 +531,7 @@ class ForecastService:
             services=rows,
             total=len(rows),
             without_rule=without_rule,
+            customised=customised,
             backtested=backtested,
             replaced_by_backtest=replaced,
             stopped_by_backtest=stopped,

@@ -34,6 +34,9 @@ function overviewRow(overrides: Record<string, unknown> = {}) {
     last_booking_period: '2026-08',
     next_12_months: '-39000.00',
     planned_item_count: 0,
+    adjustment_pct: '0.00',
+    shift_months: 0,
+    customised: false,
     relative_error: null,
     backtest_ran: false,
     beats_baseline: false,
@@ -123,6 +126,7 @@ function overviewPayload(rows: unknown[], overrides: Record<string, unknown> = {
     services: rows,
     total: rows.length,
     without_rule: 0,
+    customised: 0,
     backtested: 0,
     replaced_by_backtest: 0,
     stopped_by_backtest: 0,
@@ -227,6 +231,78 @@ describe('ForecastPage – Übersicht', () => {
     await userEvent.type(screen.getByLabelText('Leistung oder Partner suchen'), 'miete')
 
     await waitFor(() => expect(calls.at(-1)).toContain('search=miete'))
+  })
+})
+
+describe('ForecastPage – Handgesetztes erkennen', () => {
+  beforeEach(() => setup())
+
+  it('markiert eine Anpassung, obwohl der Modus automatisch bleibt', async () => {
+    // Genau der Fall, der in der Praxis untergegangen ist.
+    mockOverview([overviewRow({ adjustment_pct: '100.00', customised: true })], {
+      customised: 1,
+    })
+    renderPage()
+
+    const row = await screen.findByRole('row', { name: /Gehalt/ })
+    expect(within(row).getByText('+100 %')).toBeInTheDocument()
+    expect(within(row).queryByText('händisch')).not.toBeInTheDocument()
+  })
+
+  it('zeigt eine Kuerzung mit Minuszeichen', async () => {
+    mockOverview([overviewRow({ adjustment_pct: '-10.00', customised: true })], {
+      customised: 1,
+    })
+    renderPage()
+
+    const row = await screen.findByRole('row', { name: /Gehalt/ })
+    expect(within(row).getByText('\u221210 %')).toBeInTheDocument()
+  })
+
+  it('markiert Zahlungsverzug und Planposten', async () => {
+    mockOverview(
+      [overviewRow({ shift_months: 2, planned_item_count: 3, customised: true })],
+      { customised: 1 },
+    )
+    renderPage()
+
+    const row = await screen.findByRole('row', { name: /Gehalt/ })
+    expect(within(row).getByText('+2 Mon.')).toBeInTheDocument()
+    expect(within(row).getByText('3 Planposten')).toBeInTheDocument()
+  })
+
+  it('laesst eine unberuehrte Leistung unmarkiert', async () => {
+    mockOverview()
+    renderPage()
+
+    const row = await screen.findByRole('row', { name: /Gehalt/ })
+    expect(within(row).queryByText(/%/)).not.toBeInTheDocument()
+    expect(within(row).queryByText(/Mon\./)).not.toBeInTheDocument()
+    expect(within(row).queryByText(/Planposten/)).not.toBeInTheDocument()
+    // Der Zaehler in der Kopfzeile erscheint erst, wenn es etwas zu zaehlen gibt.
+    // ("Von Hand angepasst" steht dauerhaft in der Filterauswahl.)
+    expect(screen.queryByRole('button', { name: /angepasst/ })).not.toBeInTheDocument()
+  })
+
+  it('filtert ueber die Kopfzeile auf die angepassten Leistungen', async () => {
+    mockOverview(
+      [
+        overviewRow(),
+        overviewRow({
+          service_id: 'service-2',
+          service_name: 'Lizenzen',
+          adjustment_pct: '15.00',
+          customised: true,
+        }),
+      ],
+      { customised: 1 },
+    )
+    renderPage()
+
+    await userEvent.click(await screen.findByRole('button', { name: '1 angepasst' }))
+
+    await waitFor(() => expect(screen.queryByText('Gehalt')).not.toBeInTheDocument())
+    expect(screen.getByText('Lizenzen')).toBeInTheDocument()
   })
 })
 

@@ -6,14 +6,21 @@ import type { ForecastMode, ForecastServiceOverviewRow } from '@/api/forecast'
 import { useAuthStore } from '@/store/auth-store'
 import { ForecastRuleEditor } from './ForecastRuleEditor'
 import { ForecastSnapshots } from './ForecastSnapshots'
-import { CONFIDENCE_LABELS, RULE_LABELS_SHORT, accuracyClass, formatAccuracy } from './labels'
+import {
+  CONFIDENCE_LABELS,
+  HAND_SET_CLASS,
+  RULE_LABELS_SHORT,
+  accuracyClass,
+  formatAccuracy,
+  formatAdjustment,
+} from './labels'
 
 const EDIT_ROLES = new Set(['accountant', 'mandant_admin', 'admin'])
 
-const MODE_BADGES: Record<ForecastMode, { label: string; className: string } | null> = {
+const MODE_BADGES: Record<ForecastMode, { label: string; title: string } | null> = {
   auto: null,
-  manual: { label: 'händisch', className: 'bg-blue-100 text-blue-700' },
-  off: { label: 'aus', className: 'bg-gray-200 text-gray-600' },
+  manual: { label: 'händisch', title: 'Regeltyp von Hand gesetzt' },
+  off: { label: 'aus', title: 'Prognose von Hand abgeschaltet' },
 }
 
 const CONFIDENCE_CLASSES: Record<string, string> = {
@@ -22,10 +29,11 @@ const CONFIDENCE_CLASSES: Record<string, string> = {
   low: 'bg-gray-200 text-gray-700',
 }
 
-type RowFilter = 'all' | 'without_rule' | 'weak' | 'stopped'
+type RowFilter = 'all' | 'customised' | 'without_rule' | 'weak' | 'stopped'
 
 const FILTER_LABELS: Record<RowFilter, string> = {
   all: 'Alle Leistungen',
+  customised: 'Von Hand angepasst',
   without_rule: 'Ohne Prognose',
   weak: 'Prognose trifft schlecht',
   stopped: 'Im Rückvergleich beendet',
@@ -66,6 +74,7 @@ export function ForecastPage() {
   // "schwach" und "beendet" sind Eigenschaften der Messung, keine Serverabfrage —
   // die Zeilen sind ohnehin schon da.
   const rows = (data?.services ?? []).filter((row) => {
+    if (filter === 'customised') return row.customised
     if (filter === 'weak') return row.backtest_ran && !row.beats_baseline && !row.service_stopped
     if (filter === 'stopped') return row.service_stopped
     return true
@@ -118,6 +127,18 @@ export function ForecastPage() {
         {data && (
           <span className="ml-auto text-sm text-gray-500">
             {rows.length} von {data.total} Leistungen
+            {data.customised > 0 ? (
+              <>
+                {' · '}
+                <button
+                  type="button"
+                  onClick={() => setFilter('customised')}
+                  className={`rounded px-1.5 py-0.5 text-xs font-medium ${HAND_SET_CLASS}`}
+                >
+                  {data.customised} angepasst
+                </button>
+              </>
+            ) : null}
           </span>
         )}
       </div>
@@ -201,6 +222,7 @@ export function ForecastPage() {
               <tbody className="divide-y divide-gray-100">
                 {rows.map((row: ForecastServiceOverviewRow) => {
                   const badge = MODE_BADGES[row.mode]
+                  const adjustment = formatAdjustment(row.adjustment_pct)
                   const isExpanded = expandedId === row.service_id
                   return (
                     <Fragment key={row.service_id}>
@@ -209,9 +231,6 @@ export function ForecastPage() {
                           <div className="font-medium text-gray-900">{row.service_name}</div>
                           <div className="text-xs text-gray-500">
                             {row.partner_name ?? '—'} · {SECTION_LABELS[row.section] ?? row.section}
-                            {row.planned_item_count > 0
-                              ? ` · ${row.planned_item_count} Planposten`
-                              : ''}
                           </div>
                         </td>
                         <td className="px-3 py-2">
@@ -220,9 +239,34 @@ export function ForecastPage() {
                           </span>
                           {badge && (
                             <span
-                              className={`ml-2 rounded px-1.5 py-0.5 text-[11px] font-medium ${badge.className}`}
+                              title={badge.title}
+                              className={`ml-1.5 rounded px-1.5 py-0.5 text-[11px] font-medium ${HAND_SET_CLASS}`}
                             >
                               {badge.label}
+                            </span>
+                          )}
+                          {adjustment && (
+                            <span
+                              title="Prozentuale Anpassung von Hand"
+                              className={`ml-1.5 rounded px-1.5 py-0.5 text-[11px] font-medium tabular-nums ${HAND_SET_CLASS}`}
+                            >
+                              {adjustment}
+                            </span>
+                          )}
+                          {row.shift_months > 0 && (
+                            <span
+                              title="Zahlungsverzug von Hand gesetzt"
+                              className={`ml-1.5 rounded px-1.5 py-0.5 text-[11px] font-medium ${HAND_SET_CLASS}`}
+                            >
+                              +{row.shift_months} Mon.
+                            </span>
+                          )}
+                          {row.planned_item_count > 0 && (
+                            <span
+                              title="Händische Planposten"
+                              className={`ml-1.5 rounded px-1.5 py-0.5 text-[11px] font-medium ${HAND_SET_CLASS}`}
+                            >
+                              {row.planned_item_count} Planposten
                             </span>
                           )}
                         </td>

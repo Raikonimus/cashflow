@@ -79,3 +79,15 @@ export function accuracyClass(relativeError: string | null): string {
 export const CANDIDATE_HINT =
   'Jede Regel wurde nur auf den Daten vor dem Prüfzeitraum gebildet und dann daran gemessen. ' +
   'Kleinster Score gewinnt. Die Nullprognose läuft als Vergleichslinie mit, wird aber nie gewählt.'
+
+/** Einheitliche Kennzeichnung fuer alles, was von Hand eingestellt wurde. Eigene Farbe,
+ *  damit sie sich beim Ueberfliegen nicht mit der Guete-Ampel (gruen/gelb/rot) mischt. */
+export const HAND_SET_CLASS = 'bg-indigo-100 text-indigo-800'
+
+/** Prozentanpassung als Kurzform: "+100 %", "-10 %". Null ergibt null. */
+export function formatAdjustment(adjustmentPct: string): string | null {
+  const value = Number.parseFloat(adjustmentPct)
+  if (Number.isNaN(value) || value === 0) return null
+  const rounded = Number.isInteger(value) ? value : Math.round(value * 100) / 100
+  return `${value > 0 ? '+' : '\u2212'}${Math.abs(rounded).toLocaleString('de-DE')} %`
+}
