@@ -4,6 +4,7 @@ Zwei Fragen aus Etappe 3 des Code-Reviews: Bleibt bei einem Fehler mitten in der
 Datei ein halber Zustand zurueck? Und was passiert mit bereits verarbeiteten
 Dateien, wenn eine spaetere im selben Upload abgelehnt wird?
 """
+
 import io
 
 import pytest
@@ -69,9 +70,9 @@ async def test_zweiter_import_derselben_datei_verdoppelt_nichts(
             select(JournalLine).where(JournalLine.account_id == account.id)
         )
     ).all()
-    assert len(zeilen) == 2, (
-        f"Nach zwei Importen derselben Datei liegen {len(zeilen)} Zeilen vor"
-    )
+    assert (
+        len(zeilen) == 2
+    ), f"Nach zwei Importen derselben Datei liegen {len(zeilen)} Zeilen vor"
 
 
 async def test_abgelehnte_datei_laesst_keine_halb_importierte_zurueck(

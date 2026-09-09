@@ -5,6 +5,7 @@ als zwei Nachkommastellen. Gerundet wird erst bei der Ausgabe. Dadurch kann die
 Summe der angezeigten Monatswerte von der angezeigten Jahressumme abweichen —
 und tut es auch.
 """
+
 from decimal import Decimal
 
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -27,7 +28,20 @@ from tests.journal import (  # noqa: F401
     utcnow,
 )
 
-MONATE = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+MONATE = [
+    "jan",
+    "feb",
+    "mar",
+    "apr",
+    "may",
+    "jun",
+    "jul",
+    "aug",
+    "sep",
+    "oct",
+    "nov",
+    "dec",
+]
 
 
 async def _matrix_mit_gleichem_monatsbetrag(
