@@ -1197,7 +1197,12 @@ export function IncomeExpensePage() {
               ? 'Jahressummen je Leistung und Gruppe über alle verfügbaren Jahre'
               : 'Monatsmatrix je Leistung mit Jahres- und Gruppensummen'}
           </p>
-          <p className="text-xs uppercase tracking-wide text-teal-200">Alle Angaben in €</p>
+          <p
+            className="text-xs uppercase tracking-wide text-teal-200"
+            title="Netto heißt ohne Umsatzsteuer: der gebuchte Betrag geteilt durch den Steuersatz der jeweiligen Leistung."
+          >
+            Alle Angaben in € (netto)
+          </p>
         </div>
         {!canEdit && <p className="mt-2 text-xs text-teal-200">Read-only Modus: Gruppen und Zuordnungen sind nicht bearbeitbar.</p>}
       </header>

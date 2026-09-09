@@ -246,7 +246,7 @@ describe('IncomeExpensePage', () => {
     expect(screen.queryByText('Basisleistung')).not.toBeInTheDocument()
     expect(screen.queryByText('Nullzeile')).not.toBeInTheDocument()
     expect(screen.queryByText('Leergruppe')).not.toBeInTheDocument()
-    expect(screen.getByText(/Alle Angaben in €/i)).toBeInTheDocument()
+    expect(screen.getByText(/Alle Angaben in € \(netto\)/i)).toBeInTheDocument()
     expect(screen.getByText(/Read-only Modus/i)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /gruppe anlegen/i })).not.toBeInTheDocument()
     expect(screen.getAllByText(/3[. ]?050/).length).toBeGreaterThan(0)
@@ -264,6 +264,16 @@ describe('IncomeExpensePage', () => {
     expect(adobeIndex).toBeGreaterThan(-1)
     expect(premiumIndex).toBeLessThan(beratungIndex)
     expect(beratungIndex).toBeLessThan(adobeIndex)
+  })
+
+  it('nennt im Kopf, dass alle Zahlen Netto-Beträge sind', async () => {
+    // Die Seite zeigt durchgaengig cells.*.net; ohne den Hinweis liest man sie leicht
+    // als Bruttobetraege. Der Excel-Export sagt es seit jeher, die Seite nicht.
+    renderPage()
+
+    const note = await screen.findByText(/Alle Angaben in € \(netto\)/i)
+    expect(note).toBeInTheDocument()
+    expect(note.getAttribute('title')).toMatch(/ohne Umsatzsteuer/i)
   })
 
   it('sorts expense services by most negative yearly total first', async () => {
