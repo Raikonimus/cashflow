@@ -13,7 +13,11 @@ from sqlmodel import col, select
 from app.forecast.backtest import combined_uncertainty
 from app.forecast.profiler import index_to_year_month, month_index
 from app.forecast.rules import Scenario
-from app.forecast.service import ForecastService, horizon_end_index
+from app.forecast.service import (
+    ForecastContext,
+    ForecastService,
+    horizon_end_index,
+)
 from app.imports.models import JournalLine, JournalLineSplit
 from app.journal.schemas import (
     AccountBalanceRow,
@@ -35,6 +39,7 @@ from app.journal.schemas import (
 from app.partners.models import AuditLog, Partner
 from app.services.models import (
     Service,
+    ServiceGroup,
     ServiceGroupAssignment,
     ServiceGroupSection,
     section_for_service,
@@ -807,6 +812,54 @@ class JournalService:
                 excluded_count_by_section[section] += 1
                 excluded_amount_by_section[section] += Decimal(str(amount))
 
+        section_payload = self._matrix_sections(
+            year=year,
+            base_currency=base_currency,
+            groups_by_section=groups_by_section,
+            grouped_services=grouped_services,
+            service_section=service_section,
+            service_partner_name=service_partner_name,
+            gross_by_service_month=gross_by_service_month,
+            active_years_by_service=active_years_by_service,
+            assignment_by_service=assignment_by_service,
+            excluded_count_by_section=excluded_count_by_section,
+            excluded_amount_by_section=excluded_amount_by_section,
+            forecast_context=forecast_context,
+        )
+
+        return IncomeExpenseMatrixResponse(
+            year=year,
+            base_currency=base_currency,
+            sections=section_payload,
+            first_forecast_month=first_forecast_month,
+        )
+
+    def _matrix_sections(
+        self,
+        *,
+        year: int,
+        base_currency: str,
+        groups_by_section: dict[ServiceGroupSection, list[ServiceGroup]],
+        grouped_services: dict[UUID, Service],
+        service_section: dict[UUID, ServiceGroupSection],
+        service_partner_name: dict[UUID, str | None],
+        gross_by_service_month: dict[UUID, dict[str, Decimal]],
+        active_years_by_service: dict[UUID, set[int]],
+        assignment_by_service: dict[UUID, ServiceGroupAssignment],
+        excluded_count_by_section: dict[ServiceGroupSection, int],
+        excluded_amount_by_section: dict[ServiceGroupSection, Decimal],
+        forecast_context: ForecastContext | None,
+    ) -> dict[str, IncomeExpenseSection]:
+        """Setzt die Matrix aus den geladenen Daten zusammen.
+
+        Herausgeloest aus get_income_expense_matrix: die Methode trug Laden und
+        Zusammenbauen in 357 Zeilen mit Verschachtelungstiefe 7 — die tiefste
+        Stelle des Systems, und die, in der der Rundungsfehler A2-1 sass.
+
+        Die Parameter sind bewusst einzeln benannt statt in einem Behaelter
+        gebuendelt: so ist auf einen Blick zu sehen, wie viel Zustand der
+        Zusammenbau tatsaechlich braucht.
+        """
         section_payload: dict[str, IncomeExpenseSection] = {}
 
         for section in (
@@ -846,54 +899,12 @@ class JournalService:
                     if service_section[service_id] != section:
                         continue
 
-                    service_cells = _empty_cells()
-                    service_flags = _empty_flags()
-                    monthly_gross = gross_by_service_month.get(service_id, {})
-                    for month_number, month_key in enumerate(MONTH_KEYS, start=1):
-                        gross_value = monthly_gross.get(month_key, Decimal("0"))
-                        if forecast_context is not None:
-                            index = month_index(year, month_number)
-                            gross_value += forecast_context.forecast_value(
-                                service_id, index
-                            )
-                            # Künftige Monate sind immer Prognose — auch dann, wenn mangels
-                            # Historie keine Zahl entsteht. Der laufende Monat nur insoweit,
-                            # als noch etwas zum Gebuchten hinzukommt.
-                            if index > forecast_context.first_forecast_index:
-                                service_flags[month_key] = (
-                                    index <= forecast_context.horizon_end_index
-                                )
-                            elif index == forecast_context.first_forecast_index:
-                                service_flags[month_key] = (
-                                    gross_value
-                                    != monthly_gross.get(month_key, Decimal("0"))
-                                )
-                        service_cells[month_key]["gross"] = gross_value
-                        service_cells["year_total"]["gross"] += gross_value
-                        service_flags["year_total"] = (
-                            service_flags["year_total"] or service_flags[month_key]
-                        )
-
-                    # Netto wird hier — und nur hier — gerundet. Alles darueber
-                    # entsteht durch Summieren dieser Werte, damit sich die Anzeige
-                    # in beide Richtungen addiert: die Monate zur Jahreszelle und die
-                    # Leistungszeilen zur Zwischen- und Gesamtsumme. Der Preis ist,
-                    # dass die Jahreszelle nicht exakt jahresbrutto/divisor ist,
-                    # sondern um wenige Cent davon abweichen kann. Das ist der
-                    # bewusste Tausch: eine Tabelle, die aufgeht, gegen eine
-                    # Jahressumme, die niemand nachrechnet.
-                    tax_rate = Decimal(str(service.tax_rate))
-                    divisor = Decimal("1") + (tax_rate / Decimal("100"))
-                    for month_key in MONTH_KEYS:
-                        gross_value = service_cells[month_key]["gross"]
-                        service_cells[month_key]["net"] = (
-                            _round_money(gross_value / divisor)
-                            if divisor != Decimal("0")
-                            else gross_value
-                        )
-                    service_cells["year_total"]["net"] = sum(
-                        (service_cells[month_key]["net"] for month_key in MONTH_KEYS),
-                        Decimal("0"),
+                    service_cells, service_flags = self._service_cells(
+                        service=service,
+                        service_id=service_id,
+                        year=year,
+                        gross_by_service_month=gross_by_service_month,
+                        forecast_context=forecast_context,
                     )
 
                     for cell_key in ["year_total", *MONTH_KEYS]:
@@ -963,12 +974,70 @@ class JournalService:
                 totals=_to_cells_payload(section_totals, section_flags),
             )
 
-        return IncomeExpenseMatrixResponse(
-            year=year,
-            base_currency=base_currency,
-            sections=section_payload,
-            first_forecast_month=first_forecast_month,
+        return section_payload
+
+    def _service_cells(
+        self,
+        *,
+        service: Service,
+        service_id: UUID,
+        year: int,
+        gross_by_service_month: dict[UUID, dict[str, Decimal]],
+        forecast_context: ForecastContext | None,
+    ) -> tuple[dict[str, dict[str, Decimal]], dict[str, bool]]:
+        """Fuellt die zwoelf Monats- und die Jahreszelle einer Leistung.
+
+        Herausgeloest, weil die Monatsschleife samt ihrer Prognose-Fallunter-
+        scheidungen die beiden tiefsten Ebenen von _matrix_sections stellte.
+        """
+        service_cells = _empty_cells()
+        service_flags = _empty_flags()
+        monthly_gross = gross_by_service_month.get(service_id, {})
+        for month_number, month_key in enumerate(MONTH_KEYS, start=1):
+            gross_value = monthly_gross.get(month_key, Decimal("0"))
+            if forecast_context is not None:
+                index = month_index(year, month_number)
+                gross_value += forecast_context.forecast_value(service_id, index)
+                # Künftige Monate sind immer Prognose — auch dann, wenn mangels
+                # Historie keine Zahl entsteht. Der laufende Monat nur insoweit,
+                # als noch etwas zum Gebuchten hinzukommt.
+                if index > forecast_context.first_forecast_index:
+                    service_flags[month_key] = (
+                        index <= forecast_context.horizon_end_index
+                    )
+                elif index == forecast_context.first_forecast_index:
+                    service_flags[month_key] = gross_value != monthly_gross.get(
+                        month_key, Decimal("0")
+                    )
+            service_cells[month_key]["gross"] = gross_value
+            service_cells["year_total"]["gross"] += gross_value
+            service_flags["year_total"] = (
+                service_flags["year_total"] or service_flags[month_key]
+            )
+
+        # Netto wird hier — und nur hier — gerundet. Alles darueber
+        # entsteht durch Summieren dieser Werte, damit sich die Anzeige
+        # in beide Richtungen addiert: die Monate zur Jahreszelle und die
+        # Leistungszeilen zur Zwischen- und Gesamtsumme. Der Preis ist,
+        # dass die Jahreszelle nicht exakt jahresbrutto/divisor ist,
+        # sondern um wenige Cent davon abweichen kann. Das ist der
+        # bewusste Tausch: eine Tabelle, die aufgeht, gegen eine
+        # Jahressumme, die niemand nachrechnet.
+        tax_rate = Decimal(str(service.tax_rate))
+        divisor = Decimal("1") + (tax_rate / Decimal("100"))
+        for month_key in MONTH_KEYS:
+            gross_value = service_cells[month_key]["gross"]
+            service_cells[month_key]["net"] = (
+                _round_money(gross_value / divisor)
+                if divisor != Decimal("0")
+                else gross_value
+            )
+        service_cells["year_total"]["net"] = sum(
+            (service_cells[month_key]["net"] for month_key in MONTH_KEYS),
+            Decimal("0"),
         )
+
+        return service_cells, service_flags
 
     # ─── Bulk-assign ─────────────────────────────────────────────────────────
 
