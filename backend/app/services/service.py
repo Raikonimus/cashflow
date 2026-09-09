@@ -2,7 +2,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -50,6 +50,15 @@ from app.services.schemas import (
     UpdateServiceTypeKeywordRequest,
 )
 
+
+def _round_money(value: Decimal) -> Decimal:
+    """Kaufmaennisch runden — wie ueberall sonst im System.
+
+    `quantize()` ohne `rounding=` erbt ROUND_HALF_EVEN aus dem Kontext. Fuer die
+    Summe war das folgenlos, weil der letzte Split den Rest auffaengt; fuer den
+    einzelnen Betrag ergab es eine andere Zahl als in der Anzeige.
+    """
+    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
@@ -1887,11 +1896,9 @@ class ServiceManagementService:
         for i, sid in enumerate(service_ids):
             # Letzter Split bekommt den Rest (Rundungssicherheit)
             if i < count - 1:
-                split_amount = (total / count).quantize(Decimal("0.01"))
+                split_amount = _round_money(total / count)
             else:
-                split_amount = total - (total / count).quantize(Decimal("0.01")) * (
-                    count - 1
-                )
+                split_amount = total - _round_money(total / count) * (count - 1)
             split = JournalLineSplit(
                 journal_line_id=line.id,
                 service_id=sid,
