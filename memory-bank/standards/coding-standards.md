@@ -40,19 +40,31 @@ backend/
     main.py
 ```
 
-**Frontend (React) — Feature-based:**
+**Frontend (React) — nach Schichten:**
 ```
 frontend/
   src/
-    features/
-      auth/
-      transactions/
-      dashboard/
-    shared/
-      components/
-      hooks/
+    pages/          # je Bereich ein Ordner, darin die Seiten und ihre Teile
+      cashflow/
+      partners/
+      review/
+    components/     # bereichsübergreifend wiederverwendete Komponenten
+      ui/
+    hooks/          # bereichsübergreifende Hooks
+    api/            # ein Modul je Backend-Bereich
+    store/          # Zustand (Zustand-Store)
+    lib/            # reine Hilfsfunktionen ohne React
     main.tsx
 ```
+
+Eine Seitendatei darf mehrere zusammengehörige Komponenten enthalten; die
+vier größten tragen je fünf bis sieben. Was in mehr als einem Bereich
+gebraucht wird, wandert nach `components/` bzw. `hooks/`.
+
+> Bis zum Code-Review vom 2026-09-09 stand hier eine feature-basierte
+> Struktur (`features/`, `shared/`), die es im Code nie gab. Beide Muster
+> sind vertretbar; ein Umzug von 54 Dateien hätte kein Ziel außer
+> Regelkonformität gehabt. Deshalb folgt der Standard dem Code.
 
 ## Testing Strategy
 
