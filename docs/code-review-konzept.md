@@ -330,7 +330,52 @@ Abschnitt 3 „Priorisierung nach Schaden × Wahrscheinlichkeit" steht.
 
 ---
 
-## 10. Offene Entscheidungen
+## 10. Merge-Check — der Ablauf
+
+Vereinbart am 2026-09-09: **Vor jedem Merge nach `main` wird der Diff geprüft.** Nicht
+der Bestand — der ist mit den Etappen 0–4 durch —, sondern das, was dazukommt.
+
+Der Zuschnitt folgt dem, was das Review tatsächlich gefunden hat. Von 17 Befunden
+hatten die schwersten dieselbe Signatur: **korrekter Code neben korrektem Code, mit
+einem stillen Widerspruch dazwischen.** Danach wird zuerst gesucht.
+
+### Die sechs Fragen
+
+1. **Gibt es einen Zwilling?** Tut irgendwo im System schon etwas dasselbe — und
+   stimmen beide überein? Diese eine Frage hätte fünf der siebzehn Befunde gefunden:
+   `upload()` prüfte das Konto, `list_runs` nicht. Der Import-Lookup filterte
+   mandantenweise, die Registrierung global. Jahressumme und Monatszellen rechneten
+   jede für sich richtig.
+2. **Mandantentrennung.** Neue Query auf einer gebundenen Tabelle? Neuer Endpunkt mit
+   einer zweiten Kennung im Pfad? `check_tenancy.py --strict` muss grün bleiben und
+   seine Zahlen dürfen nicht steigen.
+3. **Geld.** Neuer Weg, auf dem ein Betrag entsteht, summiert oder angezeigt wird?
+   Dann: genau einmal runden, und das Ergebnis muss zu den bestehenden Anzeigen passen.
+4. **Bestand.** Neuer schreibender Pfad? Transaktionsgrenze, Idempotenz, Verhalten bei
+   Teilfehlern — und ein Blick darauf, ob ein Fehler zurückgemeldet wird, der gar
+   keiner ist (oder umgekehrt).
+5. **Prüft die Prüfung?** Neuer Test, neuer CI-Schritt, neue Validierung: läuft sie
+   wirklich und schlägt sie an, wenn sie soll? Befund N-1 war ein Prüfschritt, der
+   nichts prüfte.
+6. **Passt die Dokumentation noch?** ADRs, Standards, Konzepte — ein Dokument, dem der
+   Code nicht folgt, ist schlimmer als keins.
+
+### Ablauf
+
+```
+git diff main...HEAD          # das, was dazukommt
+cd backend  && ruff check app tests && black --check app tests \
+            && python checks/check_tenancy.py --strict --max-offen 43 && pytest -q
+cd frontend && npm run format:check && npm run lint && npm run typecheck && npx vitest run
+```
+
+Die Werkzeuge zuerst — was sie finden, muss niemand lesen. Danach der Diff gegen die
+sechs Fragen. Befunde wandern nach `code-review-befunde.md`, kritische werden vor dem
+Merge behoben.
+
+---
+
+## 11. Offene Entscheidungen
 
 | Frage | Empfehlung |
 |---|---|
