@@ -439,8 +439,9 @@ describe('ForecastPage – Regel-Editor', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Jun', pressed: false }))
     await userEvent.click(screen.getByRole('button', { name: 'Regel speichern' }))
 
+    const gesendet = payload as PayloadRecord | null
     await waitFor(() => expect(payload).not.toBeNull())
-    expect(payload?.params?.special_months).toEqual({ '6': '2' })
+    expect(gesendet?.params).toMatchObject({ special_months: { '6': '2' } })
   })
 
   it('überträgt Anpassung und Zahlungsverzug auch im Automatikmodus', async () => {
@@ -477,9 +478,10 @@ describe('ForecastPage – Regel-Editor', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Keine Prognose' }))
     await userEvent.click(screen.getByRole('button', { name: 'Regel speichern' }))
+    const gesendet = payload as PayloadRecord | null
 
     await waitFor(() => expect(payload).not.toBeNull())
-    expect(payload?.mode).toBe('off')
+    expect(gesendet?.mode).toBe('off')
   })
 
   it('setzt auf Automatik zurück', async () => {

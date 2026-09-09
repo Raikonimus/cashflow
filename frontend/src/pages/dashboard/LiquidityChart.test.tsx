@@ -31,6 +31,7 @@ function point(label: string, value: number) {
 function response(overrides: Partial<LiquidityResponse> = {}): LiquidityResponse {
   return {
     currency: 'EUR',
+    scenario: 'expected',
     start_balance: '5000.00',
     as_of: '2026-08-31',
     months: [month('2026-09', '2000.00'), month('2026-10', '-1000.00')],

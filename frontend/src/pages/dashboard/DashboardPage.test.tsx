@@ -46,7 +46,10 @@ function renderPage() {
   )
 }
 
-function mockBalances(body: unknown, liquidity: unknown = EMPTY_LIQUIDITY) {
+function mockBalances(
+  body: Parameters<typeof HttpResponse.json>[0],
+  liquidity: Parameters<typeof HttpResponse.json>[0] = EMPTY_LIQUIDITY,
+) {
   server.use(
     http.get(BALANCES_URL, () => HttpResponse.json(body)),
     http.get(LIQUIDITY_URL, () => HttpResponse.json(liquidity)),

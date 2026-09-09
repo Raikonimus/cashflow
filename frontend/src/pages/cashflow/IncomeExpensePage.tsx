@@ -1077,7 +1077,7 @@ export function IncomeExpensePage() {
 
   const forecastColumns = useMemo<boolean[]>(() => {
     if (viewMode === 'multi-year') {
-      const yearIsForecast = (availableYears ?? []).map((entryYear, index) =>
+      const yearIsForecast = (availableYears ?? []).map((_entryYear, index) =>
         Boolean(multiYearMatrixQuery.data?.[index]?.first_forecast_month),
       )
       return [yearIsForecast.some(Boolean), ...yearIsForecast]

@@ -8,6 +8,7 @@ import {
   resetForecastRule,
   setForecastRule,
 } from '@/api/forecast'
+import type { PlannedItem } from '@/api/forecast'
 import type { Backtest, ForecastMode, ForecastRule, ForecastRuleType } from '@/api/forecast'
 import { extractErrorMessage } from '@/api/errors'
 import { formatAmountInput, parseAmountInput } from '@/lib/amount-input'
@@ -606,7 +607,7 @@ function PlannedItemsSection({
   mandantId: string
   serviceId: string
   canEdit: boolean
-  items: { id: string; period: string; amount: string; note: string | null }[]
+  items: PlannedItem[]
   onChanged: () => void
 }) {
   const [period, setPeriod] = useState('')
