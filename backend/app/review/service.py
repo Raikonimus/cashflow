@@ -28,7 +28,11 @@ from app.review.schemas import (
     UnidentifiedGroupsResponse,
 )
 from app.services.models import Service, ServiceMatcher, ServiceMatcherType, ServiceType
-from app.services.service import ServiceManagementService, _default_tax_rate
+from app.services.service import (
+    ServiceManagementService,
+    _default_tax_rate,
+    ensure_base_service,
+)
 
 log = structlog.get_logger()
 
@@ -508,8 +512,6 @@ class ReviewService:
         self._session.add(new_partner)
         await self._session.flush()
 
-        from app.services.service import ensure_base_service
-
         await ensure_base_service(self._session, new_partner.id)
 
         item.status = "adjusted"
@@ -860,8 +862,6 @@ class ReviewService:
         )
         self._session.add(partner)
         await self._session.flush()
-
-        from app.services.service import ensure_base_service
 
         await ensure_base_service(self._session, partner.id)
         return partner

@@ -10,6 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.auth.models import MandantUser
+from app.imports.matching import (
+    PartnerMatchingService,
+    _normalize_account,
+    _normalize_iban,
+)
 from app.imports.models import ImportRun, JournalLine, JournalLineSplit, ReviewItem
 from app.partners.models import (
     AuditLog,
@@ -977,13 +982,6 @@ class AccountService:
         mehr besitzt, werden übersprungen (bereits korrekt zugeordnet).
         Gibt die Anzahl der geänderten Zeilen zurück.
         """
-        from app.imports.matching import (
-            PartnerMatchingService,
-            _normalize_account,
-            _normalize_iban,
-        )
-        from app.imports.models import JournalLine
-        from app.partners.models import PartnerAccount, PartnerIban
 
         # Der Endpunkt bekommt account_id und mandant_id aus dem Pfad; require_mandant_access
         # prueft nur die mandant_id. Ohne diese Zeile schreibt der Aufruf fremde Buchungen um.

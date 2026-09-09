@@ -28,6 +28,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.imports.models import JournalLine, ReviewItem, utcnow
 from app.partners.models import Partner, PartnerAccount, PartnerIban, PartnerName
 from app.services.models import Service, ServiceMatcher, ServiceMatcherType
+from app.services.service import ensure_base_service
 
 
 def _normalize_iban(raw: str) -> str:
@@ -321,8 +322,6 @@ class PartnerMatchingService:
         )
         self._session.add(new_partner)
         await self._session.flush()
-
-        from app.services.service import ensure_base_service
 
         assert new_partner.id is not None
         await ensure_base_service(self._session, new_partner.id)

@@ -60,6 +60,7 @@ def _round_money(value: Decimal) -> Decimal:
     """
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
+
 def _utcnow() -> datetime:
     return datetime.now(UTC)
 

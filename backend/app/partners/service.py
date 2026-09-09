@@ -11,6 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app.imports.models import JournalLine, JournalLineSplit
 from app.partners.conflict_utils import (
     PartnerAssignmentCriteria,
     detect_conflicting_criteria,
@@ -25,6 +26,8 @@ from app.partners.models import (
     PartnerName,
 )
 from app.partners.schemas import (
+    AccountPreviewLineItem,
+    AccountPreviewResponse,
     AuditLogEntryResponse,
     MergeResponse,
     PaginatedAuditLogResponse,
@@ -39,7 +42,8 @@ from app.partners.schemas import (
     UpdatePartnerRequest,
 )
 from app.services.models import Service, ServiceType
-from app.services.service import ServiceManagementService
+from app.services.service import ServiceManagementService, ensure_base_service
+from app.tenants.models import Account as _Account
 
 if TYPE_CHECKING:
     from app.partners.schemas import AccountPreviewResponse
@@ -138,7 +142,6 @@ class PartnerService:
                     )
                 ).all()
             )
-            from app.imports.models import JournalLine
 
             journal_line_count = len(
                 (
@@ -383,8 +386,6 @@ class PartnerService:
         self._session.add(partner)
         await self._session.flush()  # get ID before creating IBAN
 
-        from app.services.service import ensure_base_service
-
         await ensure_base_service(self._session, partner.id)
 
         if iban is not None:
@@ -413,9 +414,6 @@ class PartnerService:
         aber NICHT zum angegebenen Partner gehören."""
         from decimal import Decimal
 
-        from app.imports.models import JournalLine, JournalLineSplit
-        from app.partners.schemas import AccountPreviewLineItem, AccountPreviewResponse
-
         await self.get_partner(partner_id, mandant_id)
         normalized_iban = _normalize_iban(iban)
 
@@ -438,7 +436,6 @@ class PartnerService:
             ).all()
 
         # Nur Zeilen desselben Mandanten
-        from app.tenants.models import Account as _Account
 
         account_ids = set(
             (
@@ -523,7 +520,6 @@ class PartnerService:
         Es werden nur die tatsächlich gematchten Zeilen verschoben;
         Source-Partner werden nur gelöscht, falls danach keine Zeilen mehr vorhanden sind.
         """
-        from app.imports.models import JournalLine
 
         await self.get_partner(partner_id, mandant_id)
         normalized_iban = _normalize_iban(iban)
@@ -531,7 +527,6 @@ class PartnerService:
         entity = await self._add_iban_entity(partner_id, normalized_iban, commit=False)
 
         # Buchungszeilen desselben Mandanten mit dieser IBAN suchen (nur fremde)
-        from app.tenants.models import Account as _Account
 
         account_ids = set(
             (
@@ -662,9 +657,6 @@ class PartnerService:
         aber NICHT zum angegebenen Partner gehören."""
         from decimal import Decimal
 
-        from app.imports.models import JournalLine
-        from app.partners.schemas import AccountPreviewLineItem, AccountPreviewResponse
-
         await self.get_partner(partner_id, mandant_id)
         normalized_acct, _, _ = self._normalize_account_fields(account_number, blz)
 
@@ -687,7 +679,6 @@ class PartnerService:
             ).all()
 
         # Nur Zeilen desselben Mandanten
-        from app.tenants.models import Account as _Account
 
         account_ids = set(
             (
@@ -701,7 +692,6 @@ class PartnerService:
         # Splits vorladen (erste Split pro Zeile für Service-Name)
         if lines:
             line_ids_acct = [ln.id for ln in lines if ln.id is not None]
-            from app.imports.models import JournalLineSplit
 
             splits_result_acct = await self._session.exec(
                 select(JournalLineSplit).where(JournalLineSplit.journal_line_id.in_(line_ids_acct))  # type: ignore[attr-defined]
@@ -776,7 +766,6 @@ class PartnerService:
         Es werden nur die tatsächlich gematchten Zeilen verschoben;
         Source-Partner werden nur gelöscht, falls danach keine Zeilen mehr vorhanden sind.
         """
-        from app.imports.models import JournalLine
 
         await self.get_partner(partner_id, mandant_id)
         normalized_acct, normalized_blz, normalized_bic = (
@@ -795,7 +784,6 @@ class PartnerService:
         await self._session.flush()
 
         # Buchungszeilen desselben Mandanten mit dieser Kontonummer suchen (nur fremde)
-        from app.tenants.models import Account as _Account
 
         account_ids = set(
             (
@@ -1134,8 +1122,6 @@ class PartnerMergeService:
         self, source_id: UUID, target_id: UUID, mandant_id: UUID
     ) -> int:
         try:
-            from app.imports.models import JournalLine
-            from app.tenants.models import Account as _Account
 
             service_svc = ServiceManagementService(self._session)
 
