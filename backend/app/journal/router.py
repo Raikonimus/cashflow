@@ -6,7 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import require_mandant_access, require_role
 from app.auth.models import User
 from app.core.database import get_session
-from app.journal.schemas import AssignServiceRequest, BulkAssignRequest, BulkAssignResponse, IncomeExpenseMatrixResponse, JournalLineResponse, JournalYearsResponse, PaginatedJournalResponse, SORTABLE_COLUMNS
+from app.journal.schemas import AccountBalancesResponse, AssignServiceRequest, LiquidityResponse, BulkAssignRequest, BulkAssignResponse, IncomeExpenseMatrixResponse, JournalLineResponse, JournalYearsResponse, PaginatedJournalResponse, SORTABLE_COLUMNS
+from app.forecast.rules import Scenario
 from app.journal.service import JournalService
 from app.partners.schemas import PaginatedAuditLogResponse
 from app.partners.service import AuditLogService
@@ -84,9 +85,37 @@ async def list_journal_years(
 async def get_income_expense_matrix(
     mandant_id: UUID,
     year: int = Query(ge=2000, le=2100),
+    scenario: Scenario = Query(default=Scenario.expected),
     svc: JournalService = Depends(_journal_svc),
 ) -> IncomeExpenseMatrixResponse:
-    return await svc.get_income_expense_matrix(mandant_id=mandant_id, year=year)
+    return await svc.get_income_expense_matrix(
+        mandant_id=mandant_id, year=year, scenario=scenario
+    )
+
+
+@journal_router.get(
+    "/{mandant_id}/reports/account-balances",
+    response_model=AccountBalancesResponse,
+    dependencies=[Depends(require_role("viewer")), Depends(require_mandant_access)],
+)
+async def get_account_balances(
+    mandant_id: UUID,
+    svc: JournalService = Depends(_journal_svc),
+) -> AccountBalancesResponse:
+    return await svc.get_account_balances(mandant_id)
+
+
+@journal_router.get(
+    "/{mandant_id}/reports/liquidity",
+    response_model=LiquidityResponse,
+    dependencies=[Depends(require_role("viewer")), Depends(require_mandant_access)],
+)
+async def get_liquidity(
+    mandant_id: UUID,
+    scenario: Scenario = Query(default=Scenario.expected),
+    svc: JournalService = Depends(_journal_svc),
+) -> LiquidityResponse:
+    return await svc.get_liquidity(mandant_id, scenario=scenario)
 
 
 @journal_router.post(

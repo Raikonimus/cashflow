@@ -246,7 +246,7 @@ describe('IncomeExpensePage', () => {
     expect(screen.queryByText('Basisleistung')).not.toBeInTheDocument()
     expect(screen.queryByText('Nullzeile')).not.toBeInTheDocument()
     expect(screen.queryByText('Leergruppe')).not.toBeInTheDocument()
-    expect(screen.getByText(/Alle Angaben in €/i)).toBeInTheDocument()
+    expect(screen.getByText(/Alle Angaben in € \(netto\)/i)).toBeInTheDocument()
     expect(screen.getByText(/Read-only Modus/i)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /gruppe anlegen/i })).not.toBeInTheDocument()
     expect(screen.getAllByText(/3[. ]?050/).length).toBeGreaterThan(0)
@@ -264,6 +264,16 @@ describe('IncomeExpensePage', () => {
     expect(adobeIndex).toBeGreaterThan(-1)
     expect(premiumIndex).toBeLessThan(beratungIndex)
     expect(beratungIndex).toBeLessThan(adobeIndex)
+  })
+
+  it('nennt im Kopf, dass alle Zahlen Netto-Beträge sind', async () => {
+    // Die Seite zeigt durchgaengig cells.*.net; ohne den Hinweis liest man sie leicht
+    // als Bruttobetraege. Der Excel-Export sagt es seit jeher, die Seite nicht.
+    renderPage()
+
+    const note = await screen.findByText(/Alle Angaben in € \(netto\)/i)
+    expect(note).toBeInTheDocument()
+    expect(note.getAttribute('title')).toMatch(/ohne Umsatzsteuer/i)
   })
 
   it('sorts expense services by most negative yearly total first', async () => {
@@ -770,6 +780,148 @@ describe('IncomeExpensePage', () => {
       }
       expect(targetGroupRow.compareDocumentPosition(serviceRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     })
+  })
+
+  it('klappt fremde Gruppen waehrend eines Leistungs-Drags zu', async () => {
+    setup('accountant')
+
+    server.use(
+      http.get(`/api/v1/mandants/${MANDANT_ID}/reports/income-expense`, () => HttpResponse.json(
+        buildIncomeMatrixResponse([
+          {
+            group_id: 'group-source',
+            group_name: 'Quelle',
+            sort_order: 1,
+            collapsed: false,
+            assigned_service_count: 1,
+            active_years: [2026],
+            subtotal_cells: makeCells('100.00'),
+            services: [
+              {
+                service_id: 'service-move',
+                service_name: 'Verschieben',
+                partner_name: 'Alpha GmbH',
+                service_type: 'customer',
+                erfolgsneutral: false,
+                cells: makeCells('100.00'),
+              },
+            ],
+          },
+          {
+            group_id: 'group-target',
+            group_name: 'Ziel',
+            sort_order: 2,
+            collapsed: false,
+            assigned_service_count: 1,
+            active_years: [2026],
+            subtotal_cells: makeCells('50.00'),
+            services: [
+              {
+                service_id: 'service-other',
+                service_name: 'Bleibt',
+                partner_name: 'Beta GmbH',
+                service_type: 'customer',
+                erfolgsneutral: false,
+                cells: makeCells('50.00'),
+              },
+            ],
+          },
+        ]),
+      )),
+    )
+
+    await act(async () => {
+      renderPage()
+    })
+
+    await waitFor(() => expect(screen.getByText('Beta GmbH / Bleibt')).toBeInTheDocument())
+
+    const sourceRow = screen.getByText('Alpha GmbH / Verschieben').closest('tr')
+    if (!sourceRow) {
+      throw new Error('Source row for service drag not found')
+    }
+
+    fireEvent.dragStart(sourceRow, { dataTransfer: createDataTransfer() })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    expect(screen.queryByText('Beta GmbH / Bleibt')).not.toBeInTheDocument()
+    expect(screen.getByText('Ziel')).toBeInTheDocument()
+    expect(screen.getByText('Alpha GmbH / Verschieben')).toBeInTheDocument()
+
+    fireEvent.dragEnd(sourceRow)
+
+    expect(screen.getByText('Beta GmbH / Bleibt')).toBeInTheDocument()
+  })
+
+  it('scrollt das Fenster, wenn der Zeiger waehrend eines Drags den Viewport-Rand erreicht', async () => {
+    setup('accountant')
+
+    server.use(
+      http.get(`/api/v1/mandants/${MANDANT_ID}/reports/income-expense`, () => HttpResponse.json(
+        buildIncomeMatrixResponse([
+          {
+            group_id: 'group-source',
+            group_name: 'Quelle',
+            sort_order: 1,
+            collapsed: false,
+            assigned_service_count: 1,
+            active_years: [2026],
+            subtotal_cells: makeCells('100.00'),
+            services: [
+              {
+                service_id: 'service-move',
+                service_name: 'Verschieben',
+                partner_name: 'Alpha GmbH',
+                service_type: 'customer',
+                erfolgsneutral: false,
+                cells: makeCells('100.00'),
+              },
+            ],
+          },
+        ]),
+      )),
+    )
+
+    const scrollBy = vi.spyOn(globalThis, 'scrollBy').mockImplementation(() => {})
+    // jsdom meldet ein Dokument ohne Hoehe, sonst greift die Bereichspruefung des Auto-Scrolls.
+    Object.defineProperty(document.documentElement, 'scrollHeight', { configurable: true, value: 5000 })
+
+    try {
+      await act(async () => {
+        renderPage()
+      })
+
+      await waitFor(() => expect(screen.getByText('Alpha GmbH / Verschieben')).toBeInTheDocument())
+
+      const sourceRow = screen.getByText('Alpha GmbH / Verschieben').closest('tr')
+      if (!sourceRow) {
+        throw new Error('Source row for service drag not found')
+      }
+
+      fireEvent.dragStart(sourceRow, { dataTransfer: createDataTransfer() })
+      // jsdom kennt keinen DragEvent-Konstruktor, MouseEvent traegt das benoetigte clientY.
+      act(() => {
+        document.body.dispatchEvent(
+          new MouseEvent('dragover', { bubbles: true, cancelable: true, clientY: globalThis.innerHeight - 4 }),
+        )
+      })
+
+      await waitFor(() => expect(scrollBy).toHaveBeenCalled())
+      expect(scrollBy.mock.calls.at(-1)?.[1] as number).toBeGreaterThan(0)
+
+      fireEvent.dragEnd(sourceRow)
+      scrollBy.mockClear()
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      })
+
+      expect(scrollBy).not.toHaveBeenCalled()
+    } finally {
+      scrollBy.mockRestore()
+      Reflect.deleteProperty(document.documentElement, 'scrollHeight')
+    }
   })
 
   it('accepts service drops from text/plain fallback payloads', async () => {

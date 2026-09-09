@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.auth.router import mandants_router, router as auth_router, users_router
 from app.core.config import settings
+from app.forecast.router import forecast_router
 from app.imports.router import imports_router
 from app.journal.router import audit_router, journal_router
 from app.partners.router import partners_router
@@ -37,5 +38,6 @@ app.include_router(services_router, prefix="/api/v1")
 app.include_router(imports_router, prefix="/api/v1")
 app.include_router(review_router, prefix="/api/v1")
 app.include_router(journal_router, prefix="/api/v1")
+app.include_router(forecast_router, prefix="/api/v1")
 app.include_router(audit_router, prefix="/api/v1")
 app.include_router(testing_router, prefix="/api/v1")

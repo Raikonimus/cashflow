@@ -493,6 +493,67 @@ class TestUnidentifiedGroups:
             select(Service).where(Service.partner_id == partner.id, Service.name == "Lizenzen"))).all()
         assert len(services) == 1
 
+    async def test_mehrdeutige_leistung_landet_auf_der_basisleistung(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Echter Fall: zwei Matcher desselben Partners treffen dieselbe Zeile.
+
+        Die Bank kuerzt den Haendlernamen unterschiedlich ab, daraus entstehen
+        zwei Leistungen mit ueberlappenden Mustern. Die Zeile darf dabei nicht
+        ohne Zuordnung zurueckbleiben - sonst faellt sie aus Einnahmen &
+        Ausgaben heraus und die Bestaetigung scheitert an der Zielleistung.
+        """
+        user = await create_user(db_session, "grp17@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner_db(db_session, mandant.id, "HF Data")
+        base = await ensure_base_service(db_session, partner.id)
+        kurz = Service(
+            id=uuid4(), partner_id=partner.id, name="HF Data Datenve",
+            service_type="supplier", tax_rate=Decimal("20.00"),
+            created_at=utcnow(), updated_at=utcnow(),
+        )
+        db_session.add(kurz)
+        await db_session.flush()
+        db_session.add(ServiceMatcher(
+            id=uuid4(), service_id=kurz.id, pattern="HF DATA DATENVE",
+            pattern_type="string", internal_only=False, created_at=utcnow(),
+        ))
+
+        line, _ = await _unidentified(db_session, mandant.id, "Mol*HF Data Datenverar...", "-14.90")
+        await db_session.commit()
+
+        group = (await client.get(
+            f"/api/v1/mandants/{mandant.id}/review/unidentified-groups", headers=_auth(token))).json()["groups"][0]
+        assert group["key"] == "HF DATA DATENVERAR"
+
+        resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/review/unidentified-groups/resolve",
+            json={
+                "item_ids": group["item_ids"], "pattern": "HF DATA DATENVERAR",
+                "partner_id": str(partner.id), "service_name": "HF Data Datenverar",
+            },
+            headers=_auth(token),
+        )
+        assert resp.status_code == 201, resp.text
+
+        # Beide Muster treffen - die Zeile haengt trotzdem an genau einer Leistung.
+        splits = (await db_session.exec(
+            select(JournalLineSplit).where(JournalLineSplit.journal_line_id == line.id))).all()
+        assert [sp.service_id for sp in splits] == [base.id]
+
+        review = (await db_session.exec(select(ReviewItem).where(
+            ReviewItem.item_type == "service_assignment", ReviewItem.status == "open"))).first()
+        assert review is not None
+        assert review.context["reason"] == "multiple_matches"
+        assert review.context["current_service_id"] == str(base.id)
+
+        # Und laesst sich bestaetigen, statt an einer fehlenden Zielleistung zu scheitern.
+        confirmed = await client.post(
+            f"/api/v1/mandants/{mandant.id}/review/{review.id}/confirm", headers=_auth(token))
+        assert confirmed.status_code == 200, confirmed.text
+
     async def test_lehnt_leere_oder_bereits_erledigte_gruppe_ab(
         self, client: AsyncClient, db_session: AsyncSession
     ):

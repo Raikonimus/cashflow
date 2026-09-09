@@ -111,9 +111,19 @@ async def create_account_db(
     session: AsyncSession,
     mandant_id: UUID,
     name: str = "Hauptkonto",
+    *,
+    currency: str = "EUR",
+    opening_balance: Decimal = Decimal("0.00"),
 ) -> Account:
     now = utcnow()
-    account = Account(mandant_id=mandant_id, name=name, created_at=now, updated_at=now)
+    account = Account(
+        mandant_id=mandant_id,
+        name=name,
+        currency=currency,
+        opening_balance=opening_balance,
+        created_at=now,
+        updated_at=now,
+    )
     session.add(account)
     await session.commit()
     await session.refresh(account)
@@ -149,6 +159,7 @@ async def create_journal_line_db(
     partner_id: UUID | None = None,
     valuta_date: str = "2025-01-15",
     amount: Decimal = Decimal("100.00"),
+    currency: str = "EUR",
     partner_name_raw: str | None = "Lieferant GmbH",
 ) -> JournalLine:
     line = JournalLine(
@@ -158,7 +169,7 @@ async def create_journal_line_db(
         valuta_date=valuta_date,
         booking_date=valuta_date,
         amount=amount,
-        currency="EUR",
+        currency=currency,
         text="Rechnung",
         partner_name_raw=partner_name_raw,
         created_at=utcnow(),

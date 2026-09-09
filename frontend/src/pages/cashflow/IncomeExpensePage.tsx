@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -14,6 +14,8 @@ import type {
 } from '@/api/journal'
 import { assignServiceGroup, createServiceGroup, deleteServiceGroup, updateServiceGroup } from '@/api/services'
 import type { ServiceGroupSection } from '@/api/services'
+import { ScenarioSelect } from '@/components/ScenarioSelect'
+import type { Scenario } from '@/api/forecast'
 import { useAuthStore } from '@/store/auth-store'
 import type { ExcelSheet } from './income-expense-excel'
 
@@ -30,6 +32,10 @@ const SECTION_LABELS: Record<ServiceGroupSection, string> = {
 const SECTION_ORDER: ServiceGroupSection[] = ['income', 'expense', 'neutral']
 const EDIT_ROLES = new Set(['accountant', 'mandant_admin', 'admin'])
 const YEAR_COLUMN_INDEX = 0
+// Prognosewerte sind grau und kursiv — die Grenze zum Ist bleibt so auf einen Blick sichtbar.
+const FORECAST_CELL_CLASS = 'italic text-gray-400'
+const DRAG_AUTO_SCROLL_EDGE_PX = 96
+const DRAG_AUTO_SCROLL_MAX_SPEED_PX = 18
 
 interface GroupRef {
   id: string
@@ -88,7 +94,7 @@ function formatMoney(value: string, currency: string): string {
   if (Number.isNaN(numeric)) {
     return currency === 'EUR' ? '0' : `0 ${currency}`
   }
-  const formatted = numeric.toLocaleString('de-AT', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+  const formatted = numeric.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
   return currency === 'EUR' ? formatted : `${formatted} ${currency}`
 }
 
@@ -447,9 +453,60 @@ function TrashIcon() {
   return <FontAwesomeIcon icon={faTrashCan} aria-hidden="true" className="h-3 w-3" />
 }
 
+function useDragAutoScroll(active: boolean) {
+  useEffect(() => {
+    if (!active) {
+      return
+    }
+
+    let pointerY: number | null = null
+    let frame = 0
+
+    function trackPointer(event: DragEvent) {
+      pointerY = event.clientY
+    }
+
+    function step() {
+      frame = requestAnimationFrame(step)
+      if (pointerY === null) {
+        return
+      }
+
+      const viewportHeight = globalThis.innerHeight
+      const distanceToTop = pointerY
+      const distanceToBottom = viewportHeight - pointerY
+      let delta = 0
+      if (distanceToTop < DRAG_AUTO_SCROLL_EDGE_PX) {
+        delta = -DRAG_AUTO_SCROLL_MAX_SPEED_PX * (1 - distanceToTop / DRAG_AUTO_SCROLL_EDGE_PX)
+      } else if (distanceToBottom < DRAG_AUTO_SCROLL_EDGE_PX) {
+        delta = DRAG_AUTO_SCROLL_MAX_SPEED_PX * (1 - distanceToBottom / DRAG_AUTO_SCROLL_EDGE_PX)
+      }
+      if (delta === 0) {
+        return
+      }
+
+      const maxScrollY = document.documentElement.scrollHeight - viewportHeight
+      if ((delta < 0 && globalThis.scrollY <= 0) || (delta > 0 && globalThis.scrollY >= maxScrollY - 1)) {
+        return
+      }
+      globalThis.scrollBy(0, delta)
+    }
+
+    // dragover feuert waehrend eines Drags ueber jedem Element, nicht nur ueber Drop-Zielen.
+    document.addEventListener('dragover', trackPointer)
+    frame = requestAnimationFrame(step)
+
+    return () => {
+      document.removeEventListener('dragover', trackPointer)
+      cancelAnimationFrame(frame)
+    }
+  }, [active])
+}
+
 function SectionTable({
   title,
   columns,
+  forecastColumns,
   sectionKey,
   section,
   canEdit,
@@ -466,6 +523,7 @@ function SectionTable({
 }: Readonly<{
   title: string
   columns: PeriodColumn[]
+  forecastColumns: boolean[]
   sectionKey: ServiceGroupSection
   section: DisplaySection
   canEdit: boolean
@@ -481,6 +539,10 @@ function SectionTable({
   pendingGroupIds: string[]
 }>) {
   const [dragOverGroupId, setDragOverGroupId] = useState<string | null>(null)
+  const [serviceDragSourceGroupId, setServiceDragSourceGroupId] = useState<string | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
+  const serviceDragCollapseTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useDragAutoScroll(isDragging)
   const visibleGroups = useMemo(
     () => selectVisibleGroups(section, sectionKey, canEdit),
     [canEdit, section, sectionKey],
@@ -492,6 +554,31 @@ function SectionTable({
   const visibleGroupIds = visibleGroups.map((group) => group.group_id)
   const hasVisibleGroups = visibleGroupIds.length > 0
   const areAllVisibleGroupsCollapsed = hasVisibleGroups && visibleGroupIds.every((groupId) => collapsedGroups.has(groupId))
+
+  useEffect(() => () => {
+    if (serviceDragCollapseTimeout.current !== null) {
+      clearTimeout(serviceDragCollapseTimeout.current)
+    }
+  }, [])
+
+  function beginServiceDrag(sourceGroupId: string) {
+    setIsDragging(true)
+    // Verzoegert, damit der Browser das Drag-Bild noch vom unveraenderten DOM aufnimmt.
+    serviceDragCollapseTimeout.current = setTimeout(() => {
+      serviceDragCollapseTimeout.current = null
+      setServiceDragSourceGroupId(sourceGroupId)
+    }, 0)
+  }
+
+  function endDrag() {
+    if (serviceDragCollapseTimeout.current !== null) {
+      clearTimeout(serviceDragCollapseTimeout.current)
+      serviceDragCollapseTimeout.current = null
+    }
+    setIsDragging(false)
+    setServiceDragSourceGroupId(null)
+    setDragOverGroupId(null)
+  }
 
   function toggleAllGroups() {
     onSetCollapsedGroups((prev) => {
@@ -581,7 +668,8 @@ function SectionTable({
               {columns.map((column, index) => (
                 <th
                   key={column.key}
-                  className={`px-3 py-2 text-right ${index === YEAR_COLUMN_INDEX ? 'bg-amber-100 font-semibold text-amber-900' : ''}`}
+                  className={`px-3 py-2 text-right ${index === YEAR_COLUMN_INDEX ? 'bg-amber-100 font-semibold text-amber-900' : ''} ${forecastColumns[index] ? 'text-gray-400' : ''}`}
+                  title={forecastColumns[index] ? 'Prognose' : undefined}
                 >
                   {column.label}
                 </th>
@@ -590,7 +678,10 @@ function SectionTable({
           </thead>
           <tbody className="divide-y divide-gray-100">
             {visibleGroups.map((group) => {
+              // Waehrend eine Leistung gezogen wird, bleibt nur ihre Quellgruppe offen:
+              // Drop-Ziele sind ausschliesslich Gruppenkopfzeilen, die so ohne Scrollen erreichbar bleiben.
               const isCollapsed = collapsedGroups.has(group.group_id)
+                || (serviceDragSourceGroupId !== null && serviceDragSourceGroupId !== group.group_id)
               const isPendingGroup = pendingGroupIds.includes(group.group_id)
               const isDropTarget = dragOverGroupId === group.group_id
               return (
@@ -610,8 +701,9 @@ function SectionTable({
                       )
                       event.dataTransfer.setData('text/plain', payload)
                       event.dataTransfer.effectAllowed = 'move'
+                      setIsDragging(true)
                     }}
-                    onDragEnd={() => setDragOverGroupId(null)}
+                    onDragEnd={endDrag}
                     onDragOver={(event) => {
                       if (canEdit) {
                         event.preventDefault()
@@ -628,6 +720,7 @@ function SectionTable({
                         return
                       }
                       event.preventDefault()
+                      endDrag()
                       const groupPayload = getDragPayload(event.dataTransfer, 'group')
                       if (parseGroupDragPayload(groupPayload)) {
                         handleGroupReorderDrop(group.group_id, groupPayload)
@@ -685,7 +778,7 @@ function SectionTable({
                     {group.periodValues.map((value, index) => (
                       <td
                         key={`${group.group_id}-sub-${index}`}
-                        className={`px-3 py-2 text-right ${index === YEAR_COLUMN_INDEX ? 'bg-amber-50 text-amber-950' : ''}`}
+                        className={`px-3 py-2 text-right ${index === YEAR_COLUMN_INDEX ? 'bg-amber-50 text-amber-950' : ''} ${forecastColumns[index] ? FORECAST_CELL_CLASS : ''}`}
                       >
                         {formatMoney(value, section.currency)}
                       </td>
@@ -709,7 +802,9 @@ function SectionTable({
                           )
                           event.dataTransfer.setData('text/plain', payload)
                           event.dataTransfer.effectAllowed = 'move'
+                          beginServiceDrag(group.group_id)
                         }}
+                        onDragEnd={endDrag}
                       >
                         <td className="sticky left-0 z-10 bg-white px-4 py-2 text-left">
                           <span className="ml-6 flex items-center gap-1 truncate" title={serviceDisplayName}>
@@ -727,7 +822,8 @@ function SectionTable({
                       {service.periodValues.map((value, index) => (
                         <td
                           key={`${service.service_id}-${index}`}
-                          className={`px-3 py-2 text-right ${index === YEAR_COLUMN_INDEX ? 'bg-amber-50/60 font-medium text-amber-950' : ''}`}
+                          className={`px-3 py-2 text-right ${index === YEAR_COLUMN_INDEX ? 'bg-amber-50/60 font-medium text-amber-950' : ''} ${forecastColumns[index] ? FORECAST_CELL_CLASS : ''}`}
+                          title={forecastColumns[index] ? service.forecast_reason ?? undefined : undefined}
                         >
                           {formatMoney(value, section.currency)}
                         </td>
@@ -744,7 +840,7 @@ function SectionTable({
                 {section.totals.map((value, index) => (
                   <td
                     key={`total-${sectionKey}-${index}`}
-                    className={`px-3 py-2 text-right ${index === YEAR_COLUMN_INDEX ? 'bg-amber-100 text-amber-950' : ''}`}
+                    className={`px-3 py-2 text-right ${index === YEAR_COLUMN_INDEX ? 'bg-amber-100 text-amber-950' : ''} ${forecastColumns[index] ? FORECAST_CELL_CLASS : ''}`}
                   >
                     {formatMoney(value, section.currency)}
                   </td>
@@ -782,6 +878,7 @@ export function IncomeExpensePage() {
   const role = useAuthStore((s) => s.user?.role ?? '')
   const [year, setYear] = useState<number>(new Date().getFullYear())
   const [viewMode, setViewMode] = useState<ViewMode>('year')
+  const [scenario, setScenario] = useState<Scenario>('expected')
   const [pendingServiceId, setPendingServiceId] = useState<string | null>(null)
   const [createDialog, setCreateDialog] = useState<CreateGroupDialogState>({ open: false, section: 'income' })
   const [renameDialog, setRenameDialog] = useState<RenameGroupDialogState>({ open: false, group: null })
@@ -800,8 +897,8 @@ export function IncomeExpensePage() {
   const canEdit = EDIT_ROLES.has(role)
 
   const yearMatrixQuery = useQuery({
-    queryKey: ['income-expense-matrix', mandantId, year],
-    queryFn: () => getIncomeExpenseMatrix(mandantId, year),
+    queryKey: ['income-expense-matrix', mandantId, year, scenario],
+    queryFn: () => getIncomeExpenseMatrix(mandantId, year, scenario),
     enabled: !!mandantId && viewMode === 'year',
   })
 
@@ -812,13 +909,19 @@ export function IncomeExpensePage() {
   })
 
   const availableYears = useMemo(
-    () => [...(yearsData?.years ?? [])].sort((left, right) => left - right),
-    [yearsData?.years],
+    () =>
+      [...new Set([...(yearsData?.years ?? []), ...(yearsData?.forecast_years ?? [])])].sort(
+        (left, right) => left - right,
+      ),
+    [yearsData?.years, yearsData?.forecast_years],
   )
 
   const multiYearMatrixQuery = useQuery({
-    queryKey: ['income-expense-multi-matrix', mandantId, availableYears.join(',')],
-    queryFn: () => Promise.all(availableYears.map((entryYear) => getIncomeExpenseMatrix(mandantId, entryYear))),
+    queryKey: ['income-expense-multi-matrix', mandantId, availableYears.join(','), scenario],
+    queryFn: () =>
+      Promise.all(
+        availableYears.map((entryYear) => getIncomeExpenseMatrix(mandantId, entryYear, scenario)),
+      ),
     enabled: !!mandantId && viewMode === 'multi-year' && availableYears.length > 0,
   })
 
@@ -851,6 +954,21 @@ export function IncomeExpensePage() {
       ...MONTH_KEYS.slice(1).map((key, index) => ({ key, label: HEADERS[index + 1] })),
     ]
   }, [availableYears, viewMode])
+
+  const forecastColumns = useMemo<boolean[]>(() => {
+    if (viewMode === 'multi-year') {
+      const yearIsForecast = (availableYears ?? []).map((entryYear, index) =>
+        Boolean(multiYearMatrixQuery.data?.[index]?.first_forecast_month),
+      )
+      return [yearIsForecast.some(Boolean), ...yearIsForecast]
+    }
+    const firstForecastMonth = yearMatrixQuery.data?.first_forecast_month ?? null
+    if (firstForecastMonth === null) {
+      return periodColumns.map(() => false)
+    }
+    const months = MONTH_KEYS.slice(1).map((_, index) => index + 1 >= firstForecastMonth)
+    return [months.some(Boolean), ...months]
+  }, [availableYears, multiYearMatrixQuery.data, periodColumns, viewMode, yearMatrixQuery.data])
 
   const exportPeriod = useMemo(() => {
     if (viewMode === 'multi-year') {
@@ -1079,7 +1197,12 @@ export function IncomeExpensePage() {
               ? 'Jahressummen je Leistung und Gruppe über alle verfügbaren Jahre'
               : 'Monatsmatrix je Leistung mit Jahres- und Gruppensummen'}
           </p>
-          <p className="text-xs uppercase tracking-wide text-teal-200">Alle Angaben in €</p>
+          <p
+            className="text-xs uppercase tracking-wide text-teal-200"
+            title="Netto heißt ohne Umsatzsteuer: der gebuchte Betrag geteilt durch den Steuersatz der jeweiligen Leistung."
+          >
+            Alle Angaben in € (netto)
+          </p>
         </div>
         {!canEdit && <p className="mt-2 text-xs text-teal-200">Read-only Modus: Gruppen und Zuordnungen sind nicht bearbeitbar.</p>}
       </header>
@@ -1141,6 +1264,24 @@ export function IncomeExpensePage() {
         )}
       </div>
 
+      {forecastColumns.some(Boolean) && (
+        <div className="flex flex-wrap items-center gap-3">
+          <ScenarioSelect value={scenario} onChange={setScenario} />
+          <Link to="/cashflow/forecast" className="text-sm text-blue-600 hover:underline">
+            Prognoseregeln bearbeiten
+          </Link>
+        </div>
+      )}
+
+      {forecastColumns.some(Boolean) && (
+        <p className="text-xs text-gray-500">
+          <span className={`${FORECAST_CELL_CLASS} not-italic font-medium`}>Graue, kursive Werte</span>{' '}
+          sind Prognosen aus der Historie der jeweiligen Leistung. Der laufende Monat wird auf
+          einen vollen Monat hochgerechnet, soweit die Prognose über das bereits Gebuchte
+          hinausgeht. Woher ein Wert stammt, steht im Tooltip der Zelle.
+        </p>
+      )}
+
       {isLoading && (
         <div className="rounded-xl border border-gray-200 bg-white px-6 py-8 text-center text-gray-500">Daten werden geladen...</div>
       )}
@@ -1168,6 +1309,7 @@ export function IncomeExpensePage() {
           <SectionTable
             title={SECTION_LABELS.income}
             columns={periodColumns}
+            forecastColumns={forecastColumns}
             sectionKey="income"
             section={sections.income}
             canEdit={canEdit}
@@ -1185,6 +1327,7 @@ export function IncomeExpensePage() {
           <SectionTable
             title={SECTION_LABELS.expense}
             columns={periodColumns}
+            forecastColumns={forecastColumns}
             sectionKey="expense"
             section={sections.expense}
             canEdit={canEdit}
@@ -1202,6 +1345,7 @@ export function IncomeExpensePage() {
           <SectionTable
             title={SECTION_LABELS.neutral}
             columns={periodColumns}
+            forecastColumns={forecastColumns}
             sectionKey="neutral"
             section={sections.neutral}
             canEdit={canEdit}

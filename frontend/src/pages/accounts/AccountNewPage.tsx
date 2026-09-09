@@ -5,9 +5,13 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useAuthStore } from '@/store/auth-store'
 import { createAccount } from '@/api/accounts'
+import { parseAmountInput } from '@/lib/amount-input'
 
 const schema = z.object({
   name: z.string().min(1, 'Name ist erforderlich').max(255),
+  opening_balance: z
+    .string()
+    .refine((v) => parseAmountInput(v) !== null, 'Bitte einen Betrag eingeben, z. B. 1234,56'),
 })
 type FormValues = z.infer<typeof schema>
 
@@ -17,9 +21,14 @@ export function AccountNewPage() {
   const queryClient = useQueryClient()
 
   const mutation = useMutation({
-    mutationFn: (data: FormValues) => createAccount(mandantId, data),
+    mutationFn: (data: FormValues) =>
+      createAccount(mandantId, {
+        name: data.name,
+        opening_balance: parseAmountInput(data.opening_balance) ?? '0.00',
+      }),
     onSuccess: (acc) => {
       queryClient.invalidateQueries({ queryKey: ['accounts', mandantId] })
+      queryClient.invalidateQueries({ queryKey: ['account-balances', mandantId] })
       navigate(`/accounts/${acc.id}`)
     },
   })
@@ -28,7 +37,10 @@ export function AccountNewPage() {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
-  } = useForm<FormValues>({ resolver: zodResolver(schema) })
+  } = useForm<FormValues>({
+    resolver: zodResolver(schema),
+    defaultValues: { name: '', opening_balance: '0,00' },
+  })
 
   return (
     <div className="mx-auto max-w-md px-4 py-12">
@@ -47,6 +59,25 @@ export function AccountNewPage() {
           />
           {errors.name && (
             <p className="mt-1 text-xs text-red-500">{errors.name.message}</p>
+          )}
+        </div>
+
+        <div>
+          <label htmlFor="opening_balance" className="block text-sm font-medium text-gray-700">
+            Startsaldo
+          </label>
+          <input
+            id="opening_balance"
+            {...register('opening_balance')}
+            inputMode="decimal"
+            className="mt-1 w-full rounded border px-3 py-2 text-right text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <p className="mt-1 text-xs text-gray-500">
+            Kontostand vor der ersten importierten Buchung. 0, wenn sämtliche Buchungen des Kontos
+            importiert werden.
+          </p>
+          {errors.opening_balance && (
+            <p className="mt-1 text-xs text-red-500">{errors.opening_balance.message}</p>
           )}
         </div>
 

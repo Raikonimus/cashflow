@@ -984,7 +984,7 @@ function MatcherSection({
                           </td>
                           <td className="whitespace-nowrap px-3 py-2 text-gray-700">{line.booking_date}</td>
                           <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-gray-700">
-                            {parseFloat(line.amount).toLocaleString('de-AT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {line.currency}
+                            {parseFloat(line.amount).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {line.currency}
                           </td>
                           <td className="max-w-[200px] truncate px-3 py-2 text-gray-600">{line.text ?? '–'}</td>
                           <td className="px-3 py-2 text-gray-700">{line.current_service_name ?? '–'}</td>

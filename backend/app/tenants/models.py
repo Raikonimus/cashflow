@@ -1,8 +1,9 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any, Optional
 from uuid import UUID, uuid4
 
-from sqlalchemy import Column
+from sqlalchemy import Column, Numeric
 from sqlalchemy import JSON as SAJSON
 from sqlmodel import Field, SQLModel
 
@@ -31,6 +32,11 @@ class Account(SQLModel, table=True):
     name: str = Field(max_length=255)
     iban: Optional[str] = Field(default=None, max_length=34, nullable=True)
     currency: str = Field(max_length=3, default="EUR")
+    # Kontostand vor der ersten importierten Buchung — Basis der Liquiditätsrechnung
+    opening_balance: Decimal = Field(
+        default=Decimal("0.00"),
+        sa_column=Column(Numeric(15, 2), nullable=False, server_default="0"),
+    )
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)

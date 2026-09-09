@@ -31,7 +31,7 @@ function formatMoney(value: string): string {
   if (Number.isNaN(numeric)) {
     return value
   }
-  return numeric.toLocaleString('de-AT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return numeric.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 function formatDate(value: string): string {

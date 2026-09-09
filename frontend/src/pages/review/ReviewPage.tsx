@@ -5,6 +5,7 @@ import { useAuthStore } from '@/store/auth-store'
 import { UnidentifiedGroupsPanel } from './UnidentifiedGroupsPanel'
 import { adjustReviewItem, confirmReviewItem, listReviewItems, newPartnerReviewItem, rejectReviewItem, reassignReviewItem } from '@/api/review'
 import type { NoPartnerDiagnosis, ReviewItem } from '@/api/review'
+import { extractErrorMessage } from '@/api/errors'
 import { listPartners } from '@/api/partners'
 import type { PartnerListItem } from '@/api/partners'
 import { listPartnerServices } from '@/api/services'
@@ -172,31 +173,31 @@ function ReviewCard({
       item.item_type === 'service_type_review' ? 'Leistungstyp wurde freigegeben.' :
       'Review-Item wurde bestätigt.'
     ),
-    onError: () => onError('Aktion konnte nicht gespeichert werden.'),
+    onError: (error) => onError(extractErrorMessage(error, 'Aktion konnte nicht gespeichert werden.')),
   })
 
   const rejectMutation = useMutation({
     mutationFn: () => rejectReviewItem(mandantId, item.id),
     onSuccess: async () => onResolved('Review-Item wurde abgelehnt.'),
-    onError: () => onError('Ablehnung konnte nicht gespeichert werden.'),
+    onError: (error) => onError(extractErrorMessage(error, 'Ablehnung konnte nicht gespeichert werden.')),
   })
 
   const reassignMutation = useMutation({
     mutationFn: (partnerId: string) => reassignReviewItem(mandantId, item.id, partnerId),
     onSuccess: async () => onResolved('Partner wurde korrigiert.'),
-    onError: () => onError('Partner konnte nicht gesetzt werden.'),
+    onError: (error) => onError(extractErrorMessage(error, 'Partner konnte nicht gesetzt werden.')),
   })
 
   const newPartnerMutation = useMutation({
     mutationFn: () => newPartnerReviewItem(mandantId, item.id, newPartnerName.trim()),
     onSuccess: async () => onResolved('Neuer Partner wurde angelegt und zugewiesen.'),
-    onError: () => onError('Neuer Partner konnte nicht angelegt werden.'),
+    onError: (error) => onError(extractErrorMessage(error, 'Neuer Partner konnte nicht angelegt werden.')),
   })
 
   const adjustServiceMutation = useMutation({
     mutationFn: (serviceId: string) => adjustReviewItem(mandantId, item.id, { service_id: serviceId }),
     onSuccess: async () => onResolved('Leistungs-Zuordnung wurde korrigiert.'),
-    onError: () => onError('Leistung konnte nicht gesetzt werden.'),
+    onError: (error) => onError(extractErrorMessage(error, 'Leistung konnte nicht gesetzt werden.')),
   })
 
   const adjustTypeMutation = useMutation({
@@ -206,7 +207,7 @@ function ReviewCard({
       erfolgsneutral: erfolgsneutralDraft,
     }),
     onSuccess: async () => onResolved('Leistungstyp wurde korrigiert.'),
-    onError: () => onError('Korrektur konnte nicht gespeichert werden.'),
+    onError: (error) => onError(extractErrorMessage(error, 'Korrektur konnte nicht gespeichert werden.')),
   })
 
   const { data: services = [] } = useQuery({
@@ -229,7 +230,7 @@ function ReviewCard({
       splits: splitEntries.map((e) => ({ service_id: e.serviceId, amount: e.amount.toFixed(2) })),
     }),
     onSuccess: async () => onResolved('Buchung wurde auf mehrere Leistungen aufgeteilt.'),
-    onError: () => onError('Aufteilung konnte nicht gespeichert werden.'),
+    onError: (error) => onError(extractErrorMessage(error, 'Aufteilung konnte nicht gespeichert werden.')),
   })
 
   async function searchPartners(q: string) {

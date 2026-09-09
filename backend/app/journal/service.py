@@ -1,5 +1,5 @@
 import math
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 from uuid import UUID
@@ -10,13 +10,20 @@ from sqlalchemy import func, or_, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
+from app.forecast.backtest import combined_uncertainty
+from app.forecast.profiler import index_to_year_month, month_index
+from app.forecast.rules import Scenario
+from app.forecast.service import ForecastService, horizon_end_index
 from app.imports.models import JournalLine, JournalLineSplit
 from app.partners.models import AuditLog, Partner
 from app.services.models import Service
-from app.services.models import ServiceGroupAssignment, ServiceGroupSection, ServiceType
+from app.services.models import ServiceGroupAssignment, ServiceGroupSection, section_for_service
 from app.services.service import ServiceManagementService
 from app.tenants.models import Account
 from app.journal.schemas import (
+    AccountBalanceRow,
+    AccountBalanceTotal,
+    AccountBalancesResponse,
     BulkAssignResponse,
     IncomeExpenseGroupRow,
     IncomeExpenseMatrixResponse,
@@ -24,6 +31,8 @@ from app.journal.schemas import (
     IncomeExpenseServiceRow,
     JournalYearsResponse,
     JournalLineResponse,
+    LiquidityMonth,
+    LiquidityResponse,
     MatrixCell,
     MatrixCells,
     PaginatedJournalResponse,
@@ -66,37 +75,43 @@ def _empty_cells() -> dict[str, dict[str, Decimal]]:
     return cells
 
 
-def _to_cells_payload(cells: dict[str, dict[str, Decimal]]) -> MatrixCells:
+def _forecast_years(today: date) -> list[int]:
+    """Jahre, die über den Prognosehorizont erreichbar sind (laufendes und Folgejahr)."""
+    return list(range(today.year, index_to_year_month(horizon_end_index(today))[0] + 1))
+
+
+def _empty_flags() -> dict[str, bool]:
+    return {key: False for key in ["year_total", *MONTH_KEYS]}
+
+
+def _to_cells_payload(
+    cells: dict[str, dict[str, Decimal]],
+    flags: dict[str, bool] | None = None,
+) -> MatrixCells:
+    marks = flags or _empty_flags()
+
+    def cell(key: str) -> MatrixCell:
+        return MatrixCell(
+            gross=_as_money(cells[key]["gross"]),
+            net=_as_money(cells[key]["net"]),
+            is_forecast=marks[key],
+        )
+
     return MatrixCells(
-        year_total=MatrixCell(gross=_as_money(cells["year_total"]["gross"]), net=_as_money(cells["year_total"]["net"])),
-        jan=MatrixCell(gross=_as_money(cells["jan"]["gross"]), net=_as_money(cells["jan"]["net"])),
-        feb=MatrixCell(gross=_as_money(cells["feb"]["gross"]), net=_as_money(cells["feb"]["net"])),
-        mar=MatrixCell(gross=_as_money(cells["mar"]["gross"]), net=_as_money(cells["mar"]["net"])),
-        apr=MatrixCell(gross=_as_money(cells["apr"]["gross"]), net=_as_money(cells["apr"]["net"])),
-        may=MatrixCell(gross=_as_money(cells["may"]["gross"]), net=_as_money(cells["may"]["net"])),
-        jun=MatrixCell(gross=_as_money(cells["jun"]["gross"]), net=_as_money(cells["jun"]["net"])),
-        jul=MatrixCell(gross=_as_money(cells["jul"]["gross"]), net=_as_money(cells["jul"]["net"])),
-        aug=MatrixCell(gross=_as_money(cells["aug"]["gross"]), net=_as_money(cells["aug"]["net"])),
-        sep=MatrixCell(gross=_as_money(cells["sep"]["gross"]), net=_as_money(cells["sep"]["net"])),
-        oct=MatrixCell(gross=_as_money(cells["oct"]["gross"]), net=_as_money(cells["oct"]["net"])),
-        nov=MatrixCell(gross=_as_money(cells["nov"]["gross"]), net=_as_money(cells["nov"]["net"])),
-        dec=MatrixCell(gross=_as_money(cells["dec"]["gross"]), net=_as_money(cells["dec"]["net"])),
+        year_total=cell("year_total"),
+        jan=cell("jan"),
+        feb=cell("feb"),
+        mar=cell("mar"),
+        apr=cell("apr"),
+        may=cell("may"),
+        jun=cell("jun"),
+        jul=cell("jul"),
+        aug=cell("aug"),
+        sep=cell("sep"),
+        oct=cell("oct"),
+        nov=cell("nov"),
+        dec=cell("dec"),
     )
-
-
-def _section_for_service(service: Service) -> ServiceGroupSection | None:
-    if service.erfolgsneutral:
-        return ServiceGroupSection.neutral
-    if service.service_type == ServiceType.customer.value:
-        return ServiceGroupSection.income
-    if service.service_type in {
-        ServiceType.supplier.value,
-        ServiceType.authority.value,
-        ServiceType.shareholder.value,
-        ServiceType.employee.value,
-    }:
-        return ServiceGroupSection.expense
-    return None
 
 
 def _month_key_from_valuta_date(valuta_date: str) -> str | None:
@@ -110,8 +125,10 @@ def _month_key_from_valuta_date(valuta_date: str) -> str | None:
 
 
 class JournalService:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, *, today: date | None = None) -> None:
         self._session = session
+        # Injizierbar, damit Prognosetests nicht von der Systemuhr abhängen.
+        self._today = today or date.today()
 
     # ─── List lines ──────────────────────────────────────────────────────────
 
@@ -309,7 +326,7 @@ class JournalService:
             account_ids_filter = mandant_account_ids
 
         if not account_ids_filter:
-            return JournalYearsResponse(years=[])
+            return JournalYearsResponse(years=[], forecast_years=_forecast_years(self._today))
 
         years_query = (
             select(func.substr(JournalLine.valuta_date, 1, 4).label("year"))
@@ -325,12 +342,225 @@ class JournalService:
                 years.append(int(str(row)))
             except (TypeError, ValueError):
                 continue
-        return JournalYearsResponse(years=years)
+        return JournalYearsResponse(years=years, forecast_years=_forecast_years(self._today))
+
+    # ─── Kontosalden ─────────────────────────────────────────────────────────
+
+    async def get_account_balances(self, mandant_id: UUID) -> AccountBalancesResponse:
+        """Aktueller Kontostand je Konto: Startsaldo + Summe der importierten Buchungen.
+
+        Gerechnet wird nur mit Buchungen in Kontowährung; abweichende Währungen werden
+        gezählt statt addiert. Stichtag ist das jüngste einbezogene Valutadatum.
+        """
+        accounts = (
+            await self._session.exec(
+                select(Account).where(Account.mandant_id == mandant_id).order_by(Account.name)
+            )
+        ).all()
+        if not accounts:
+            return AccountBalancesResponse(accounts=[], totals=[])
+
+        aggregates = (
+            await self._session.exec(
+                select(
+                    JournalLine.account_id,
+                    JournalLine.currency,
+                    func.sum(JournalLine.amount),
+                    func.count(JournalLine.id),
+                    func.max(JournalLine.valuta_date),
+                )
+                .where(col(JournalLine.account_id).in_([account.id for account in accounts]))
+                .group_by(col(JournalLine.account_id), col(JournalLine.currency))
+            )
+        ).all()
+
+        by_account: dict[UUID, dict[str, tuple[Decimal, int, str | None]]] = {}
+        for account_id, currency, amount_sum, line_count, last_date in aggregates:
+            by_account.setdefault(account_id, {})[currency] = (
+                Decimal(str(amount_sum or 0)),
+                int(line_count or 0),
+                last_date,
+            )
+
+        rows: list[AccountBalanceRow] = []
+        totals: dict[str, dict[str, Decimal | int]] = {}
+        for account in accounts:
+            currency = account.currency
+            per_currency = by_account.get(account.id, {})
+            booked, line_count, last_date = per_currency.get(currency, (_ZERO, 0, None))
+            foreign_count = sum(
+                count for other, (_, count, _) in per_currency.items() if other != currency
+            )
+            opening = Decimal(str(account.opening_balance or 0))
+            current = opening + booked
+
+            rows.append(
+                AccountBalanceRow(
+                    account_id=account.id,
+                    account_name=account.name,
+                    iban=account.iban,
+                    currency=currency,
+                    is_active=account.is_active,
+                    opening_balance=_as_money(opening),
+                    booked_amount=_as_money(booked),
+                    current_balance=_as_money(current),
+                    line_count=line_count,
+                    last_booking_date=last_date,
+                    foreign_currency_line_count=foreign_count,
+                )
+            )
+
+            total = totals.setdefault(
+                currency,
+                {"account_count": 0, "opening": _ZERO, "booked": _ZERO},
+            )
+            total["account_count"] = int(total["account_count"]) + 1
+            total["opening"] = Decimal(total["opening"]) + opening
+            total["booked"] = Decimal(total["booked"]) + booked
+
+        return AccountBalancesResponse(
+            accounts=rows,
+            totals=[
+                AccountBalanceTotal(
+                    currency=currency,
+                    account_count=int(total["account_count"]),
+                    opening_balance=_as_money(Decimal(total["opening"])),
+                    booked_amount=_as_money(Decimal(total["booked"])),
+                    current_balance=_as_money(Decimal(total["opening"]) + Decimal(total["booked"])),
+                )
+                for currency, total in sorted(totals.items())
+            ],
+        )
+
+    # ─── Liquiditätsvorschau ─────────────────────────────────────────────────
+
+    async def get_liquidity(
+        self,
+        mandant_id: UUID,
+        scenario: Scenario = Scenario.expected,
+    ) -> LiquidityResponse:
+        """Kumulierter Kontostand vom laufenden Monat bis zum Ende des Prognosehorizonts.
+
+        Startpunkt ist der aktuelle Kontostand aller Konten in Basiswährung; von dort an
+        werden die Monatsprognosen aufaddiert. Für den laufenden Monat zählt nur, was über
+        die bereits gebuchten Beträge hinaus erwartet wird.
+        """
+        base_currency = "EUR"
+        balances = await self.get_account_balances(mandant_id)
+
+        total = next((entry for entry in balances.totals if entry.currency == base_currency), None)
+        start_balance = Decimal(total.current_balance) if total is not None else _ZERO
+        booking_dates = [
+            row.last_booking_date
+            for row in balances.accounts
+            if row.currency == base_currency and row.last_booking_date
+        ]
+
+        forecast_svc = ForecastService(self._session, today=self._today)
+        context = await forecast_svc.build_context(mandant_id, scenario=scenario)
+
+        # Das Unsicherheitsband und die Szenarien beantworten dieselbe Frage auf zwei
+        # Arten und dürfen sich nicht überlagern: Ein Szenario verschiebt jede einzelne
+        # Zelle um ihren gemessenen Fehler — das ist ein Stresstest, bei dem alle Regeln
+        # gleichzeitig danebenliegen. Das Band rechnet dieselben Fehler zusammen, geht
+        # dabei aber von unabhängigen Regeln aus. Beides übereinander wäre doppelt
+        # gezählt, deshalb gibt es das Band nur zum Erwartungswert.
+        with_band = scenario is Scenario.expected
+        spreads = {
+            service_id: effective.spread_used
+            for service_id, effective in context.rules.items()
+        }
+        # Über die Zeit ist der Fehler einer Regel voll korreliert: Ein zu hoch
+        # angesetzter Monatsbetrag ist jeden Monat zu hoch. Über Leistungen hinweg ist er
+        # es nur teilweise — deshalb je Leistung aufsummieren und erst dann über
+        # combined_uncertainty() zusammenfassen.
+        cumulative_abs: dict[UUID, Decimal] = {}
+        # Was gar keine Regel hat, trägt zur Prognose nichts bei — zur Unsicherheit sehr
+        # wohl: Diese Buchungen bewegen den Kontostand trotzdem.
+        uncovered_per_month = (
+            await forecast_svc.uncovered_average_per_month(mandant_id, context)
+            if with_band
+            else _ZERO
+        )
+
+        months: list[LiquidityMonth] = []
+        running = start_balance
+        lowest = start_balance
+        lowest_period: str | None = None
+        lowest_low = start_balance
+
+        for index in range(context.first_forecast_index, context.horizon_end_index + 1):
+            inflow = _ZERO
+            outflow = _ZERO
+            for service_id in context.services:
+                value = context.forecast_value(service_id, index)
+                if value > _ZERO:
+                    inflow += value
+                elif value < _ZERO:
+                    outflow += value
+                # Planposten sind bekannte Beträge und tragen keine Unsicherheit.
+                if with_band and value != _ZERO and index not in context.planned.get(
+                    service_id, {}
+                ):
+                    cumulative_abs[service_id] = cumulative_abs.get(service_id, _ZERO) + abs(
+                        value
+                    )
+
+            opening = running
+            net = inflow + outflow
+            running = opening + net
+            year, month = index_to_year_month(index)
+            period = f"{year:04d}-{month:02d}"
+
+            uncertainty = _ZERO
+            if with_band:
+                deviations = [
+                    spreads.get(service_id, _ZERO) * total
+                    for service_id, total in cumulative_abs.items()
+                ]
+                elapsed = index - context.first_forecast_index + 1
+                deviations.append(abs(uncovered_per_month) * Decimal(elapsed))
+                uncertainty = combined_uncertainty(deviations)
+
+            if running < lowest:
+                lowest = running
+                lowest_period = period
+            lowest_low = min(lowest_low, running - uncertainty)
+
+            months.append(
+                LiquidityMonth(
+                    period=period,
+                    opening_balance=_as_money(opening),
+                    inflow=_as_money(inflow),
+                    outflow=_as_money(outflow),
+                    net=_as_money(net),
+                    closing_balance=_as_money(running),
+                    closing_low=_as_money(running - uncertainty),
+                    closing_high=_as_money(running + uncertainty),
+                )
+            )
+
+        return LiquidityResponse(
+            currency=base_currency,
+            scenario=scenario.value,
+            start_balance=_as_money(start_balance),
+            as_of=max(booking_dates) if booking_dates else None,
+            months=months,
+            lowest_balance=_as_money(lowest),
+            lowest_period=lowest_period,
+            lowest_balance_low=_as_money(lowest_low),
+            uncovered_average_per_month=_as_money(
+                uncovered_per_month
+                if with_band
+                else await forecast_svc.uncovered_average_per_month(mandant_id, context)
+            ),
+        )
 
     async def get_income_expense_matrix(
         self,
         mandant_id: UUID,
         year: int,
+        scenario: Scenario = Scenario.expected,
     ) -> IncomeExpenseMatrixResponse:
         base_currency = "EUR"
 
@@ -349,7 +579,7 @@ class JournalService:
         service_section: dict[UUID, ServiceGroupSection] = {}
         service_partner_name: dict[UUID, str | None] = {}
         for service, partner in service_rows:
-            section = _section_for_service(service)
+            section = section_for_service(service)
             if section is None:
                 continue
             grouped_services[service.id] = service
@@ -390,6 +620,15 @@ class JournalService:
                 )
             ).all()
             assignment_by_service = {assignment.service_id: assignment for assignment in assignments}
+
+        # Prognose nur laden, wenn das Jahr überhaupt in der Zukunft liegen kann.
+        forecast_svc = ForecastService(self._session, today=self._today)
+        today = self._today
+        forecast_context = None
+        first_forecast_month: int | None = None
+        if year >= today.year and year <= index_to_year_month(horizon_end_index(today))[0]:
+            forecast_context = await forecast_svc.build_context(mandant_id, scenario=scenario)
+            first_forecast_month = today.month if year == today.year else 1
 
         # Aggregation: gross per service and month in base currency.
         account_ids_res = await self._session.exec(select(Account.id).where(Account.mandant_id == mandant_id))
@@ -484,8 +723,10 @@ class JournalService:
             section_groups = groups_by_section[section]
             group_rows: list[IncomeExpenseGroupRow] = []
             section_totals = _empty_cells()
+            section_flags = _empty_flags()
             for group in section_groups:
                 subtotal = _empty_cells()
+                subtotal_flags = _empty_flags()
                 services_in_group: list[IncomeExpenseServiceRow] = []
 
                 assigned_service_ids = [
@@ -506,11 +747,23 @@ class JournalService:
                         continue
 
                     service_cells = _empty_cells()
+                    service_flags = _empty_flags()
                     monthly_gross = gross_by_service_month.get(service_id, {})
-                    for month_key in MONTH_KEYS:
+                    for month_number, month_key in enumerate(MONTH_KEYS, start=1):
                         gross_value = monthly_gross.get(month_key, Decimal("0"))
+                        if forecast_context is not None:
+                            index = month_index(year, month_number)
+                            gross_value += forecast_context.forecast_value(service_id, index)
+                            # Künftige Monate sind immer Prognose — auch dann, wenn mangels
+                            # Historie keine Zahl entsteht. Der laufende Monat nur insoweit,
+                            # als noch etwas zum Gebuchten hinzukommt.
+                            if index > forecast_context.first_forecast_index:
+                                service_flags[month_key] = index <= forecast_context.horizon_end_index
+                            elif index == forecast_context.first_forecast_index:
+                                service_flags[month_key] = gross_value != monthly_gross.get(month_key, Decimal("0"))
                         service_cells[month_key]["gross"] = gross_value
                         service_cells["year_total"]["gross"] += gross_value
+                        service_flags["year_total"] = service_flags["year_total"] or service_flags[month_key]
 
                     tax_rate = Decimal(str(service.tax_rate))
                     divisor = Decimal("1") + (tax_rate / Decimal("100"))
@@ -520,10 +773,13 @@ class JournalService:
 
                         subtotal[cell_key]["gross"] += service_cells[cell_key]["gross"]
                         subtotal[cell_key]["net"] += service_cells[cell_key]["net"]
+                        subtotal_flags[cell_key] = subtotal_flags[cell_key] or service_flags[cell_key]
 
                         section_totals[cell_key]["gross"] += service_cells[cell_key]["gross"]
                         section_totals[cell_key]["net"] += service_cells[cell_key]["net"]
+                        section_flags[cell_key] = section_flags[cell_key] or service_flags[cell_key]
 
+                    effective = forecast_context.rules.get(service_id) if forecast_context else None
                     services_in_group.append(
                         IncomeExpenseServiceRow(
                             service_id=service.id,
@@ -532,7 +788,15 @@ class JournalService:
                             partner_name=service_partner_name.get(service.id),
                             service_type=service.service_type,
                             erfolgsneutral=service.erfolgsneutral,
-                            cells=_to_cells_payload(service_cells),
+                            cells=_to_cells_payload(service_cells, service_flags),
+                            forecast_rule=effective.rule.rule_type.value if effective else None,
+                            forecast_mode=effective.mode.value if effective else None,
+                            forecast_confidence=(
+                                effective.rule.confidence.value
+                                if effective and effective.is_active
+                                else None
+                            ),
+                            forecast_reason=effective.reason if effective else None,
                         )
                     )
 
@@ -544,7 +808,7 @@ class JournalService:
                         collapsed=False,
                         assigned_service_count=len(assigned_service_ids),
                         active_years=active_years_in_group,
-                        subtotal_cells=_to_cells_payload(subtotal),
+                        subtotal_cells=_to_cells_payload(subtotal, subtotal_flags),
                         services=services_in_group,
                     )
                 )
@@ -554,13 +818,14 @@ class JournalService:
                 excluded_currency_count=excluded_count_by_section[section],
                 excluded_currency_amount_gross=_as_money(excluded_amount_by_section[section]),
                 groups=group_rows,
-                totals=_to_cells_payload(section_totals),
+                totals=_to_cells_payload(section_totals, section_flags),
             )
 
         return IncomeExpenseMatrixResponse(
             year=year,
             base_currency=base_currency,
             sections=section_payload,
+            first_forecast_month=first_forecast_month,
         )
 
     # ─── Bulk-assign ─────────────────────────────────────────────────────────

@@ -102,6 +102,17 @@ export function AppLayout() {
                 </NavLink>
               )}
 
+              {hasRole(role, 'viewer') && mandantId && (
+                <NavLink
+                  to="/cashflow/forecast"
+                  className={({ isActive }) =>
+                    `${linkBase} ${isActive ? linkActive : ''}`
+                  }
+                >
+                  Prognose
+                </NavLink>
+              )}
+
               {hasRole(role, 'accountant') && (
                 <>
                   <NavLink

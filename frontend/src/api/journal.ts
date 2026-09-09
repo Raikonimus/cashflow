@@ -1,4 +1,5 @@
 import { apiClient } from './client'
+import type { Scenario } from './forecast'
 
 export interface JournalLineSplit {
   service_id: string
@@ -39,6 +40,8 @@ export interface PaginatedJournalLines {
 
 export interface JournalYearsResponse {
   years: number[]
+  /** Jahre, die über die Prognose erreichbar sind (laufendes Jahr bis Ende des Horizonts). */
+  forecast_years?: number[]
 }
 
 export interface JournalFilter {
@@ -79,6 +82,8 @@ export interface PaginatedAuditLog {
 export interface MatrixCell {
   gross: string
   net: string
+  /** In diesen Wert ist eine Prognose eingeflossen — er wird grau dargestellt. */
+  is_forecast?: boolean
 }
 
 export interface MatrixCells {
@@ -105,6 +110,9 @@ export interface IncomeExpenseServiceRow {
   service_type: string
   erfolgsneutral: boolean
   cells: MatrixCells
+  forecast_rule?: string | null
+  forecast_confidence?: string | null
+  forecast_reason?: string | null
 }
 
 export interface IncomeExpenseGroupRow {
@@ -129,6 +137,8 @@ export interface IncomeExpenseSection {
 export interface IncomeExpenseMatrixResponse {
   year: number
   base_currency: string
+  /** Erster prognostizierte Monat (1–12) dieses Jahres; null bei reinen Ist-Jahren. */
+  first_forecast_month?: number | null
   sections: {
     income: IncomeExpenseSection
     expense: IncomeExpenseSection
@@ -185,10 +195,88 @@ export async function listAuditLog(
 export async function getIncomeExpenseMatrix(
   mandantId: string,
   year: number,
+  scenario: Scenario = 'expected',
 ): Promise<IncomeExpenseMatrixResponse> {
   const resp = await apiClient.get<IncomeExpenseMatrixResponse>(
     `/mandants/${mandantId}/reports/income-expense`,
-    { params: { year } },
+    { params: { year, scenario } },
+  )
+  return resp.data
+}
+
+// ─── Kontosalden ──────────────────────────────────────────────────────────────
+
+export interface AccountBalanceRow {
+  account_id: string
+  account_name: string
+  iban: string | null
+  currency: string
+  is_active: boolean
+  opening_balance: string
+  booked_amount: string
+  current_balance: string
+  line_count: number
+  last_booking_date: string | null
+  foreign_currency_line_count: number
+}
+
+export interface AccountBalanceTotal {
+  currency: string
+  account_count: number
+  opening_balance: string
+  booked_amount: string
+  current_balance: string
+}
+
+export interface AccountBalancesResponse {
+  accounts: AccountBalanceRow[]
+  totals: AccountBalanceTotal[]
+}
+
+export async function getAccountBalances(
+  mandantId: string,
+): Promise<AccountBalancesResponse> {
+  const resp = await apiClient.get<AccountBalancesResponse>(
+    `/mandants/${mandantId}/reports/account-balances`,
+  )
+  return resp.data
+}
+
+// ─── Liquiditätsvorschau ──────────────────────────────────────────────────────
+
+export interface LiquidityMonth {
+  period: string
+  opening_balance: string
+  inflow: string
+  outflow: string
+  net: string
+  closing_balance: string
+  /** Unsicherheitsband aus den gemessenen Prognosefehlern. Nur bei scenario='expected'
+   *  weicht es vom Endsaldo ab — bei einem Stresstest wäre es doppelt gezählt. */
+  closing_low: string
+  closing_high: string
+}
+
+export interface LiquidityResponse {
+  currency: string
+  scenario: Scenario
+  start_balance: string
+  as_of: string | null
+  months: LiquidityMonth[]
+  lowest_balance: string
+  lowest_period: string | null
+  /** Tiefster Punkt des Unsicherheitsbands — die Zahl für die Kreditlinie. */
+  lowest_balance_low: string
+  uncovered_average_per_month: string
+}
+
+export async function getLiquidity(
+  mandantId: string,
+  scenario: Scenario = 'expected',
+): Promise<LiquidityResponse> {
+  const resp = await apiClient.get<LiquidityResponse>(
+    `/mandants/${mandantId}/reports/liquidity`,
+    { params: { scenario } },
   )
   return resp.data
 }

@@ -200,7 +200,7 @@ function writeExcludedCurrencyNote(worksheet: ExcelJS.Worksheet, sheet: ExcelShe
   if (sheet.excludedCurrencyCount === 0 && Math.abs(amount) <= 0.0000001) {
     return
   }
-  const formatted = amount.toLocaleString('de-AT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const formatted = amount.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const cell = worksheet.getCell(rowIndex, LABEL_COLUMN)
   cell.value = `Ausgeschlossene Fremdwährungen: ${sheet.excludedCurrencyCount} (${formatted} ${sheet.currency})`
   cell.font = { size: 10, italic: true, color: { argb: MUTED_COLOR } }

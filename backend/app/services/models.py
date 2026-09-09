@@ -42,6 +42,25 @@ class ServiceGroupSection(str, Enum):
 BASE_SERVICE_NAME = "Basisleistung"
 
 
+def section_for_service(service: "Service") -> ServiceGroupSection | None:
+    """Abschnitt der Einnahmen-/Ausgaben-Matrix — `None` heißt: wird nicht ausgewiesen.
+
+    Interne Umbuchungen und noch nicht klassifizierte Leistungen bleiben außen vor.
+    """
+    if service.erfolgsneutral:
+        return ServiceGroupSection.neutral
+    if service.service_type == ServiceType.customer.value:
+        return ServiceGroupSection.income
+    if service.service_type in {
+        ServiceType.supplier.value,
+        ServiceType.authority.value,
+        ServiceType.shareholder.value,
+        ServiceType.employee.value,
+    }:
+        return ServiceGroupSection.expense
+    return None
+
+
 class Service(SQLModel, table=True):
     __tablename__ = "services"
     __table_args__ = (
