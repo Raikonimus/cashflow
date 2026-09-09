@@ -414,3 +414,141 @@ tragen, solange es einen Mandanten mit einer Währung gibt.
 | A2-1 | behoben |
 | A2-2 | behoben |
 | A2-3 | offen — gehört zum vorgemerkten Punkt Mandantenfähigkeit und wird mit ihm entschieden |
+
+---
+
+# Etappe 3 — Import, Matching, Review (A3)
+
+## Vorgehen
+
+Hier entstehen die Daten. Ein Fehler wirkt nicht auf eine Anzeige, sondern auf den
+Bestand — und ist später schwer bis nicht rückgängig zu machen. Die Commit-Historie
+zeigte vier `fix:`-Commits allein in diesem Bereich (Dublettenerkennung, Kopfzeilen,
+interne Matcher, allgegenwärtige Kennungen). Geprüft wurden Idempotenz,
+Transaktionsgrenzen, die Dublettenlogik, der Review-Lebenszyklus und das Audit-Log.
+
+## Was in Ordnung ist
+
+**Idempotenz hält.** Dieselbe Datei zweimal importiert ergibt denselben Bestand — mit
+Test belegt. Die Dublettenerkennung zählt seit `b169d28` Vorkommen statt Existenz und
+importiert die Differenz; zwei echte, äußerlich gleiche Buchungen desselben Tages
+kommen damit beim ersten Import beide durch, ein wiederholter Import wird vollständig
+verworfen. Die Logik ist ausführlich kommentiert und stimmt.
+
+**Der Review-Lebenszyklus hat einen sauberen Wächter.** `_get_open_or_raise` liefert
+404 bei fremden oder fehlenden Einträgen und **409, wenn der Eintrag nicht mehr offen
+ist**. Alle elf Statuswechsel führen nach `confirmed`, `adjusted` oder `rejected` —
+alle drei terminal, keine Sackgassen, keine Rückwege.
+
+**Die UNIQUE-Constraints auf `review_items` sind aus dem Import nicht erreichbar.**
+Die dort erzeugten Einträge hängen an je einer neuen Buchungszeile und lassen
+`service_id` leer.
+
+---
+
+## A3-1 — Abgelehnte Datei ließ eine bereits importierte zurück · **mittel** · behoben
+
+**Ort:** [imports/service.py:257](../backend/app/imports/service.py#L257) (`upload`)
+
+**Behauptung:** `upload()` prüfte jede Datei erst unmittelbar vor ihrer Verarbeitung.
+Jede Datei wird einzeln festgeschrieben. Kam im selben Upload nach einer gültigen CSV
+eine ungültige Datei, war die erste bereits im Bestand, während der Aufruf mit 422
+scheiterte.
+
+**Fehlerszenario:** Upload von `kontoauszug.csv` und `notizen.txt`. Antwort: **422 —
+„File 'notizen.txt' is not a CSV"**. Im Bestand: ein Importlauf mit den Zeilen aus
+`kontoauszug.csv`. Der Nutzer sieht eine Fehlermeldung und lädt beide Dateien erneut
+hoch — der zweite Versuch importiert die erste Datei ein zweites Mal, falls die
+Dublettenerkennung nicht konfiguriert ist oder nicht greift.
+
+**Behoben:** Alle Dateien werden geprüft, bevor die erste verarbeitet wird.
+
+---
+
+## A3-2 — Ein Zeilenfehler verwarf alle vorherigen Zeilen des Laufs · **hoch** · behoben
+
+**Ort:** [imports/service.py:740](../backend/app/imports/service.py#L740)
+
+**Behauptung:** Beim Einfügen einer Buchungszeile fing der Code `IntegrityError` ab,
+zählte die Zeile als Dublette und lief weiter — rief dazu aber `session.rollback()`.
+Das nimmt die **gesamte** Transaktion zurück, nicht die eine Zeile: alle bereits
+eingefügten Buchungszeilen dieses Laufs, den Importlauf selbst und die
+Partnerzuordnungen. Die Zähler im Speicher blieben davon unberührt, sodass der Lauf am
+Ende Zeilen meldete, die es nicht mehr gab.
+
+**Fehlerszenario:** Drei Zeilen, die zweite scheitert.
+
+```
+Der Lauf meldet 2 importierte Zeilen, in der Datenbank liegt 1.
+```
+
+Zeile 1 war weg, Zeile 3 überlebte, der Lauf galt als erfolgreich. Ein zweiter,
+sichtbarer Nebeneffekt: Das `rollback()` entwertet auch die Objekte des Aufrufers,
+sodass anschließende Attributzugriffe im selben Request ins Leere laufen.
+
+**Erreichbarkeit:** Auf `journal_lines` gibt es keinen Unique-Constraint, aus der
+Buchungszeile selbst kann der Fehler also nicht kommen. Erreichbar ist er über die
+Partnerzuordnung im selben Flush: `partner_ibans.iban` ist global eindeutig (ADR-008).
+Registrieren zwei gleichzeitig laufende Importe dieselbe neue IBAN, gewinnt einer und
+der andere verliert seinen bisherigen Lauf. Selten — und genau deshalb hätte es
+niemand bemerkt.
+
+**Behoben:** Ein Savepoint um das Einfügen der Zeile statt eines Transaktions-Rollbacks.
+Zwei Feinheiten, die dazugehören und die der Test erzwungen hat:
+
+* Das `session.add(line)` gehört **in** den Savepoint. `begin_nested()` schreibt
+  Ausstehendes vorher weg, und was vor dem Savepoint geschrieben wurde, nimmt sein
+  Zurücknehmen nicht mit.
+* Danach braucht es kein `expunge`: Das Zurücknehmen des Savepoints entfernt die Zeile
+  bereits aus der Session.
+
+**Test:** [tests/imports/test_import_fehlerpfade.py](../backend/tests/imports/test_import_fehlerpfade.py) —
+schleust einen `IntegrityError` in den Savepoint der zweiten Zeile ein und prüft, dass
+die gemeldete Zahl mit dem Bestand übereinstimmt. Dazu der Idempotenz-Test und der
+Test zu A3-1.
+
+---
+
+## A3-3 — Abgebrochene Importe hinterlassen keinen Audit-Eintrag · **niedrig** · offen
+
+**Ort:** [imports/service.py:270](../backend/app/imports/service.py#L270) (`_process_file`)
+
+ADR-017 hält fest, dass `import.completed` und `import.failed` ins Audit-Log
+geschrieben werden. Der Eintrag entsteht am Ende von `_process_file`. Bricht die
+Verarbeitung vorher ab — unlesbare Kodierung, fehlende Vergleichsspalte,
+Datenbankfehler —, gibt es keinen `try`/`except`: kein Audit-Eintrag, und der
+Importlauf selbst wird beim Schließen der Session mit zurückgerollt.
+
+`status = failed` wird nur gesetzt, wenn die Datei **lesbar** war und jede Zeile einen
+Parse-Fehler hatte. Der eigentliche Fehlschlag ist der, der nicht protokolliert wird.
+
+**Kein Datenschaden**, aber die Aussage der ADR stimmt nur für den halben Fehlerraum.
+
+---
+
+## A3-4 — Ohne Vergleichsspalten keine Dublettenerkennung · **niedrig** · latent
+
+**Ort:** [imports/service.py:781](../backend/app/imports/service.py#L781)
+(`_validate_duplicate_check_columns`)
+
+Sind in der Spaltenkonfiguration keine Spalten mit `duplicate_check` markiert, kehrt
+die Prüfung ohne Beanstandung zurück und die Dublettenerkennung entfällt vollständig.
+Ein versehentlich wiederholter Import verdoppelt dann jede Buchung, ohne Hinweis.
+
+**Heute nicht erreichbar:** Beide Konten haben Vergleichsspalten konfiguriert (12 bzw.
+8). Die Falle steht für das nächste Konto bereit.
+
+Beiläufig aufgefallen: Bei einem Konto steht `Buchungsdatum` zweimal in der Liste der
+Vergleichsspalten. Folgenlos für den Vergleich, aber ein Hinweis darauf, dass die
+Konfiguration keine Dubletten in sich ausschließt.
+
+---
+
+## Offen aus Etappe 3
+
+| Punkt | Stand |
+|---|---|
+| A3-1 | behoben |
+| A3-2 | behoben |
+| A3-3 | offen — Audit-Eintrag auch auf dem Ausnahmepfad schreiben? |
+| A3-4 | offen — mindestens eine Vergleichsspalte erzwingen, oder beim Import warnen? |
