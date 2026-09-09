@@ -254,13 +254,20 @@ class ImportService:
                 detail="No column mapping configured for this account",
             )
 
-        results: list[ImportRun] = []
+        # Erst alle Dateien pruefen, dann die erste verarbeiten. Frueher brach die
+        # Schleife bei der zweiten Datei ab, nachdem die erste bereits festgeschrieben
+        # war: Der Aufrufer sah einen Fehler, im Bestand lag aber ein Import. Wer
+        # daraufhin beide Dateien erneut hochlaedt, importiert die erste doppelt —
+        # sofern die Dublettenerkennung konfiguriert ist und greift.
         for file in files:
             if not self._is_csv(file):
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=f"File '{file.filename}' is not a CSV",
                 )
+
+        results: list[ImportRun] = []
+        for file in files:
             run = await self._process_file(
                 actor_id, account_id, mandant_id, file, mapping
             )
@@ -732,11 +739,20 @@ class ImportService:
                 partner_bic_raw=row.get("partner_bic_raw"),
                 unmapped_data=row.get("unmapped_data"),
             )
-            self._session.add(line)
+            # Savepoint statt rollback(): `session.rollback()` verwirft die ganze
+            # Transaktion — also auch jede zuvor in diesem Lauf eingefuegte Zeile,
+            # den Importlauf selbst und die Partnerzuordnungen. Die Schleife lief
+            # danach weiter und meldete am Ende Zeilen, die es nicht mehr gab.
             try:
-                await self._session.flush()
+                # `add` gehoert in den Savepoint: `begin_nested()` schreibt zuvor
+                # Ausstehendes weg, und was vor dem Savepoint geschrieben wurde,
+                # nimmt sein Zuruecknehmen nicht mit.
+                async with self._session.begin_nested():
+                    self._session.add(line)
+                    await self._session.flush()
             except IntegrityError:
-                await self._session.rollback()
+                # Das Zuruecknehmen des Savepoints entfernt die Zeile bereits aus
+                # der Session; alles davor bleibt bestehen.
                 skipped += 1
                 duplicates.append(
                     {
