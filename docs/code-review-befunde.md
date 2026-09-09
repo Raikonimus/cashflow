@@ -552,3 +552,147 @@ Konfiguration keine Dubletten in sich ausschließt.
 | A3-2 | behoben |
 | A3-3 | offen — Audit-Eintrag auch auf dem Ausnahmepfad schreiben? |
 | A3-4 | offen — mindestens eine Vergleichsspalte erzwingen, oder beim Import warnen? |
+
+---
+
+# Etappe 4 — Struktur und Wartbarkeit (A4)
+
+## Vorgehen
+
+Niedrigstes Sofortrisiko, aber es bestimmt, wie teuer jede künftige Änderung wird.
+Gemessen wurden Dateigrößen, Methodenlängen, Verschachtelungstiefe, der Importgraph
+und Duplikate. Behoben wurde, was mechanisch und risikofrei ist; für den Rest stehen
+Vorschläge, nach Nutzen sortiert.
+
+**Vorbemerkung zu den Zahlen im Konzept:** Dort standen 1.598 Zeilen für
+`services/service.py`, jetzt sind es 1.922. Das ist Black, nicht Wachstum — die
+Konzeptzahlen wurden vor der Formatierung erhoben.
+
+## Was in Ordnung ist
+
+**Die großen Dateien sind lang, aber zerlegt.** `services/service.py` hat 1.922 Zeilen
+auf 68 Methoden — im Mittel 28 Zeilen. Nur vier Methoden überschreiten 80 Zeilen. Das
+ist keine Verhedderung, sondern ein umfangreiches Modul.
+
+| Datei | Zeilen | Methoden | > 80 Zeilen | längste |
+|---|---:|---:|---:|---|
+| services/service.py | 1.922 | 68 | 4 | 110 |
+| review/service.py | 1.407 | 33 | 2 | 96 |
+| partners/service.py | 1.208 | 32 | 5 | 146 |
+| **journal/service.py** | **1.126** | **18** | **5** | **357** |
+| tenants/service.py | 1.070 | 41 | 3 | 100 |
+| forecast/service.py | 1.010 | 41 | 2 | 108 |
+
+**Die Frontend-Seiten sind Sammlungen, keine Monolithen.** Die vier größten enthalten
+je 5 bis 7 Komponenten — das übliche React-Seitenmuster, keine 1.600-Zeilen-Komponente.
+
+**Es gibt keine Importzyklen.** Auch nicht als Rest, siehe A4-2.
+
+---
+
+## A4-1 — 16 funktionslokale Importe, kein einziger nötig · behoben
+
+**Behauptung:** 22 Importe standen in Funktionsrümpfen statt am Modulkopf — das
+übliche Zeichen für umgangene Importzyklen. Allein 18 davon in `partners/service.py`.
+
+Nachgerechnet über den Importgraphen: **Für keinen einzigen hätte ein Import am
+Modulkopf einen Zyklus erzeugt.** Die Umgehung löste ein Problem, das es nicht gab.
+
+**Warum das zählt:** Ein Import im Funktionsrumpf verbirgt die Abhängigkeit vor jedem
+Werkzeug — Linter, Typprüfer und Importgraph sehen sie nicht. Zwei der `F821`-Meldungen
+aus Etappe 0 hingen genau daran.
+
+**Behoben:** 16 Importe an den Modulkopf gezogen, in fünf Modulen. Übrig bleiben sechs
+in CLI-Skripten, die bewusst spät laden.
+
+---
+
+## A4-2 — Zeichensatz- und Trennzeichenerkennung dreifach kopiert · behoben
+
+**Ort:** vormals `imports/service.py`, `tenants/router.py`,
+`scripts/backfill_booking_references.py`
+
+`_detect_encoding` und `_detect_delimiter` lagen wortgleich in zwei Modulen und in
+einer Variante im Skript. Am Dateneingang ist das die unangenehmste Stelle für eine
+Kopie: Erkennt die Heuristik den Zeichensatz einer Bank falsch, korrigiert man eine
+Fassung und die anderen behalten den Fehler.
+
+**Behoben:** [imports/csv_format.py](../backend/app/imports/csv_format.py) als
+gemeinsame Quelle, alle drei Aufrufstellen umgestellt.
+
+---
+
+## A4-3 — Komponenten im Render definiert · behoben
+
+**Ort:** vormals `JournalPage.tsx` (`SortIcon`, 6 Verwendungen),
+`PartnerDetailPage.tsx` (`SortTh`, 2 Verwendungen)
+
+Beide waren zustandslose Render-Helfer, die als Komponente geschrieben wurden. React
+sieht bei jedem Durchlauf einen neuen Komponententyp und hängt sie neu ein. Bei
+zustandslosen `<span>`- und `<th>`-Elementen bleibt das folgenlos — es ist ein
+Idiomfehler, kein sichtbarer Defekt. Der Umbau auf einen Funktionsaufruf ist
+mechanisch und risikofrei.
+
+**Behoben.** Die gedeckelten ESLint-Warnungen sinken damit von 21 auf 13; Deckel und
+Regeleintrag sind mitgezogen.
+
+---
+
+## A4-4 — Eine Methode mit 357 Zeilen und Verschachtelungstiefe 7 · **offen, Vorschlag**
+
+**Ort:** [journal/service.py:615](../backend/app/journal/service.py#L615)
+(`get_income_expense_matrix`)
+
+Der einzige echte Ausreißer im Backend. Zum Vergleich die nächstschlimmsten Stellen:
+
+| Ort | Tiefe | Zeilen |
+|---|---:|---:|
+| **journal/service.py `get_income_expense_matrix`** | **7** | **357** |
+| tenants/service.py `execute_cleanup` | 6 | 43 |
+| partners/service.py `list_partners` | 5 | 146 |
+| imports/service.py `_bulk_insert_with_matching` | 3 | 175 |
+
+Die Methode trägt das Laden der Daten, den Währungsausschluss, die Prognose-Einbindung
+und den Aufbau der Matrix über vier verschachtelte Ebenen (Bereich → Gruppe → Leistung
+→ Monat). **Der Befund A2-1 saß genau hier** — und war beim Lesen nur deshalb zu
+finden, weil danach gezielt gesucht wurde.
+
+**Vorschlag mit konkretem Trennpunkt:** Der Rumpf zerfällt sauber in zwei Phasen. Bis
+Zeile 811 wird geladen und aufbereitet, ab Zeile 812 folgt eine einzelne
+`for section`-Schleife von 153 Zeilen, die die Ausgabe zusammensetzt. Zwei Methoden
+entlang dieser Naht — Laden, dann Zusammensetzen — halbieren die Länge und nehmen
+zwei Ebenen Verschachtelung heraus.
+
+**Empfehlung: nicht jetzt.** Ein Umbau ohne funktionalen Nutzen an der am tiefsten
+verschachtelten Stelle des Systems ist genau die Sorte Änderung, bei der Fehler
+entstehen. Der richtige Zeitpunkt ist der nächste, an dem jemand diese Methode
+ohnehin anfassen muss — dann trägt der Umbau sich selbst.
+
+---
+
+## A4-5 — Die Frontend-Struktur folgt dem eigenen Standard nicht · **offen, Entscheidung**
+
+`memory-bank/standards/coding-standards.md` fordert `src/features/*` und
+`src/shared/*`; tatsächlich sind es `src/pages/*` und `src/components/*` — layer-based
+statt feature-based.
+
+Beides sind gängige Muster, und die vorhandene Struktur funktioniert. Der Befund ist
+nicht „falsch gebaut", sondern **das Dokument beschreibt etwas anderes als der Code**.
+Ein Standard, dem der Code nicht folgt, ist schlimmer als keiner: Beim nächsten neuen
+Bereich hängt die Antwort davon ab, wer gerade schreibt.
+
+**Empfehlung: den Standard anpassen**, nicht 54 Dateien umziehen. Ein Umbau hätte kein
+Ziel außer Regelkonformität.
+
+---
+
+## Offen aus Etappe 4
+
+| Punkt | Stand |
+|---|---|
+| A4-1 | behoben |
+| A4-2 | behoben |
+| A4-3 | behoben |
+| A4-4 | offen — Vorschlag liegt vor, Empfehlung ist Aufschub bis zur nächsten Änderung an der Methode |
+| A4-5 | offen — Entscheidung: Standard anpassen (Empfehlung) oder Code umziehen |
+| ESLint-Rest | 13 Warnungen: 5× react-refresh, 3× no-explicit-any, 3× exhaustive-deps, 2× set-state-in-effect. Die letzten fünf ändern Verhalten. |
