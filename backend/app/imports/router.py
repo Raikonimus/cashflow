@@ -51,7 +51,7 @@ async def list_import_runs(
     _access: None = Depends(require_mandant_access),
     svc: ImportService = Depends(_import_svc),
 ) -> PaginatedImportRunsResponse:
-    items, total = await svc.list_runs(account_id, page=page, size=size)
+    items, total = await svc.list_runs(account_id, mandant_id, page=page, size=size)
     pages = math.ceil(total / size) if total > 0 else 1
     return PaginatedImportRunsResponse(
         items=[ImportRunListItem.model_validate(r) for r in items],
@@ -71,5 +71,5 @@ async def get_import_run(
     _access: None = Depends(require_mandant_access),
     svc: ImportService = Depends(_import_svc),
 ) -> ImportRunDetailResponse:
-    run = await svc.get_run(run_id, account_id)
+    run = await svc.get_run(run_id, account_id, mandant_id)
     return ImportRunDetailResponse.model_validate(run)

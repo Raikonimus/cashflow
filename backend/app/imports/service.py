@@ -218,6 +218,20 @@ class ImportService:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    async def _require_account(self, account_id: UUID, mandant_id: UUID) -> Account:
+        """Stellt sicher, dass das Konto zum Mandanten des Pfades gehoert.
+
+        `require_mandant_access` prueft nur die `mandant_id`; die `account_id` im selben
+        Pfad bleibt ungeprueft. Ohne diesen Aufruf liefert ein Endpunkt mit eigener
+        `mandant_id` und fremder `account_id` fremde Daten aus.
+
+        404 statt 403, damit die Existenz fremder Konten nicht verraten wird.
+        """
+        account = await self._session.get(Account, account_id)
+        if account is None or account.mandant_id != mandant_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+        return account
+
     async def upload(
         self,
         actor_id: UUID,
@@ -225,10 +239,7 @@ class ImportService:
         mandant_id: UUID,
         files: list[UploadFile],
     ) -> list[ImportRun]:
-        # Verify account belongs to mandant
-        account = await self._session.get(Account, account_id)
-        if account is None or account.mandant_id != mandant_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+        account = await self._require_account(account_id, mandant_id)
 
         # Load column mapping config
         mapping = await self._load_mapping(account_id)
@@ -787,24 +798,30 @@ class ImportService:
         )
         return result.first()
 
-    async def get_run(self, run_id: UUID, account_id: UUID) -> ImportRun:
+    async def get_run(self, run_id: UUID, account_id: UUID, mandant_id: UUID) -> ImportRun:
+        await self._require_account(account_id, mandant_id)
         run = await self._session.get(ImportRun, run_id)
-        if run is None or run.account_id != account_id:
+        if run is None or run.account_id != account_id or run.mandant_id != mandant_id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Import run not found")
         return run
 
     async def list_runs(
         self,
         account_id: UUID,
+        mandant_id: UUID,
         page: int = 1,
         size: int = 20,
     ) -> tuple[list[ImportRun], int]:
+        await self._require_account(account_id, mandant_id)
         size = min(size, 100)
         offset = (page - 1) * size
 
         all_ids = (
             await self._session.exec(
-                select(ImportRun.id).where(ImportRun.account_id == account_id)  # type: ignore[arg-type]
+                select(ImportRun.id).where(  # type: ignore[arg-type]
+                    ImportRun.account_id == account_id,
+                    ImportRun.mandant_id == mandant_id,
+                )
             )
         ).all()
         total = len(all_ids)
@@ -812,7 +829,10 @@ class ImportService:
         items = (
             await self._session.exec(
                 select(ImportRun)
-                .where(ImportRun.account_id == account_id)
+                .where(
+                    ImportRun.account_id == account_id,
+                    ImportRun.mandant_id == mandant_id,
+                )
                 .offset(offset)
                 .limit(size)
             )
