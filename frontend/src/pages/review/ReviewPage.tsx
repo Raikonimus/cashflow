@@ -17,14 +17,13 @@ import { listPartners } from '@/api/partners'
 import type { PartnerListItem } from '@/api/partners'
 import { listPartnerServices } from '@/api/services'
 import type { ServiceListItem } from '@/api/services'
+import { EmptyReviewState, InlineNotice } from './reviewShared'
 import {
-  EmptyReviewState,
   formatCurrency,
   formatReviewReason,
-  InlineNotice,
   reviewTypeLabels,
   serviceTypeLabels,
-} from './reviewShared'
+} from './review-labels'
 
 const outcomeLabels: Record<string, string> = {
   iban_match: 'IBAN-Treffer',

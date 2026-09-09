@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { faGear } from '@fortawesome/free-solid-svg-icons'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { useQuery } from '@tanstack/react-query'
@@ -75,9 +75,14 @@ export function AppLayout() {
 
   const settingsActive = settingsItems.some((item) => location.pathname.startsWith(item.to))
 
-  useEffect(() => {
+  // Untermenue beim Seitenwechsel schliessen. Nicht im Effekt: das setzt den
+  // Zustand nach dem Zeichnen und loest einen zweiten Durchlauf aus. Waehrend des
+  // Renderns nachgezogen, verarbeitet React beides in einem Durchgang.
+  const [letzterPfad, setLetzterPfad] = useState(location.pathname)
+  if (letzterPfad !== location.pathname) {
+    setLetzterPfad(location.pathname)
     setSettingsOpen(false)
-  }, [location.pathname])
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">

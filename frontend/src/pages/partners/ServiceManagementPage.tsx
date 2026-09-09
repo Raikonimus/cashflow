@@ -768,7 +768,9 @@ function ServiceJournalSection({
     return () => observer.disconnect()
   }, [enabled, fetchNextPage, hasNextPage, isFetchingNextPage])
 
-  const lines = data?.pages.flatMap((page) => page.items) ?? []
+  // Ohne eigenes useMemo entsteht das Array bei jedem Durchlauf neu, und das
+  // useMemo fuer yearGroups merkt sich nie etwas.
+  const lines = useMemo(() => data?.pages.flatMap((page) => page.items) ?? [], [data])
   const total = data?.pages[0]?.total ?? 0
 
   const yearGroups = useMemo(() => {
@@ -786,11 +788,15 @@ function ServiceJournalSection({
 
   const allExpanded = yearGroups.length > 0 && yearGroups.every(([year]) => expandedYears[year])
 
-  useEffect(() => {
-    if (yearGroups.length === 1) {
-      setExpandedYears({ [yearGroups[0][0]]: true })
-    }
-  }, [yearGroups.length])
+  // Ein einzelnes Jahr wird von selbst aufgeklappt. Nicht im Effekt: das setzt den
+  // Zustand nach dem Zeichnen und laesst die Liste sichtbar zusammenklappen. Der
+  // gemerkte Jahrgang verhindert, dass ein vom Nutzer zugeklapptes Jahr wieder aufgeht.
+  const einzelnesJahr = yearGroups.length === 1 ? yearGroups[0][0] : null
+  const [autoAufgeklappt, setAutoAufgeklappt] = useState<number | null>(null)
+  if (einzelnesJahr !== null && autoAufgeklappt !== einzelnesJahr) {
+    setAutoAufgeklappt(einzelnesJahr)
+    setExpandedYears({ [einzelnesJahr]: true })
+  }
 
   function toggleAllYears() {
     if (allExpanded) {

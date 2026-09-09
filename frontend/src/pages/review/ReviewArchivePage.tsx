@@ -3,14 +3,14 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useAuthStore } from '@/store/auth-store'
 import { listReviewArchive } from '@/api/review'
+import { EmptyReviewState } from './reviewShared'
 import {
-  EmptyReviewState,
   formatCurrency,
   formatReviewReason,
   reviewStatusLabels,
   reviewTypeLabels,
   serviceTypeLabels,
-} from './reviewShared'
+} from './review-labels'
 
 export function ReviewArchivePage() {
   const mandantId = useAuthStore((s) => s.user?.mandant_id ?? '')

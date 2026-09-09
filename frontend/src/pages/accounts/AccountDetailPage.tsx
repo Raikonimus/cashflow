@@ -193,9 +193,7 @@ function ExcludedIdentifiersSection({
       setError(null)
       setApplyResult(null)
     },
-    onError: (err: any) => {
-      setError(err?.response?.data?.detail ?? 'Fehler beim Speichern')
-    },
+    onError: (err) => setError(extractErrorMessage(err, 'Fehler beim Speichern')),
   })
 
   const applyMutation = useMutation({
@@ -204,9 +202,7 @@ function ExcludedIdentifiersSection({
       qc.invalidateQueries({ queryKey: ['journal'] })
       setApplyResult(data.message)
     },
-    onError: (err: any) => {
-      setError(err?.response?.data?.detail ?? 'Fehler bei der Datenbereinigung')
-    },
+    onError: (err) => setError(extractErrorMessage(err, 'Fehler bei der Datenbereinigung')),
   })
 
   const deleteMutation = useMutation({

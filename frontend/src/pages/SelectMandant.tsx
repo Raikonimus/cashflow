@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { selectMandant } from '@/api/auth'
 import { useAuthStore, type MandantInfo } from '@/store/auth-store'
@@ -7,15 +7,18 @@ export function SelectMandant() {
   const navigate = useNavigate()
   const { mandants, selectMandant: storeSelectMandant, token } = useAuthStore()
 
-  async function handleSelect(mandant: MandantInfo) {
-    try {
-      const data = await selectMandant(mandant.id)
-      storeSelectMandant(mandant, data.access_token)
-      navigate('/', { replace: true })
-    } catch {
-      // stay on page, user can retry
-    }
-  }
+  const handleSelect = useCallback(
+    async (mandant: MandantInfo) => {
+      try {
+        const data = await selectMandant(mandant.id)
+        storeSelectMandant(mandant, data.access_token)
+        navigate('/', { replace: true })
+      } catch {
+        // stay on page, user can retry
+      }
+    },
+    [navigate, storeSelectMandant],
+  )
 
   useEffect(() => {
     if (!token || mandants.length === 0) {
@@ -29,7 +32,7 @@ export function SelectMandant() {
     }
 
     void handleSelect(mandants[0])
-  }, [mandants, token])
+  }, [handleSelect, mandants, token])
 
   if (!token || mandants.length === 0) {
     return null
