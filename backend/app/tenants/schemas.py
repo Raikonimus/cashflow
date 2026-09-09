@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal, Optional
 from uuid import UUID
 
@@ -76,12 +77,14 @@ class CreateAccountRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     iban: Optional[str] = Field(default=None, max_length=34)
     currency: str = Field(default="EUR", max_length=3)
+    opening_balance: Decimal = Field(default=Decimal("0.00"))
 
 
 class UpdateAccountRequest(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=255)
     iban: Optional[str] = Field(default=None, max_length=34)
     is_active: Optional[bool] = None
+    opening_balance: Optional[Decimal] = None
 
 
 class AccountResponse(BaseModel):
@@ -90,6 +93,7 @@ class AccountResponse(BaseModel):
     name: str
     iban: Optional[str] = None
     currency: str
+    opening_balance: Decimal = Decimal("0.00")
     is_active: bool
     created_at: datetime
     updated_at: datetime

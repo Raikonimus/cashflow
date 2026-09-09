@@ -25,14 +25,8 @@ const ReviewPage = lazy(() => import('@/pages/review/ReviewPage').then((m) => ({
 const ReviewArchivePage = lazy(() => import('@/pages/review/ReviewArchivePage').then((m) => ({ default: m.ReviewArchivePage })))
 const JournalPage = lazy(() => import('@/pages/journal/JournalPage').then((m) => ({ default: m.JournalPage })))
 const IncomeExpensePage = lazy(() => import('@/pages/cashflow/IncomeExpensePage').then((m) => ({ default: m.IncomeExpensePage })))
-
-function DashboardStub() {
-  return (
-    <div className="flex min-h-screen items-center justify-center">
-      <p className="text-gray-500">Dashboard — coming soon</p>
-    </div>
-  )
-}
+const DashboardPage = lazy(() => import('@/pages/dashboard/DashboardPage').then((m) => ({ default: m.DashboardPage })))
+const ForecastPage = lazy(() => import('@/pages/forecast/ForecastPage').then((m) => ({ default: m.ForecastPage })))
 
 function PageSpinner() {
   return (
@@ -65,11 +59,12 @@ export function AppRouter() {
 
               {/* Alle übrigen Routen erfordern aktiven Mandanten-Kontext */}
               <Route element={<MandantRequiredRoute />}>
-                <Route path="/" element={<DashboardStub />} />
+                <Route path="/" element={<DashboardPage />} />
 
                 {/* Cashflow Reports — viewer+ */}
                 <Route element={<RequireRole min="viewer" />}>
                   <Route path="/cashflow/income-expense" element={<IncomeExpensePage />} />
+                  <Route path="/cashflow/forecast" element={<ForecastPage />} />
                 </Route>
 
                 {/* Accounts — accountant+ */}

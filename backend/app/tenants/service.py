@@ -399,6 +399,7 @@ class AccountService:
             name=data.name,
             iban=normalized_iban,
             currency=data.currency.upper(),
+            opening_balance=data.opening_balance,
             created_at=now,
             updated_at=now,
         )
@@ -423,6 +424,8 @@ class AccountService:
             account.iban = normalized_iban
         if data.is_active is not None:
             account.is_active = data.is_active
+        if data.opening_balance is not None:
+            account.opening_balance = data.opening_balance
 
         account.updated_at = _utcnow()
         self._session.add(account)

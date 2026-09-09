@@ -819,6 +819,66 @@ class TestServices:
         assert assigned_group.name == "Sonderkosten"
         assert assigned_group.is_default is False
 
+    async def test_manual_assignment_to_other_default_group_survives_matrix_load(self, client: AsyncClient, db_session: AsyncSession):
+        """Regressionstest: eine von Hand gewaehlte Standardgruppe ("Behörden" fuer einen
+        supplier) darf ein Matrix-Abruf nicht auf die bevorzugte Gruppe zurueckziehen."""
+        user = await create_user(db_session, "acc-manual-default-group@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, user, mandant)
+        token = await get_auth_token(client, user, mandant)
+        partner = await create_partner(client, token, mandant.id, name="Justizonline Partner")
+
+        service_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/partners/{partner['id']}/services",
+            json={"name": "Justizonline", "service_type": "supplier", "tax_rate": "20.00"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert service_resp.status_code == 201
+        service_id = service_resp.json()["id"]
+
+        # Erster Matrix-Abruf: legt die Standardgruppen an und ordnet "Lieferanten" zu.
+        first_matrix_resp = await client.get(
+            f"/api/v1/mandants/{mandant.id}/reports/income-expense",
+            params={"year": 2026},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert first_matrix_resp.status_code == 200
+
+        groups_resp = await client.get(
+            f"/api/v1/mandants/{mandant.id}/service-groups",
+            params={"section": "expense"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert groups_resp.status_code == 200
+        behoerden_group = next((g for g in groups_resp.json() if g["name"] == "Behörden"), None)
+        assert behoerden_group is not None
+        assert behoerden_group["is_default"] is True
+
+        assign_resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/services/{service_id}/group-assignment",
+            json={"service_group_id": behoerden_group["id"]},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert assign_resp.status_code == 200
+
+        matrix_resp = await client.get(
+            f"/api/v1/mandants/{mandant.id}/reports/income-expense",
+            params={"year": 2026},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert matrix_resp.status_code == 200
+
+        assignments = (
+            await db_session.exec(
+                select(ServiceGroupAssignment, ServiceGroup)
+                .join(ServiceGroup, ServiceGroup.id == ServiceGroupAssignment.service_group_id)
+                .where(ServiceGroupAssignment.mandant_id == mandant.id, ServiceGroupAssignment.service_id == UUID(service_id))
+            )
+        ).all()
+        assert len(assignments) == 1
+        _, assigned_group = assignments[0]
+        assert assigned_group.name == "Behörden"
+
     async def test_service_in_default_group_not_overwritten_by_matrix_load(self, client: AsyncClient, db_session: AsyncSession):
         """Regression test: wenn kein Gruppenname dem bevorzugten Standard entspricht,
         darf ensure_service_group_assignment eine bestehende Zuweisung in der richtigen

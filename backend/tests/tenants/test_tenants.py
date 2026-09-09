@@ -291,6 +291,58 @@ class TestAccountCRUD:
         assert body["name"] == "Girokonto"
         assert body["has_column_mapping"] is False
 
+    async def test_create_account_defaults_opening_balance_to_zero(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        accountant = await create_user(db_session, "acc@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, accountant, mandant)
+        token = await get_auth_token(client, accountant)
+        resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/accounts",
+            json={"name": "Girokonto"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 201
+        assert Decimal(resp.json()["opening_balance"]) == Decimal("0")
+
+    async def test_create_account_with_opening_balance(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        accountant = await create_user(db_session, "acc@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, accountant, mandant)
+        token = await get_auth_token(client, accountant)
+        resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/accounts",
+            json={"name": "Girokonto", "opening_balance": "1234.56"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 201
+        assert Decimal(resp.json()["opening_balance"]) == Decimal("1234.56")
+
+    async def test_update_opening_balance(self, client: AsyncClient, db_session: AsyncSession):
+        accountant = await create_user(db_session, "acc@test.com", UserRole.accountant)
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, accountant, mandant)
+        token = await get_auth_token(client, accountant)
+        headers = {"Authorization": f"Bearer {token}"}
+        created = await client.post(
+            f"/api/v1/mandants/{mandant.id}/accounts",
+            json={"name": "Girokonto"},
+            headers=headers,
+        )
+        account_id = created.json()["id"]
+
+        resp = await client.patch(
+            f"/api/v1/mandants/{mandant.id}/accounts/{account_id}",
+            json={"opening_balance": "-250.00"},
+            headers=headers,
+        )
+
+        assert resp.status_code == 200
+        assert Decimal(resp.json()["opening_balance"]) == Decimal("-250.00")
+
     async def test_iban_unique_on_create(self, client: AsyncClient, db_session: AsyncSession):
         accountant = await create_user(db_session, "acc@test.com", UserRole.accountant)
         mandant = await create_mandant(db_session)

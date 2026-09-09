@@ -49,6 +49,8 @@ class PaginatedJournalResponse(BaseModel):
 
 class JournalYearsResponse(BaseModel):
     years: list[int]
+    # Jahre, die über die Prognose erreichbar sind (laufendes Jahr bis Ende des Horizonts).
+    forecast_years: list[int] = []
 
 
 # ─── Bulk-Assign ──────────────────────────────────────────────────────────────
@@ -73,6 +75,9 @@ class BulkAssignResponse(BaseModel):
 class MatrixCell(BaseModel):
     gross: str
     net: str
+    # True, sobald in diesen Wert eine Prognose eingeflossen ist. Im laufenden Monat
+    # und in der Jahressumme kann er aus Ist und Prognose gemischt sein.
+    is_forecast: bool = False
 
 
 class MatrixCells(BaseModel):
@@ -99,6 +104,12 @@ class IncomeExpenseServiceRow(BaseModel):
     service_type: str
     erfolgsneutral: bool
     cells: MatrixCells
+    # Erkannte Prognoseregel — nur gesetzt, wenn der Zeitraum Prognosemonate enthält.
+    forecast_rule: str | None = None
+    #: 'auto' | 'manual' | 'off' — woher die Regel stammt.
+    forecast_mode: str | None = None
+    forecast_confidence: str | None = None
+    forecast_reason: str | None = None
 
 
 class IncomeExpenseGroupRow(BaseModel):
@@ -124,3 +135,65 @@ class IncomeExpenseMatrixResponse(BaseModel):
     year: int
     base_currency: str
     sections: dict[str, IncomeExpenseSection]
+    # Erster Monat (1–12) dieses Jahres, der prognostiziert wird; None bei reinen Ist-Jahren.
+    first_forecast_month: int | None = None
+
+
+# ─── Kontosalden ──────────────────────────────────────────────────────────────
+
+class AccountBalanceRow(BaseModel):
+    account_id: UUID
+    account_name: str
+    iban: Optional[str] = None
+    currency: str
+    is_active: bool
+    opening_balance: str
+    booked_amount: str
+    current_balance: str
+    line_count: int
+    last_booking_date: Optional[str] = None
+    foreign_currency_line_count: int = 0
+
+
+class AccountBalanceTotal(BaseModel):
+    currency: str
+    account_count: int
+    opening_balance: str
+    booked_amount: str
+    current_balance: str
+
+
+class AccountBalancesResponse(BaseModel):
+    accounts: list[AccountBalanceRow]
+    totals: list[AccountBalanceTotal]
+
+
+# ─── Liquidität ───────────────────────────────────────────────────────────────
+
+class LiquidityMonth(BaseModel):
+    period: str  # "YYYY-MM"
+    opening_balance: str
+    inflow: str
+    outflow: str
+    net: str
+    closing_balance: str
+    # Unsicherheitsband um den Endsaldo, aus den im Rückvergleich gemessenen Fehlern.
+    # Nur beim Szenario "expected" belegt — siehe get_liquidity().
+    closing_low: str
+    closing_high: str
+
+
+class LiquidityResponse(BaseModel):
+    currency: str
+    scenario: str = "expected"
+    start_balance: str
+    as_of: Optional[str] = None
+    months: list[LiquidityMonth]
+    lowest_balance: str
+    lowest_period: Optional[str] = None
+    # Tiefster Punkt des Unsicherheitsbands — die Zahl, an der sich eine Kreditlinie
+    # bemisst.
+    lowest_balance_low: str
+    # Monatsdurchschnitt des Volumens, das die Prognose nicht abdeckt: Buchungen ohne
+    # Leistungszuordnung plus Leistungen, für die mangels Historie keine Regel entstand.
+    uncovered_average_per_month: str

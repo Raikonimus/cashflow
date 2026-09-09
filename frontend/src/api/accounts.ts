@@ -6,6 +6,7 @@ export interface AccountListItem {
   name: string
   iban?: string | null
   currency?: string
+  opening_balance?: string
   is_active?: boolean
   has_column_mapping?: boolean
   created_at: string
@@ -15,6 +16,14 @@ export interface CreateAccountRequest {
   name: string
   iban?: string | null
   currency?: string
+  opening_balance?: string
+}
+
+export interface UpdateAccountRequest {
+  name?: string
+  iban?: string | null
+  is_active?: boolean
+  opening_balance?: string
 }
 
 // ─── Column-Mapping ───────────────────────────────────────────────────────────
@@ -62,6 +71,18 @@ export async function createAccount(
 ): Promise<AccountListItem> {
   const resp = await apiClient.post<AccountListItem>(
     `/mandants/${mandantId}/accounts`,
+    data,
+  )
+  return resp.data
+}
+
+export async function updateAccount(
+  mandantId: string,
+  accountId: string,
+  data: UpdateAccountRequest,
+): Promise<AccountListItem> {
+  const resp = await apiClient.patch<AccountListItem>(
+    `/mandants/${mandantId}/accounts/${accountId}`,
     data,
   )
   return resp.data

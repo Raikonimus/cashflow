@@ -1,4 +1,7 @@
 backend/cashflow.db
+# Leere SQLite-Dateien, die beim Start aus dem falschen Verzeichnis entstehen
+cashflow.db
+frontend/cashflow.db
 backend/.venv/
 backend/.pytest_cache/
 backend/.env

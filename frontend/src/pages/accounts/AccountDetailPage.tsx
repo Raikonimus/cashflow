@@ -2,14 +2,17 @@ import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '@/store/auth-store'
-import { listAccounts } from '@/api/accounts'
+import { listAccounts, updateAccount } from '@/api/accounts'
+import type { AccountListItem } from '@/api/accounts'
 import {
   listExcludedIdentifiers,
   addExcludedIdentifier,
   deleteExcludedIdentifier,
   applyExcludedIdentifiers,
 } from '@/api/accounts'
+import { extractErrorMessage } from '@/api/errors'
 import { MappingEditor } from './MappingEditor'
+import { formatAmountInput, parseAmountInput } from '@/lib/amount-input'
 
 export function AccountDetailPage() {
   const { accountId } = useParams<{ accountId: string }>()
@@ -57,6 +60,16 @@ export function AccountDetailPage() {
         </Link>
       </div>
 
+      <div className="mb-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <h2 className="mb-1 text-base font-semibold text-gray-800">Startsaldo</h2>
+        <p className="mb-4 text-sm text-gray-500">
+          Kontostand vor der ersten importierten Buchung. Er ist die Basis für den Kontostand im
+          Dashboard und für die Liquiditätsvorschau. 0, wenn sämtliche Buchungen des Kontos
+          importiert sind.
+        </p>
+        <OpeningBalanceSection mandantId={mandantId} account={account} />
+      </div>
+
       <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
         <h2 className="mb-4 text-base font-semibold text-gray-800">
           Spalten-Mapping
@@ -76,6 +89,76 @@ export function AccountDetailPage() {
     </div>
   )
 }
+
+function OpeningBalanceSection({
+  mandantId,
+  account,
+}: {
+  mandantId: string
+  account: AccountListItem
+}) {
+  const qc = useQueryClient()
+  const [value, setValue] = useState(() => formatAmountInput(account.opening_balance))
+  const [error, setError] = useState<string | null>(null)
+  const [saved, setSaved] = useState(false)
+
+  const mutation = useMutation({
+    mutationFn: (openingBalance: string) =>
+      updateAccount(mandantId, account.id, { opening_balance: openingBalance }),
+    onSuccess: (updated) => {
+      qc.invalidateQueries({ queryKey: ['accounts', mandantId] })
+      qc.invalidateQueries({ queryKey: ['account-balances', mandantId] })
+      setValue(formatAmountInput(updated.opening_balance))
+      setSaved(true)
+    },
+    onError: (err: unknown) => {
+      setError(extractErrorMessage(err, 'Fehler beim Speichern des Startsaldos'))
+    },
+  })
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setError(null)
+    setSaved(false)
+    const parsed = parseAmountInput(value)
+    if (parsed === null) {
+      setError('Bitte einen Betrag eingeben, z. B. 1234,56')
+      return
+    }
+    mutation.mutate(parsed)
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-3">
+      <div>
+        <label htmlFor="opening-balance" className="mb-1 block text-xs font-medium text-gray-600">
+          Betrag in {account.currency ?? 'EUR'}
+        </label>
+        <input
+          id="opening-balance"
+          type="text"
+          inputMode="decimal"
+          value={value}
+          onChange={(e) => {
+            setValue(e.target.value)
+            setSaved(false)
+          }}
+          className="w-40 rounded border border-gray-300 px-2 py-1.5 text-right text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-400"
+        />
+      </div>
+      <button
+        type="submit"
+        disabled={mutation.isPending}
+        className="rounded bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+      >
+        {mutation.isPending ? 'Wird gespeichert …' : 'Speichern'}
+      </button>
+      {saved && <span className="text-sm text-green-700">Gespeichert.</span>}
+      {error && <span className="text-sm text-red-600">{error}</span>}
+    </form>
+  )
+}
+
 
 function ExcludedIdentifiersSection({
   mandantId,

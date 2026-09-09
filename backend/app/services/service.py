@@ -232,7 +232,7 @@ class ServiceManagementService:
         if refresh_group_assignment:
             await self.ensure_default_groups(mandant_id)
             await self._session.flush()
-            await self.ensure_service_group_assignment(mandant_id, service)
+            await self.ensure_service_group_assignment(mandant_id, service, follow_preferred_group=True)
         await self._session.commit()
         await self._session.refresh(service)
         await self.detect_service_type_for_service(mandant_id, service.id)
@@ -661,6 +661,7 @@ class ServiceManagementService:
         service: Service,
         groups_by_section: dict[ServiceGroupSection, list[ServiceGroup]] | None = None,
         assignment: ServiceGroupAssignment | None = None,
+        follow_preferred_group: bool = False,
     ) -> ServiceGroupAssignment | None:
         service_section = self._determine_service_section(service)
         if service_section is None:
@@ -703,9 +704,14 @@ class ServiceManagementService:
         if current_group is not None and not current_group.is_default:
             return assignment
         if current_group is not None and current_group.section == service_section.value:
-            # Default-Gruppe in der richtigen Sektion: nur in die bevorzugte Gruppe verschieben,
-            # wenn diese explizit existiert. Gibt es keinen passenden Gruppennamen, bleibt die
-            # Zuweisung erhalten (verhindert Zurücksetzen auf section_groups[0]).
+            # Die Zuweisung sitzt bereits in der richtigen Sektion. Ein Matrix-Abruf darf sie
+            # dann nicht anfassen, sonst zieht er eine von Hand gewaehlte Standardgruppe
+            # (z. B. "Behörden" fuer einen supplier) wieder auf die bevorzugte zurueck.
+            if not follow_preferred_group:
+                return assignment
+            # Nur nach einem Typwechsel: in die bevorzugte Gruppe verschieben, wenn diese
+            # existiert. Gibt es keinen passenden Gruppennamen, bleibt die Zuweisung erhalten
+            # (verhindert Zurücksetzen auf section_groups[0]).
             preferred_name = self._preferred_default_group_name(service)
             if preferred_name is not None:
                 preferred_group = next(
@@ -869,6 +875,16 @@ class ServiceManagementService:
             touched_service_ids.add(assignment.service_id)
 
             if assignment.reason == "multiple_matches":
+                # Eine bestehende Zuordnung bleibt stehen, solange die
+                # Mehrdeutigkeit offen ist - sie kann manuell gesetzt sein.
+                # Hat die Zeile aber gar keine (etwa direkt nach
+                # prepare_lines_for_partner_change), muss sie auf die
+                # Basisleistung: sonst haengt sie in keiner Leistung, faellt
+                # aus Einnahmen & Ausgaben heraus und laesst sich mangels
+                # Zielleistung auch nicht bestaetigen.
+                if not current_service_ids:
+                    await self._replace_splits(line, [assignment.service_id], "auto")
+                    current_service_ids = {assignment.service_id}
                 await self._upsert_service_assignment_review(
                     mandant_id=partner.mandant_id,
                     journal_line_id=line.id,
