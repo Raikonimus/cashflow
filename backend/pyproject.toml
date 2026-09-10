@@ -87,7 +87,12 @@ source = ["app"]
 # Was sie nicht leistet: Coverage misst Ausfuehrung, nicht Pruefung. Eine Zeile, die
 # ein Test durchlaeuft, ohne etwas zu behaupten, zaehlt als abgedeckt. Die Quote sagt,
 # wo gar kein Test hinsieht — nicht, ob die Tests, die hinsehen, etwas taugen.
-fail_under = 68
+#
+# Gemessen wird der Branch **allein**, nicht der Arbeitsbaum. In Stufe 4 lagen dort
+# 69,97 % und auf dem Branch 69,01 — eine Ratsche auf 69 haette 0,01 Punkte Luft
+# gehabt und waere keine Ratsche gewesen, sondern eine Stolperfalle. Stand nach
+# Stufe 5: 69,25 % auf dem Branch, also 0,25 Punkte Luft bei 69.
+fail_under = 69
 precision = 2
 show_missing = false
 
