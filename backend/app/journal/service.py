@@ -1183,6 +1183,24 @@ class JournalService:
                 detail="One or more journal lines do not belong to this mandant",
             )
 
+        # Und derselbe Test fuer das ZIEL der Zuordnung. Er fehlte (Befund M16): Die
+        # Zeilen wurden geprueft, der Partner nicht — eine Buchung dieses Mandanten
+        # liess sich damit einem Partner eines *anderen* Mandanten zuordnen. Der
+        # Aufruf meldete 200, schrieb die Aenderung und protokollierte sie.
+        #
+        # Die Folgen waeren dauerhaft und lautlos gewesen: Die Buchung fehlt in den
+        # Auswertungen dieses Mandanten und taucht in denen des anderen auf, ohne
+        # dass irgendwo ein Fehler erscheint.
+        #
+        # Fehlender und fremder Partner ergeben absichtlich dieselbe Antwort — sonst
+        # waere an ihr ablesbar, welche Partner es in anderen Mandanten gibt.
+        partner = await self._session.get(Partner, partner_id)
+        if partner is None or partner.mandant_id != mandant_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Partner does not belong to this mandant",
+            )
+
         assigned = 0
         skipped = 0
         changed_lines: list[JournalLine] = []
