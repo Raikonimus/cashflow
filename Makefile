@@ -7,6 +7,7 @@
 #   make status   – Zeigt ob Prozesse laufen
 #   make logs     – Verfolgt beide Logfiles gleichzeitig
 #   make test     – Alle Tests (Backend + Frontend)
+#   make coverage – Alle Tests mit Abdeckungsmessung
 #   make migrate  – Alembic-Migrationen ausführen
 #
 
@@ -153,7 +154,22 @@ test-backend:
 .PHONY: test-frontend
 test-frontend:
 	@echo "▶   Frontend-Tests …"
-	@cd "$(FRONTEND_DIR)" && npx vitest run
+	@cd "$(FRONTEND_DIR)" && $(NPM) test
+
+# Abdeckung. Die Untergrenzen sind Ratschen und stehen in backend/pyproject.toml
+# bzw. frontend/vitest.config.ts — sie duerfen nur steigen.
+.PHONY: coverage
+coverage: coverage-backend coverage-frontend
+
+.PHONY: coverage-backend
+coverage-backend:
+	@echo "▶   Backend-Abdeckung …"
+	@cd "$(BACKEND_DIR)" && $(VENV)/bin/python -m pytest -q --cov --cov-report=term-missing
+
+.PHONY: coverage-frontend
+coverage-frontend:
+	@echo "▶   Frontend-Abdeckung …"
+	@cd "$(FRONTEND_DIR)" && $(NPM) run test:coverage
 
 # ─── Migrationen ──────────────────────────────────────────────────────────────
 

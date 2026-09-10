@@ -6,9 +6,17 @@
 name: CI
 
 on:
+  # Ohne Branch-Filter: Ein Feature-Branch wurde bisher erst geprueft, wenn ein PR
+  # aufging — bei einem Repo, das direkt auf main arbeitet, also nie vor dem Landen.
+  # Die Pruefung kam damit nach dem Risiko statt davor.
   push:
-    branches: [main]
   pull_request:
+
+# Ein PR aus demselben Repo loest sonst zweimal aus (push und pull_request). Die
+# Gruppe bricht den vorigen Lauf desselben Refs ab, statt Minuten doppelt zu zahlen.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backend:
@@ -47,8 +55,11 @@ jobs:
         # nicht durchreicht. Beide Faelle waren in Etappe 1 echte Fehler.
         run: python checks/check_tenancy.py --strict --max-offen 43
 
-      - name: Tests
-        run: pytest -q
+      - name: Tests mit Abdeckungsmessung
+        # Die Untergrenze steht in pyproject.toml unter [tool.coverage.report] und ist
+        # eine Ratsche: Sie darf nur steigen. Sie erzwingt keine Tests, verhindert aber,
+        # dass die Abdeckung unbemerkt sinkt.
+        run: pytest -q --cov --cov-report=term
 
   frontend:
     runs-on: ubuntu-latest
@@ -78,5 +89,7 @@ jobs:
       - name: TypeScript
         run: npm run typecheck
 
-      - name: Tests
-        run: npx vitest run
+      - name: Tests mit Abdeckungsmessung
+        # Grenzen stehen in vitest.config.ts unter test.coverage.thresholds — dieselbe
+        # Ratsche wie im Backend.
+        run: npm run test:coverage
