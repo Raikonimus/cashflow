@@ -49,11 +49,34 @@ jobs:
       - name: Black
         run: black --check app tests
 
-      - name: Mandantentrennung
+      - name: Mandantentrennung (statisch)
         # Bricht ab, sobald eine Query auf einer mandantengebundenen Tabelle ohne
         # Filter auftaucht oder ein Endpunkt mit zweiter Kennung die mandant_id
         # nicht durchreicht. Beide Faelle waren in Etappe 1 echte Fehler.
+        #
+        # Diese Pruefung sieht, *ob* eine mandant_id im Statement vorkommt, nicht ob
+        # es die richtige ist. Befund M16 (Stufe 3) war fuer sie deshalb unsichtbar:
+        # Die Query trug ihren Filter, was fehlte war eine Validierung. Der Schritt
+        # darunter deckt diese Klasse ab.
         run: python checks/check_tenancy.py --strict --max-offen 43
+
+      - name: Mandantentrennung (Endpunktliste)
+        # Die Buchhaltung der Stufe-4-Sonden — laeuft in unter einer Sekunde und
+        # eigens, damit ein neuer Endpunkt seinen eigenen Fehlschlag bekommt.
+        #
+        # Ohne diesen Schritt waere der stillste denkbare Fehler moeglich: Wer einen
+        # Endpunkt hinzufuegt, dem eine Kennungsquelle oder ein Rumpf fehlt, hat
+        # einfach eine Sonde weniger. Nichts wird rot, die Abdeckung bleibt, und der
+        # Endpunkt ist ungeprueft. Diese Tests machen daraus einen benannten
+        # Fehlschlag. Die 173 Angriffe selbst laufen im Testschritt darunter mit.
+        #
+        # Was dieser Schritt nicht sieht: Er fuehrt eine Datei aus, also fehlt ihm
+        # alles, was erst im Zusammenspiel auftritt. `tests/auth/test_rbac.py` haengt
+        # zum Beispiel beim Import einen eigenen Router an dasselbe `app`-Objekt —
+        # dieser Schritt bliebe gruen, der Gesamtlauf darunter wurde rot. Genau das
+        # ist beim Bauen von Stufe 4 passiert. Der schnelle benannte Fehlschlag ist
+        # das wert, solange der Gesamtlauf im selben Auftrag folgt.
+        run: pytest tests/tenancy/test_endpunktliste.py -q --no-cov
 
       - name: Tests mit Abdeckungsmessung
         # Die Untergrenze steht in pyproject.toml unter [tool.coverage.report] und ist
