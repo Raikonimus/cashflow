@@ -11,6 +11,7 @@ from app.journal.schemas import (
     SORTABLE_COLUMNS,
     AccountBalancesResponse,
     AssignServiceRequest,
+    BalanceTimelineResponse,
     BulkAssignRequest,
     BulkAssignResponse,
     IncomeExpenseMatrixResponse,
@@ -128,6 +129,22 @@ async def get_liquidity(
     svc: JournalService = Depends(_journal_svc),
 ) -> LiquidityResponse:
     return await svc.get_liquidity(mandant_id, scenario=scenario)
+
+
+@journal_router.get(
+    "/{mandant_id}/reports/balance-timeline",
+    response_model=BalanceTimelineResponse,
+    dependencies=[Depends(require_role("viewer")), Depends(require_mandant_access)],
+)
+async def get_balance_timeline(
+    mandant_id: UUID,
+    year: int = Query(ge=2000, le=2100),
+    scenario: Scenario = Query(default=Scenario.expected),
+    svc: JournalService = Depends(_journal_svc),
+) -> BalanceTimelineResponse:
+    return await svc.get_balance_timeline(
+        mandant_id=mandant_id, year=year, scenario=scenario
+    )
 
 
 @journal_router.post(

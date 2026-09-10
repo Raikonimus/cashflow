@@ -207,3 +207,26 @@ class LiquidityResponse(BaseModel):
     # Monatsdurchschnitt des Volumens, das die Prognose nicht abdeckt: Buchungen ohne
     # Leistungszuordnung plus Leistungen, für die mangels Historie keine Regel entstand.
     uncovered_average_per_month: str
+
+
+# ─── Saldo-Zeitleiste ─────────────────────────────────────────────────────────
+
+
+class BalanceTimelineMonth(BaseModel):
+    month: int  # 1–12
+    # Immer belegt: Jenseits des Prognosehorizonts steht hier der zuletzt gebuchte
+    # Stand — das Konto verändert sich ohne Buchung und ohne Regel nun einmal nicht.
+    closing_balance: str
+    is_forecast: bool = False
+
+
+class BalanceTimelineResponse(BaseModel):
+    year: int
+    currency: str
+    # Stand zum 1. Januar des Jahres, also vor der ersten Buchung.
+    opening_balance: str
+    months: list[BalanceTimelineMonth]
+    # Erster prognostizierte Monat (1–12); None bei reinen Ist-Jahren. Wird nach
+    # derselben Regel bestimmt wie in der Matrix, damit beide dieselbe Grenze ziehen.
+    first_forecast_month: int | None = None
+    as_of: str | None = None

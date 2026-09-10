@@ -23,6 +23,8 @@ from app.journal.schemas import (
     AccountBalanceRow,
     AccountBalancesResponse,
     AccountBalanceTotal,
+    BalanceTimelineMonth,
+    BalanceTimelineResponse,
     BulkAssignResponse,
     IncomeExpenseGroupRow,
     IncomeExpenseMatrixResponse,
@@ -615,6 +617,117 @@ class JournalService:
                 if with_band
                 else await forecast_svc.uncovered_average_per_month(mandant_id, context)
             ),
+        )
+
+    # ─── Saldo-Zeitleiste ────────────────────────────────────────────────────
+
+    async def get_balance_timeline(
+        self,
+        mandant_id: UUID,
+        year: int,
+        scenario: Scenario = Scenario.expected,
+    ) -> BalanceTimelineResponse:
+        """Kontostand zu jedem Monatsende eines Jahres — Ist, soweit gebucht, sonst Prognose.
+
+        Die Matrix zeigt die Flüsse eines Monats, diese Zeitleiste den Bestand, der daraus
+        entsteht. Für die Prognosemonate wird deshalb *nicht* neu gerechnet, sondern
+        get_liquidity() übernommen: Zwei Rechenwege zur selben Zahl driften auseinander,
+        sobald einer von beiden angefasst wird — und die Kurve im Dashboard käme dann auf
+        einen anderen Endsaldo als die Leiste hier.
+
+        Gerechnet wird wie in get_account_balances() nur mit Konten in Basiswährung und
+        Buchungen in Kontowährung; die Grenze zwischen Ist und Prognose folgt derselben
+        Regel wie in der Matrix.
+        """
+        base_currency = "EUR"
+        today = self._today
+
+        balances = await self.get_account_balances(mandant_id)
+        account_ids = [
+            row.account_id for row in balances.accounts if row.currency == base_currency
+        ]
+        opening_total = sum(
+            (
+                Decimal(row.opening_balance)
+                for row in balances.accounts
+                if row.currency == base_currency
+            ),
+            _ZERO,
+        )
+        booking_dates = [
+            row.last_booking_date
+            for row in balances.accounts
+            if row.currency == base_currency and row.last_booking_date
+        ]
+
+        # Alles bis Jahresende in einem Zug: was vor dem Jahr liegt, wird zum Übertrag
+        # zusammengefasst, der Rest je Monat.
+        carry_in = _ZERO
+        booked_per_month: dict[int, Decimal] = {}
+        if account_ids:
+            period_rows = (
+                await self._session.exec(
+                    select(
+                        func.substr(JournalLine.valuta_date, 1, 7).label("period"),
+                        func.sum(JournalLine.amount),
+                    )
+                    .where(
+                        col(JournalLine.account_id).in_(account_ids),
+                        JournalLine.currency == base_currency,
+                        func.substr(JournalLine.valuta_date, 1, 7) <= f"{year:04d}-12",
+                    )
+                    .group_by(text("period"))
+                )
+            ).all()
+            for period, amount_sum in period_rows:
+                value = Decimal(str(amount_sum or 0))
+                if str(period)[:4] != f"{year:04d}":
+                    carry_in += value
+                    continue
+                try:
+                    month = int(str(period)[5:7])
+                except (TypeError, ValueError):
+                    continue
+                if 1 <= month <= 12:
+                    booked_per_month[month] = booked_per_month.get(month, _ZERO) + value
+
+        # Welche Monate prognostiziert sind, wird nicht zweitgerechnet, sondern
+        # abgelesen: Ein Monat ist genau dann Prognose, wenn die Liquiditätsvorschau
+        # einen Wert dafür hat. So können Fenster und Werte nicht auseinanderlaufen.
+        # Dass diese Grenze dieselbe ist wie in der Matrix, sichert ein Test ab.
+        horizon_year = index_to_year_month(horizon_end_index(today))[0]
+        forecast_closing: dict[int, Decimal] = {}
+        if today.year <= year <= horizon_year:
+            liquidity = await self.get_liquidity(mandant_id, scenario=scenario)
+            for entry in liquidity.months:
+                if entry.period[:4] == f"{year:04d}":
+                    forecast_closing[int(entry.period[5:7])] = Decimal(
+                        entry.closing_balance
+                    )
+
+        opening = opening_total + carry_in
+        running = opening
+        months: list[BalanceTimelineMonth] = []
+        for month in range(1, 13):
+            running += booked_per_month.get(month, _ZERO)
+            forecast = forecast_closing.get(month)
+            months.append(
+                BalanceTimelineMonth(
+                    month=month,
+                    closing_balance=_as_money(
+                        forecast if forecast is not None else running
+                    ),
+                    is_forecast=forecast is not None,
+                )
+            )
+
+        return BalanceTimelineResponse(
+            year=year,
+            currency=base_currency,
+            opening_balance=_as_money(opening),
+            months=months,
+            first_forecast_month=min(forecast_closing) if forecast_closing else None,
+            as_of=max(booking_dates) if booking_dates else None,
         )
 
     async def get_income_expense_matrix(
