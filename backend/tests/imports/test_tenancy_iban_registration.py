@@ -4,6 +4,12 @@ ADR-008 legt fest, dass eine IBAN ueber alle Mandanten hinweg nur einem Partner
 gehoeren darf. Der Lookup beim Import filtert dagegen korrekt auf den eigenen
 Mandanten. Beides zusammen ergibt eine Luecke: Hat Mandant A eine IBAN registriert,
 kann der Partner von Mandant B sie nie bekommen — und wird nie per IBAN gematcht.
+
+Warum diese Datei die gemeinsame Fixture aus `tests/conftest.py` *nicht* benutzt: Dort
+bekommt jeder Mandant absichtlich eine eigene IBAN, weil dieselbe IBAN in zwei
+Mandanten nach ADR-008 ein Sonderfall ist — eben der, den diese Datei untersucht. Die
+Fixture wuerde die Ausgangslage also gerade wegnehmen. Ausserdem brauchen diese Tests
+weder Nutzer noch Token: Sie rufen den Matching-Service direkt auf, nicht die API.
 """
 
 import pytest

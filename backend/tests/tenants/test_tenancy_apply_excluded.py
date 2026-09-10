@@ -3,105 +3,68 @@
 Gleiches Muster wie bei den Import-Endpunkten: `require_mandant_access` prueft die
 `mandant_id` aus dem Pfad, nicht die `account_id`. Dieser Pfad *schreibt* — er ordnet
 Buchungszeilen neu zu. Ohne Pruefung des Kontos wuerden fremde Buchungen umgeschrieben.
+
+Die zwei Mandanten kommen seit Stufe 0 des Mandantenfaehigkeitsplans aus der
+gemeinsamen Fixture in `tests/conftest.py`; nur die ausgeschlossene Kennung legt dieser
+Test selbst an, weil sie sein eigentlicher Gegenstand ist.
 """
 
 from httpx import AsyncClient
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.auth.models import UserRole
-from app.imports.models import ImportRun, JournalLine, utcnow
-from app.partners.models import Partner, PartnerIban
-from app.tenants.models import Account, AccountExcludedIdentifier
-from tests.tenants.conftest import (  # noqa: F401
-    assign_user_to_mandant,
-    create_mandant,
-    create_user,
-    get_auth_token,
-)
+from app.imports.models import JournalLine, utcnow
+from app.tenants.models import AccountExcludedIdentifier
+from tests.conftest import AnmeldeHelfer, ZweiMandanten
 
 
-async def create_account_db(
-    session: AsyncSession, mandant_id, name: str = "Konto"
-) -> Account:
-    now = utcnow()
-    account = Account(
-        mandant_id=mandant_id, name=name, currency="EUR", created_at=now, updated_at=now
+async def _schliesse_iban_aus(
+    session: AsyncSession, konto_id, iban: str
+) -> AccountExcludedIdentifier:
+    """Markiert eine IBAN fuer ein Konto als nicht zur Partnererkennung geeignet.
+
+    Das ist die Voraussetzung dafuer, dass `apply` ueberhaupt etwas zu tun hat: Der
+    Endpunkt loest genau die Partnerzuordnungen wieder auf, die auf einer
+    ausgeschlossenen Kennung beruhen.
+    """
+    eintrag = AccountExcludedIdentifier(
+        account_id=konto_id,
+        identifier_type="iban",
+        value=iban,
+        created_at=utcnow(),
     )
-    session.add(account)
+    session.add(eintrag)
     await session.commit()
-    await session.refresh(account)
-    return account
-
-
-IBAN = "DE89370400440532013000"
+    await session.refresh(eintrag)
+    return eintrag
 
 
 async def test_fremdes_konto_kann_nicht_neu_zugeordnet_werden(
-    db_session: AsyncSession, client: AsyncClient
+    db_session: AsyncSession,
+    client: AsyncClient,
+    zwei_mandanten: ZweiMandanten,
+    anmelden: AnmeldeHelfer,
 ):
-    eigener = await create_mandant(db_session, name="Mandant A")
-    fremder = await create_mandant(db_session, name="Mandant B")
-    nutzer = await create_user(
-        db_session, email="a@example.com", role=UserRole.accountant
-    )
-    await assign_user_to_mandant(db_session, nutzer, eigener)
+    """Eigene mandant_id im Pfad, fremdes Konto — und die fremden Zeilen bleiben, wie sie sind.
 
-    fremdes_konto = await create_account_db(db_session, fremder.id, name="Konto B")
-    now = utcnow()
-    fremder_partner = Partner(
-        mandant_id=fremder.id,
-        name="Partner B",
-        is_active=True,
-        created_at=now,
-        updated_at=now,
+    Der zweite Teil ist der wichtigere: Ein 403 allein sagt nicht, dass nichts
+    geschrieben wurde. Der Endpunkt koennte die Zuordnung aufloesen und *danach*
+    scheitern.
+    """
+    await _schliesse_iban_aus(
+        db_session, zwei_mandanten.b.konto.id, zwei_mandanten.b.iban
     )
-    db_session.add(fremder_partner)
-    await db_session.flush()
-    db_session.add(
-        PartnerIban(partner_id=fremder_partner.id, iban=IBAN, created_at=now)
-    )
-    lauf = ImportRun(
-        account_id=fremdes_konto.id,
-        mandant_id=fremder.id,
-        user_id=nutzer.id,
-        filename="b.csv",
-        status="completed",
-        created_at=now,
-    )
-    db_session.add(lauf)
-    await db_session.flush()
-    zeile = JournalLine(
-        account_id=fremdes_konto.id,
-        import_run_id=lauf.id,
-        partner_id=fremder_partner.id,
-        valuta_date="2026-01-02",
-        booking_date="2026-01-02",
-        amount=-100,
-        currency="EUR",
-        text="Zahlung",
-        partner_iban_raw=IBAN,
-        created_at=now,
-    )
-    db_session.add(zeile)
-    db_session.add(
-        AccountExcludedIdentifier(
-            account_id=fremdes_konto.id,
-            identifier_type="iban",
-            value=IBAN,
-            created_at=now,
-        )
-    )
-    await db_session.commit()
-    await db_session.refresh(zeile)
-    zeile_id = zeile.id
-    partner_vorher = zeile.partner_id
 
-    token = await get_auth_token(client, nutzer)
+    fremde_zeile = zwei_mandanten.b.zeilen[0]
+    zeile_id = fremde_zeile.id
+    partner_vorher = fremde_zeile.partner_id
+    assert partner_vorher is not None, "Die Fixture muesste einen Partner gesetzt haben"
+
+    header = await anmelden(zwei_mandanten.nutzer_a)
     resp = await client.post(
-        f"/api/v1/mandants/{eigener.id}/accounts/{fremdes_konto.id}"
-        f"/excluded-identifiers/apply",
-        headers={"Authorization": f"Bearer {token}"},
+        f"/api/v1/mandants/{zwei_mandanten.a.id}"
+        f"/accounts/{zwei_mandanten.b.konto.id}/excluded-identifiers/apply",
+        headers=header,
     )
 
     assert resp.status_code in (
@@ -116,3 +79,29 @@ async def test_fremdes_konto_kann_nicht_neu_zugeordnet_werden(
     assert (
         danach.partner_id == partner_vorher
     ), "Die Buchungszeile eines fremden Mandanten wurde umgeschrieben."
+
+
+async def test_eigenes_konto_wird_verarbeitet(
+    db_session: AsyncSession,
+    client: AsyncClient,
+    zwei_mandanten: ZweiMandanten,
+    anmelden: AnmeldeHelfer,
+):
+    """Gegenprobe: Auf dem eigenen Konto tut derselbe Aufruf seine Arbeit.
+
+    Ohne diese Haelfte wuerde der Test oben auch dann gruen bleiben, wenn der Endpunkt
+    grundsaetzlich verweigert — und die Mandantentrennung waere nicht belegt, sondern
+    nur die Unerreichbarkeit des Endpunkts.
+    """
+    await _schliesse_iban_aus(
+        db_session, zwei_mandanten.a.konto.id, zwei_mandanten.a.iban
+    )
+
+    header = await anmelden(zwei_mandanten.nutzer_a)
+    resp = await client.post(
+        f"/api/v1/mandants/{zwei_mandanten.a.id}"
+        f"/accounts/{zwei_mandanten.a.konto.id}/excluded-identifiers/apply",
+        headers=header,
+    )
+
+    assert resp.status_code == 200, f"{resp.status_code} {resp.text}"
