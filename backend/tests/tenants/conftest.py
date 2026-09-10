@@ -90,7 +90,15 @@ async def assign_user_to_mandant(
 
 
 async def get_auth_token(client: AsyncClient, user: User) -> str:
-    """Login and return Bearer token; selects the first mandant if needed."""
+    """Login and return Bearer token; selects the first mandant if needed.
+
+    Der Aufruf von `/auth/select-mandant` braucht das Zwischentoken im
+    Authorization-Header — der Endpunkt haengt an `get_current_user`. Das fehlte hier
+    und in `tests/partners/conftest.py`, waehrend die Kopien in `tests/imports` und
+    `tests/journal` es richtig machten. Unbemerkt blieb es, weil dieser Zweig nur bei
+    mehreren Mandanten laeuft und Admins vor der Behebung von Befund M4 nie zur
+    Auswahl kamen.
+    """
     resp = await client.post(
         "/api/v1/auth/login",
         json={"email": user.email, "password": "password123"},
@@ -99,7 +107,10 @@ async def get_auth_token(client: AsyncClient, user: User) -> str:
     if data.get("requires_mandant_selection") and data.get("mandants"):
         mandant_id = data["mandants"][0]["id"]
         resp2 = await client.post(
-            "/api/v1/auth/select-mandant", json={"mandant_id": mandant_id}
+            "/api/v1/auth/select-mandant",
+            json={"mandant_id": mandant_id},
+            headers={"Authorization": f"Bearer {data['access_token']}"},
         )
+        assert resp2.status_code == 200, f"{resp2.status_code} {resp2.text}"
         return resp2.json()["access_token"]
     return data["access_token"]

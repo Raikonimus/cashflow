@@ -90,6 +90,11 @@ async def assign_user_to_mandant(
 
 
 async def get_auth_token(client: AsyncClient, user: User, mandant: Mandant) -> str:
+    """Login and return Bearer token; selects `mandant` if needed.
+
+    Der Authorization-Header beim zweiten Aufruf ist pflichtig — siehe die
+    gleichlautende Erklaerung in `tests/tenants/conftest.py`.
+    """
     resp = await client.post(
         "/api/v1/auth/login",
         json={"email": user.email, "password": "password123"},
@@ -97,7 +102,10 @@ async def get_auth_token(client: AsyncClient, user: User, mandant: Mandant) -> s
     data = resp.json()
     if data.get("requires_mandant_selection"):
         resp2 = await client.post(
-            "/api/v1/auth/select-mandant", json={"mandant_id": str(mandant.id)}
+            "/api/v1/auth/select-mandant",
+            json={"mandant_id": str(mandant.id)},
+            headers={"Authorization": f"Bearer {data['access_token']}"},
         )
+        assert resp2.status_code == 200, f"{resp2.status_code} {resp2.text}"
         return resp2.json()["access_token"]
     return data["access_token"]

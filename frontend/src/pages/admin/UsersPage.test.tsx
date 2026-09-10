@@ -12,6 +12,8 @@ const USERS = [
     role: 'accountant',
     is_active: true,
     created_at: '2025-01-01T00:00:00Z',
+    invitation_status: 'accepted',
+    mandants: [{ id: 'm1', name: 'Mandant A' }],
   },
   {
     id: 'u2',
@@ -19,6 +21,10 @@ const USERS = [
     role: 'viewer',
     is_active: false,
     created_at: '2025-02-01T00:00:00Z',
+    invitation_status: 'pending',
+    // Absichtlich ohne Mandant — der Zustand aus Befund M6, der in der Liste
+    // auffallen muss.
+    mandants: [],
   },
 ]
 
@@ -39,6 +45,22 @@ describe('UsersPage', () => {
     renderPage()
     await waitFor(() => expect(screen.getByText('alice@test.com')).toBeInTheDocument())
     expect(screen.getByText('bob@test.com')).toBeInTheDocument()
+  })
+
+  it('zeigt die Mandanten je Benutzer an', async () => {
+    server.use(http.get('/api/v1/users', () => HttpResponse.json(USERS)))
+    renderPage()
+    await waitFor(() => expect(screen.getByText('alice@test.com')).toBeInTheDocument())
+    expect(screen.getByText('Mandant A')).toBeInTheDocument()
+  })
+
+  it('markiert Benutzer ohne Mandant', async () => {
+    // Ein Benutzer ohne Zuordnung kommt an keine Daten (Befund M6). Die leere Zelle
+    // allein wuerde das nicht zeigen — deshalb steht dort eine benannte Markierung.
+    server.use(http.get('/api/v1/users', () => HttpResponse.json(USERS)))
+    renderPage()
+    await waitFor(() => expect(screen.getByText('bob@test.com')).toBeInTheDocument())
+    expect(screen.getByText(/kein mandant/i)).toBeInTheDocument()
   })
 
   it('shows "Keine Benutzer" when list is empty', async () => {
@@ -69,8 +91,11 @@ describe('UsersPage', () => {
     server.use(http.get('/api/v1/users', () => HttpResponse.json(USERS)))
     renderPage()
     await waitFor(() => screen.getByText('alice@test.com'))
-    // alice is active, bob is not
-    expect(screen.getByText('Aktiv')).toBeInTheDocument()
-    expect(screen.getByText('Inaktiv')).toBeInTheDocument()
+    // Gezielt die Schaltflaeche, nicht den Text: „Aktiv" steht auch in der Spalte
+    // „Einladung" fuer einen angenommenen Einladungsstatus. Vorher war der Test
+    // eindeutig, weil das Mock `invitation_status` gar nicht setzte — er prueft also
+    // erst jetzt, was er prueft.
+    expect(screen.getByRole('button', { name: 'Aktiv' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Inaktiv' })).toBeInTheDocument()
   })
 })

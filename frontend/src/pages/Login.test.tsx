@@ -93,23 +93,30 @@ describe('Login', () => {
     })
   })
 
-  it('auto-selects the only mandant instead of opening the selection page', async () => {
+  it('waehlt selbst keinen Mandanten mehr aus — das tut der Server', async () => {
+    // Vorher stand hier ein Test, der eine Antwort mit `requires_mandant_selection:
+    // true` **und nur einem** Mandanten nachbildete und erwartete, dass diese Seite
+    // den einen selbst auswaehlt. Diese Kombination kann der Server nicht mehr
+    // liefern: `requires_mandant_selection` ist genau `mandants.length > 1`, und bei
+    // einem Mandanten steht er schon im Token vom Anmelden (Befund M2/M4).
+    //
+    // Was stattdessen gilt: Verlangt der Server eine Auswahl, geht es zur
+    // Auswahlseite — auch dann, wenn nur ein Mandant mitgeliefert wird. Diese Seite
+    // trifft die Entscheidung nicht mehr selbst. `select-mandant` darf dabei nicht
+    // aufgerufen werden.
+    let auswahlAufgerufen = false
     server.use(
       http.post('/api/v1/auth/login', async () => {
         return HttpResponse.json({
-          access_token: 'mock.jwt.token.no-mandant',
+          access_token: createTestJwt({ sub: 'user-1', role: 'accountant', mandant_id: null }),
           token_type: 'bearer',
           mandants: [{ id: 'mandant-1', name: 'Test Mandant' }],
           requires_mandant_selection: true,
         })
       }),
-      http.post('/api/v1/auth/select-mandant', async ({ request }) => {
-        const body = (await request.json()) as Record<string, string>
-        expect(body.mandant_id).toBe('mandant-1')
-        return HttpResponse.json({
-          access_token: 'mock.jwt.token.with-mandant',
-          token_type: 'bearer',
-        })
+      http.post('/api/v1/auth/select-mandant', async () => {
+        auswahlAufgerufen = true
+        return HttpResponse.json({ access_token: 'egal', token_type: 'bearer' })
       }),
     )
 
@@ -125,7 +132,41 @@ describe('Login', () => {
     })
 
     await waitFor(() => {
-      expect(router.state.location.pathname).toBe('/')
+      expect(router.state.location.pathname).toBe('/login/select-mandant')
+    })
+    expect(auswahlAufgerufen).toBe(false)
+  })
+
+  it('fuehrt einen Nutzer ohne Mandant zur Auswahlseite, die es erklaert', async () => {
+    // Befund M6: Vorher navigierte diese Seite bei leerer Mandantenliste nach `/`,
+    // von wo die Routenweiche zur Auswahlseite umleitete, die wiederum nach `/login`
+    // zurueckschickte — eine Schleife, die auf der Anmeldemaske endete, obwohl ein
+    // gueltiges Token im Store lag. Jeder neu eingeladene Nutzer ist in diesem
+    // Zustand, denn das Anlegen erzeugt fuer sich noch keine Zuordnung.
+    server.use(
+      http.post('/api/v1/auth/login', async () => {
+        return HttpResponse.json({
+          access_token: createTestJwt({ sub: 'user-1', role: 'viewer', mandant_id: null }),
+          token_type: 'bearer',
+          mandants: [],
+          requires_mandant_selection: false,
+        })
+      }),
+    )
+
+    const { router } = renderLogin()
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(/e-mail/i), {
+        target: { value: 'ohne@example.com' },
+      })
+      fireEvent.change(screen.getByLabelText(/passwort/i), {
+        target: { value: 'password' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: /anmelden/i }))
+    })
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe('/login/select-mandant')
     })
   })
 

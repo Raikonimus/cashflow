@@ -54,7 +54,13 @@ describe('SelectMandant', () => {
     })
   })
 
-  it('auto-selects when exactly one mandant is available', async () => {
+  it('zeigt einen einzelnen Mandanten zur Auswahl, statt ihn selbst zu waehlen', async () => {
+    // Vorher waehlte diese Seite einen einzelnen Mandanten selbst aus — und
+    // `Login.tsx` tat dasselbe, zwei Stellen fuer eine Entscheidung (Befund M2).
+    // Jetzt legt der Server den einzigen Mandanten beim Anmelden direkt ins Token;
+    // dieser Fall erreicht die Seite im Normalbetrieb gar nicht mehr. Kommt er
+    // dennoch an, wird der Eintrag angezeigt und ist anklickbar — statt einer
+    // Umleitung, die niemand nachvollziehen kann.
     act(() => {
       useAuthStore.setState({
         token: createTestJwt({ sub: 'u1', role: 'admin', mandant_id: null }),
@@ -75,8 +81,36 @@ describe('SelectMandant', () => {
 
     render(<RouterProvider router={router} />)
 
-    await waitFor(() => {
-      expect(router.state.location.pathname).toBe('/')
+    expect(await screen.findByText('Einziger Mandant')).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/login/select-mandant')
+  })
+
+  it('erklaert den Zustand ohne Mandant statt zur Anmeldung zurueckzuschicken', async () => {
+    // Befund M6. Vorher leitete diese Seite bei leerer Liste nach `/login` um — dort
+    // stand die Anmeldemaske, obwohl der Nutzer angemeldet war. Ohne jede Erklaerung
+    // sah es aus, als haette das Anmelden nicht funktioniert.
+    act(() => {
+      useAuthStore.setState({
+        token: createTestJwt({ sub: 'u1', role: 'viewer', mandant_id: null }),
+        user: { sub: 'u1', role: 'viewer', mandant_id: null },
+        mandants: [],
+        selectedMandant: null,
+      })
     })
+
+    const router = createMemoryRouter(
+      [
+        { path: '/login/select-mandant', element: <SelectMandant /> },
+        { path: '/login', element: <div>Login Page</div> },
+        { path: '/', element: <div>Dashboard</div> },
+      ],
+      { initialEntries: ['/login/select-mandant'] },
+    )
+
+    render(<RouterProvider router={router} />)
+
+    expect(await screen.findByText(/kein mandant zugeordnet/i)).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/login/select-mandant')
+    expect(screen.getByRole('button', { name: /abmelden/i })).toBeInTheDocument()
   })
 })

@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useNavigate, Link } from 'react-router-dom'
 import { z } from 'zod'
-import { loginUser, selectMandant } from '@/api/auth'
+import { loginUser } from '@/api/auth'
 import { useAuthStore } from '@/store/auth-store'
 
 const schema = z.object({
@@ -16,7 +16,6 @@ type FormValues = z.infer<typeof schema>
 export function Login() {
   const navigate = useNavigate()
   const login = useAuthStore((s) => s.login)
-  const storeSelectMandant = useAuthStore((s) => s.selectMandant)
   const [error, setError] = useState<string | null>(null)
 
   const {
@@ -25,26 +24,29 @@ export function Login() {
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({ resolver: zodResolver(schema) })
 
+  /**
+   * Meldet an und entscheidet, wohin es danach geht.
+   *
+   * Diese Seite wählt **keinen** Mandanten mehr selbst aus. Bei genau einem Mandanten
+   * legt der Server ihn schon beim Anmelden ins Token; ein zusätzlicher Aufruf von
+   * `/auth/select-mandant` wäre nur eine zweite Stelle, die dasselbe tut. Vorher gab
+   * es genau das — hier und in `SelectMandant.tsx` —, und die beiden konnten
+   * auseinanderlaufen (Befund M2).
+   *
+   * Drei Fälle, alle drei am Serversignal erkennbar:
+   *
+   * - `requires_mandant_selection` → mehrere Mandanten, es muss gewählt werden.
+   * - leere Mandantenliste → dem Nutzer ist keiner zugeordnet. Die Auswahlseite
+   *   erklärt das; früher landete man hier in einer Umleitungsschleife (Befund M6).
+   * - sonst → genau ein Mandant, er steht im Token, es geht direkt weiter.
+   */
   async function onSubmit(values: FormValues) {
     setError(null)
     try {
       const data = await loginUser(values.email, values.password)
       login(data.access_token, data.mandants)
-      const currentUser = useAuthStore.getState().user
-      if (data.mandants.length === 1 && !currentUser?.mandant_id) {
-        try {
-          const mandant = data.mandants[0]
-          const selection = await selectMandant(mandant.id)
-          storeSelectMandant(mandant, selection.access_token)
-          navigate('/')
-          return
-        } catch {
-          setError('Mandant konnte nicht automatisch ausgewählt werden.')
-          return
-        }
-      }
 
-      if (data.requires_mandant_selection) {
+      if (data.requires_mandant_selection || data.mandants.length === 0) {
         navigate('/login/select-mandant')
       } else {
         navigate('/')

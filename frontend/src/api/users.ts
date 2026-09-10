@@ -1,5 +1,11 @@
 import { apiClient } from './client'
 
+/** Ein Mandant, wie ihn die Nutzerverwaltung anzeigt und zuordnet. */
+export interface MandantRef {
+  id: string
+  name: string
+}
+
 export interface UserListItem {
   id: string
   email: string
@@ -7,16 +13,30 @@ export interface UserListItem {
   is_active: boolean
   invitation_status: string
   created_at?: string
+  /**
+   * Die Mandanten dieses Nutzers. Eine leere Liste ist eine Aussage, kein fehlender
+   * Wert: Der Nutzer hat keinen Mandanten und kommt damit an keine Daten.
+   */
+  mandants: MandantRef[]
 }
 
 export interface CreateUserRequest {
   email: string
   role: string
+  /** Mandanten, denen der neue Nutzer sofort zugeordnet wird. */
+  mandant_ids?: string[]
 }
 
 export interface UpdateUserRequest {
   is_active?: boolean
   role?: string
+  email?: string
+  /**
+   * Sollstand der Zuordnungen. Der Abgleich wirkt serverseitig nur auf Mandanten,
+   * die der Anmeldende selbst zuordnen darf — alle übrigen Zuordnungen des Nutzers
+   * bleiben unberührt. Weglassen lässt die Zuordnungen unangetastet.
+   */
+  mandant_ids?: string[]
 }
 
 export interface MandantListItem {
@@ -115,4 +135,20 @@ export async function executeMandantCleanup(
 
 export async function assignUserToMandant(mandantId: string, userId: string): Promise<void> {
   await apiClient.post(`/mandants/${mandantId}/users`, { user_id: userId })
+}
+
+export async function unassignUserFromMandant(mandantId: string, userId: string): Promise<void> {
+  await apiClient.delete(`/mandants/${mandantId}/users/${userId}`)
+}
+
+/**
+ * Die Mandanten, denen der angemeldete Nutzer andere Nutzer zuordnen darf.
+ *
+ * Bewusst nicht `listMandants()`: Das gehört zur Mandantenverwaltung und verlangt
+ * die Rolle `admin`. Ein Mandant-Admin darf seine eigenen Mandanten zuordnen, ohne
+ * die Mandantenverwaltung zu sehen — dafür gibt es diesen eigenen Endpunkt.
+ */
+export async function listAssignableMandants(): Promise<MandantRef[]> {
+  const resp = await apiClient.get<MandantRef[]>('/users/assignable-mandants')
+  return resp.data
 }

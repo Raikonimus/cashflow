@@ -4,6 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { useQuery } from '@tanstack/react-query'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { listReviewItems } from '@/api/review'
+import { MandantSwitcher } from './MandantSwitcher'
 import { useAuthStore } from '@/store/auth-store'
 import { logoutUser } from '@/api/auth'
 
@@ -25,7 +26,7 @@ const linkActive = 'bg-gray-900 text-white'
 export function AppLayout() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { user, selectedMandant, logout } = useAuthStore()
+  const { user, logout } = useAuthStore()
   const role = user?.role
   const mandantId = user?.mandant_id ?? ''
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -62,12 +63,16 @@ export function AppLayout() {
     if (hasRole(role, 'mandant_admin') && mandantId) {
       items = [...items, { to: '/admin/audit', label: 'Audit-Log' }]
     }
+    // Benutzerverwaltung ab `mandant_admin` (Entscheidung E2): Ein Mandant-Admin darf
+    // Nutzer anlegen und sie seinen *eigenen* Mandanten zuordnen. Vorher war der
+    // Eintrag admin-only — er durfte Nutzer anlegen, die anschliessend ohne Mandant
+    // dastanden und auf einen Admin warten mussten.
+    if (hasRole(role, 'mandant_admin')) {
+      items = [...items, { to: '/admin/users', label: 'Benutzer' }]
+    }
+    // Die Mandantenverwaltung selbst bleibt Admins vorbehalten.
     if (hasRole(role, 'admin')) {
-      items = [
-        ...items,
-        { to: '/admin/mandants', label: 'Mandanten' },
-        { to: '/admin/users', label: 'Benutzer' },
-      ]
+      items = [...items, { to: '/admin/mandants', label: 'Mandanten' }]
     }
 
     return items
@@ -183,11 +188,7 @@ export function AppLayout() {
                   ) : null}
                 </div>
               ) : null}
-              {selectedMandant && (
-                <span className="rounded bg-gray-700 px-2 py-1 text-xs text-gray-200">
-                  {selectedMandant.name}
-                </span>
-              )}
+              <MandantSwitcher />
               <button
                 onClick={handleLogout}
                 className="rounded-md px-3 py-1 text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"

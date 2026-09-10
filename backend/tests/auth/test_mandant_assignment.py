@@ -109,7 +109,16 @@ class TestMandantAssignment:
         )
         assert resp.status_code == 404
 
-    async def test_non_admin_cannot_assign(self, client, db_session):
+    async def test_mandant_admin_darf_eigenen_mandanten_zuordnen(
+        self, client, db_session
+    ):
+        """Entscheidung E2, geaendert am 2026-09-10.
+
+        Vorher verlangten diese Endpunkte `admin`, und dieser Test hielt genau das
+        fest. Die Folge war ein Arbeitsablauf mit einer Luecke: Ein Mandant-Admin
+        durfte Nutzer anlegen, sie aber keinem Mandanten zuordnen — der neue Nutzer
+        landete in der Sackgasse aus Befund M6 und musste auf einen Admin warten.
+        """
         ma = await create_user(
             db_session, email="ma@test.com", role=UserRole.mandant_admin
         )
@@ -129,7 +138,61 @@ class TestMandantAssignment:
             json={"user_id": str(user.id)},
             headers={"Authorization": f"Bearer {token}"},
         )
-        assert resp.status_code == 403
+        assert resp.status_code == 201, resp.text
+
+    async def test_mandant_admin_darf_fremden_mandanten_nicht_zuordnen(
+        self, client, db_session
+    ):
+        """Die Gegenrichtung — ohne sie waere E2 nur zur Haelfte belegt.
+
+        Der Mandant-Admin gehoert zu `eigener`, versucht aber eine Zuordnung zu
+        `fremder`. Genau hier trennt sich „darf seine eigenen" von „darf alle".
+        """
+        ma = await create_user(
+            db_session, email="ma@test.com", role=UserRole.mandant_admin
+        )
+        eigener = await create_mandant(db_session, "Eigener")
+        fremder = await create_mandant(db_session, "Fremder")
+        await assign_user_to_mandant(db_session, ma, eigener)
+        user = await create_user(
+            db_session, email="user@test.com", role=UserRole.viewer
+        )
+
+        resp_login = await client.post(
+            "/api/v1/auth/login", json={"email": "ma@test.com", "password": "secret123"}
+        )
+        token = resp_login.json()["access_token"]
+
+        resp = await client.post(
+            f"/api/v1/mandants/{fremder.id}/users",
+            json={"user_id": str(user.id)},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 403, resp.text
+
+    async def test_accountant_darf_nicht_zuordnen(self, client, db_session):
+        """Unterhalb von `mandant_admin` bleibt das Zuordnen verboten."""
+        buchhalter = await create_user(
+            db_session, email="buch@test.com", role=UserRole.accountant
+        )
+        mandant = await create_mandant(db_session)
+        await assign_user_to_mandant(db_session, buchhalter, mandant)
+        user = await create_user(
+            db_session, email="user@test.com", role=UserRole.viewer
+        )
+
+        resp_login = await client.post(
+            "/api/v1/auth/login",
+            json={"email": "buch@test.com", "password": "secret123"},
+        )
+        token = resp_login.json()["access_token"]
+
+        resp = await client.post(
+            f"/api/v1/mandants/{mandant.id}/users",
+            json={"user_id": str(user.id)},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 403, resp.text
 
     async def test_assigned_user_can_select_mandant(self, client, db_session):
         """After assignment, user should be able to select the mandant."""

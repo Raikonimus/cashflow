@@ -90,9 +90,15 @@ export function AppRouter() {
           {/* Protected routes — require valid token */}
           <Route element={<PrivateRoute />}>
             <Route element={<AppLayout />}>
-              {/* Admin-Verwaltung — kein Mandant erforderlich */}
-              <Route element={<RequireRole min="admin" />}>
+              {/* Verwaltung — kein Mandant erforderlich.
+                  Benutzer ab `mandant_admin` (Entscheidung E2): Er darf Nutzer
+                  anlegen und seinen eigenen Mandanten zuordnen. Welche Mandanten das
+                  sind, entscheidet der Server — die Schwelle hier laesst ihn nur auf
+                  die Seite. Die Mandantenverwaltung bleibt Admins vorbehalten. */}
+              <Route element={<RequireRole min="mandant_admin" />}>
                 <Route path="/admin/users" element={<UsersPage />} />
+              </Route>
+              <Route element={<RequireRole min="admin" />}>
                 <Route path="/admin/mandants" element={<MandantsPage />} />
               </Route>
 

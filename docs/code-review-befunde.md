@@ -215,6 +215,18 @@ von Hand durchgesehen werden müssen — und dass die 264. auffällt.
 
 **Status: offen — Umsetzung erst nach Abschluss des Reviews.** Entschieden am 2026-09-09.
 
+> **Nachgetragen am 2026-09-10:** Das Review ist mit Etappe 4 abgeschlossen, dieser Punkt
+> war der letzte offene. Analyse und Prüfplan stehen jetzt in
+> [mandantenfaehigkeit-plan.md](mandantenfaehigkeit-plan.md) — Befunde `M1`–`M14`,
+> Stufen 0–5, und vier Entscheidungen (`E1`–`E4`). A1-3, A1-4 und A2-3 sind dort als
+> Stufe 5 eingeordnet.
+>
+> **Stufen 0–2 sind am 2026-09-10 umgesetzt** (Prüfumgebung mit zwei Mandanten, Auswahl
+> beim Anmelden, Zuordnung in der Nutzerverwaltung); alle vier Entscheidungen sind
+> beantwortet. Die Annahme „die Entwicklungsdatenbank hat einen Mandanten" ist
+> **überholt**: Seit dem 10.09.2026 laufen zwei Mandanten mit echten Daten. Damit ist
+> `E1` durch die Tatsachen beantwortet und die Stufen 3–5 sind keine Vorsorge mehr.
+
 Etappe 1 hat die Mandantentrennung an den Stellen geprüft, an denen sie *im Code*
 passieren muss, und zwei kritische Löcher geschlossen. Offen bleibt die Stufe darüber:
 Ist das System als Ganzes mandantenfähig — und zwar so, dass es nicht an der Sorgfalt
@@ -817,4 +829,6 @@ Bei den fünf verhaltensändernden ESLint-Befunden war die Behebung mehr als Kos
 
 ## Weiterhin offen
 
-Nur noch der vertagte Sammelpunkt **Mandantenfähigkeit** (mit A1-3, A1-4 und A2-3).
+Nur noch der vertagte Sammelpunkt **Mandantenfähigkeit** (mit A1-3, A1-4 und A2-3) —
+seit 2026-09-10 als Analyse und Prüfplan ausgearbeitet in
+[mandantenfaehigkeit-plan.md](mandantenfaehigkeit-plan.md).

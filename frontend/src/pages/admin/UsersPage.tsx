@@ -17,6 +17,34 @@ const ROLE_LABELS: Record<string, string> = {
   admin: 'Admin',
 }
 
+/**
+ * Die Mandanten eines Benutzers als Spalte.
+ *
+ * Der Fall „keine Mandanten" wird ausdrücklich benannt und farblich hervorgehoben,
+ * nicht als leere Zelle gezeigt. Ein Benutzer ohne Zuordnung kommt an keine Daten und
+ * sieht nach dem Anmelden nur einen Hinweis — dieser Zustand entsteht bei jedem neu
+ * angelegten Benutzer und soll in der Liste auffallen, damit ihn niemand übersieht.
+ */
+function MandantenZellen({ user }: Readonly<{ user: UserListItem }>) {
+  if (user.mandants.length === 0) {
+    return (
+      <span className="rounded bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">
+        Kein Mandant
+      </span>
+    )
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1">
+      {user.mandants.map((m) => (
+        <span key={m.id} className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-700">
+          {m.name}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 export function UsersPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [editingUser, setEditingUser] = useState<UserListItem | null>(null)
@@ -80,6 +108,7 @@ export function UsersPage() {
             <tr>
               <th className="px-4 py-3 text-left">E-Mail</th>
               <th className="px-4 py-3 text-left">Rolle</th>
+              <th className="px-4 py-3 text-left">Mandanten</th>
               <th className="px-4 py-3 text-left">Einladung</th>
               <th className="px-4 py-3 text-left">Status</th>
               <th className="px-4 py-3 text-left">Erstellt</th>
@@ -89,7 +118,7 @@ export function UsersPage() {
           <tbody className="divide-y divide-gray-100">
             {users.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-gray-400">
+                <td colSpan={7} className="px-4 py-6 text-center text-gray-400">
                   Keine Benutzer vorhanden.
                 </td>
               </tr>
@@ -98,6 +127,9 @@ export function UsersPage() {
               <tr key={u.id} className="hover:bg-gray-50">
                 <td className="px-4 py-3 font-medium text-gray-900">{u.email}</td>
                 <td className="px-4 py-3 text-gray-600">{ROLE_LABELS[u.role] ?? u.role}</td>
+                <td className="px-4 py-3">
+                  <MandantenZellen user={u} />
+                </td>
                 <td className="px-4 py-3 text-gray-500 text-xs">
                   {INV_LABELS[u.invitation_status] ?? u.invitation_status}
                 </td>
