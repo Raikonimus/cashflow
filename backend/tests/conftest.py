@@ -269,7 +269,13 @@ class MandantWelt:
 
     @property
     def id(self) -> UUID:
-        """Die ``mandant_id`` — die Kennung, die in 76 Endpunktpfaden steht."""
+        """Die ``mandant_id`` — die Kennung, die in 89 Endpunktpfaden steht.
+
+        Der Kopf dieser Datei nannte lange 76. Die Zahl stammte aus einer Zaehlung
+        ueber die Dekoratorpfade und war blind fuer die Router, die die ``mandant_id``
+        im **Prefix** tragen (``review``, ``imports``). Stufe 4 zaehlt aus den
+        registrierten Routen; siehe ``tests/tenancy/endpunkte.py``.
+        """
         assert self.mandant.id is not None
         return self.mandant.id
 
