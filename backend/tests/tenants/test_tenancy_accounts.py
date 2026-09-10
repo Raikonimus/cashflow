@@ -350,40 +350,65 @@ async def test_die_trennung_gilt_auch_von_b_aus(
 # ─── Heutiger Stand zur Konto-IBAN (Stufe 5) ─────────────────────────────────
 
 
-async def test_fremde_iban_blockiert_das_anlegen_eines_kontos(
+async def test_dieselbe_konto_iban_ist_in_beiden_mandanten_erfassbar(
     client: AsyncClient, zwei_mandanten: ZweiMandanten, anmelden: AnmeldeHelfer
 ):
-    """Kein Leck, aber eine Auskunft — und eine offene Entscheidung.
+    """Ein gemeinsam genutztes Bankkonto laesst sich in beiden Mandanten erfassen.
 
-    ``create_account`` prüft die IBAN global. Legt Mandant A ein Konto mit einer IBAN
-    an, die Mandant B schon führt, kommt 409 „IBAN already in use". Zwei Firmen
-    desselben Eigentümers mit einem gemeinsamen Konto können es also nicht beide
-    erfassen — und die Antwort verrät, dass diese IBAN irgendwo im System vergeben
-    ist.
+    Die Vorgeschichte
+    -----------------
+    Dieser Test hielt bis Stufe 5 das Gegenteil fest: ``create_account`` prueft die
+    IBAN global, und ein Konto mit einer IBAN, die ein anderer Mandant fuehrte, wurde
+    mit 409 „IBAN already in use" abgelehnt. Der damalige Docstring sagte dazu: „Dieser
+    Test haelt den **heutigen** Stand fest, er verteidigt ihn nicht. Faellt die
+    Entscheidung in Stufe 5 anders, schlaegt er an und muss mit ihr geaendert werden —
+    das ist Absicht."
 
-    Dieser Test hält den **heutigen** Stand fest, er verteidigt ihn nicht. Fällt die
-    Entscheidung in Stufe 5 anders (IBAN je Mandant eindeutig), schlägt er an und
-    muss mit ihr geändert werden — das ist Absicht.
+    Die Entscheidung ist am 2026-09-10 anders gefallen (ADR-018), und der Test hat
+    angeschlagen. Er prueft jetzt die neue Regel.
+
+    Warum der Fall zaehlt
+    ---------------------
+    Zwei Firmen koennen ein Bankkonto tatsaechlich gemeinsam nutzen — eine Holding und
+    ihre Tochter, oder derselbe Steuerberater fuehrt beide Mandanten. Die globale
+    Pruefung machte das unmoeglich, und zwar mit einer Antwort, die nichts erklaerte:
+    Der Nutzer sah 409 und fand in seinem Mandanten kein Konto mit dieser IBAN.
+
+    Die Gegenprobe steht daneben: **Innerhalb** eines Mandanten bleibt die IBAN
+    eindeutig. Ohne sie waere der Test auch von einer Fassung erfuellt, die gar nicht
+    mehr prueft.
     """
-    header = await anmelden(zwei_mandanten.nutzer_a)
+    geteilte_iban = "DE02500105170137075030"
 
-    # Erst ein Konto in Mandant B mit einer bekannten IBAN versehen.
-    fremde_iban = "DE02500105170137075030"
-    admin_header = await anmelden(zwei_mandanten.admin, zwei_mandanten.b)
-    angelegt = await client.post(
+    # Mandant B legt das Konto zuerst an.
+    kopf_b = await anmelden(zwei_mandanten.admin, zwei_mandanten.b)
+    zuerst = await client.post(
         f"/api/v1/mandants/{zwei_mandanten.b.id}/accounts",
-        json={"name": "Konto mit IBAN", "iban": fremde_iban, "currency": "EUR"},
-        headers=admin_header,
+        json={"name": "Gemeinsames Konto", "iban": geteilte_iban, "currency": "EUR"},
+        headers=kopf_b,
     )
-    assert angelegt.status_code == 201, angelegt.text
+    assert zuerst.status_code == 201, zuerst.text
 
-    # Dieselbe IBAN in Mandant A: heute abgelehnt.
-    antwort = await client.post(
+    # Mandant A darf dasselbe Konto ebenfalls erfassen.
+    kopf_a = await anmelden(zwei_mandanten.nutzer_a, zwei_mandanten.a)
+    danach = await client.post(
         f"/api/v1/mandants/{zwei_mandanten.a.id}/accounts",
-        json={"name": "Eigenes Konto", "iban": fremde_iban, "currency": "EUR"},
-        headers=header,
+        json={"name": "Gemeinsames Konto", "iban": geteilte_iban, "currency": "EUR"},
+        headers=kopf_a,
     )
-    assert antwort.status_code == 409, (
-        f"Heutiger Stand ist 409 (ADR-008, Konto-IBAN-Frage aus Stufe 5), "
-        f"erhalten {antwort.status_code}: {antwort.text}"
+    assert danach.status_code == 201, (
+        f"Mandant A kann das gemeinsam genutzte Konto nicht erfassen: "
+        f"{danach.status_code} {danach.text}. Seit ADR-018 ist die IBAN je Mandant "
+        f"eindeutig."
+    )
+
+    # Gegenprobe: zweimal derselbe Mandant bleibt abgewiesen.
+    nochmal = await client.post(
+        f"/api/v1/mandants/{zwei_mandanten.a.id}/accounts",
+        json={"name": "Doppelt", "iban": geteilte_iban, "currency": "EUR"},
+        headers=kopf_a,
+    )
+    assert nochmal.status_code == 409, (
+        f"Dieselbe IBAN zweimal im selben Mandanten wird angenommen "
+        f"({nochmal.status_code}) — dann prueft die Eindeutigkeit nichts mehr."
     )

@@ -184,7 +184,10 @@ class TestPartnerMerge:
 
         # Add same IBAN to source (bypass normal service to force duplicate scenario)
         source_iban = PartnerIban(
-            partner_id=source.id, iban="DE89370400440532013001", created_at=now
+            mandant_id=mandant.id,
+            partner_id=source.id,
+            iban="DE89370400440532013001",
+            created_at=now,
         )
         db_session.add(source_iban)
         await db_session.commit()

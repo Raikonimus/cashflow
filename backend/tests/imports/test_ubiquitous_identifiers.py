@@ -176,6 +176,7 @@ class TestNoEnrichCascade:
         partner = await create_partner_db(db_session, mandant.id, "Erste Bank")
         db_session.add(
             PartnerAccount(
+                mandant_id=mandant.id,
                 partner_id=partner.id,
                 blz="20111",
                 account_number="49900997173",

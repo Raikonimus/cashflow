@@ -23,12 +23,19 @@ Fehler unbemerkt bleiben.
 Die Datenbank laesst das zu — ``partners`` ist auf ``(mandant_id, name)`` eindeutig,
 ``services`` auf ``(partner_id, name)``.
 
-Was die Welt absichtlich *nicht* gleich benennt
-----------------------------------------------
-Die IBANs. Nach ADR-008 ist eine IBAN ueber alle Mandanten hinweg eindeutig; zwei
-Mandanten mit derselben IBAN sind deshalb kein Nebenschauplatz, sondern ein eigener
-Befund (M13/A1-3) mit eigenen Tests in ``tests/imports/test_tenancy_iban_registration.py``.
-Diese Fixture haelt sich daraus heraus und gibt jedem Mandanten seine eigene IBAN.
+Was die Welt *nicht* gleich benennt — und warum das kein Grundsatz mehr ist
+--------------------------------------------------------------------------
+Die IBANs, Kontonummern und BLZ. Der Grund war ADR-008: Eine IBAN war ueber alle
+Mandanten hinweg eindeutig, zwei Mandanten mit derselben IBAN also ein eigener Befund
+(M13/A1-3) mit eigenen Tests in ``tests/imports/test_tenancy_iban_registration.py``.
+Diese Fixture hielt sich daraus heraus.
+
+**Seit ADR-018 ist die Eindeutigkeit je Mandant**, und damit ist der Grund entfallen.
+Die Werte bleiben verschieden, aber nur noch aus Bestandsschutz — nicht, weil es anders
+nicht gehen wuerde. Beiden Mandanten dieselbe IBAN zu geben waere die konsequentere
+Pruefumgebung: Eine Query, die nach der IBAN filtert und den Mandanten vergisst, faende
+dann zwei Treffer statt einem, genau wie beim Partnernamen. Das ist ein offener Punkt,
+kein Versehen.
 
 Verhaeltnis zu den Fixtures der einzelnen Testmodule
 ----------------------------------------------------
@@ -337,13 +344,17 @@ async def erzeuge_mandant_welt(
     session.add(partner)
     await session.flush()
 
-    partner_iban = PartnerIban(partner_id=partner.id, iban=iban, created_at=jetzt)
+    partner_iban = PartnerIban(
+        mandant_id=mandant.id, partner_id=partner.id, iban=iban, created_at=jetzt
+    )
     session.add(partner_iban)
 
-    # Kontonummer und BLZ sind nach ADR-008 global eindeutig (auf `(blz,
-    # account_number)`), deshalb je Mandant ein eigenes Paar. Der Zusatzname ist
-    # nur je Partner eindeutig und darf gleich lauten.
+    # Kontonummer und BLZ waren nach ADR-008 global eindeutig, deshalb je Mandant ein
+    # eigenes Paar. Seit ADR-018 gilt `(mandant_id, blz, account_number)`, das Paar
+    # duerfte also gleich lauten — siehe Modulkopf. Der Zusatzname war schon vorher nur
+    # je Partner eindeutig.
     partner_konto = PartnerAccount(
+        mandant_id=mandant.id,
         partner_id=partner.id,
         blz=blz,
         account_number=kontonummer,
@@ -539,7 +550,8 @@ class ZweiMandanten:
     admin: User
 
 
-# Zwei verschiedene IBANs — siehe Modulkopf zu ADR-008.
+# Zwei verschiedene IBANs. Seit ADR-018 nicht mehr noetig, aber beibehalten —
+# siehe Modulkopf.
 IBAN_A = "DE89370400440532013000"
 IBAN_B = "AT611904300234573201"
 

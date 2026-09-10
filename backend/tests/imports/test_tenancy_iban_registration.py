@@ -1,18 +1,37 @@
-"""Wechselwirkung der global eindeutigen IBAN (ADR-008) mit dem Import-Matching.
+"""Dieselbe IBAN in zwei Mandanten — Befund A1-3, behoben in Stufe 5.
 
-ADR-008 legt fest, dass eine IBAN ueber alle Mandanten hinweg nur einem Partner
-gehoeren darf. Der Lookup beim Import filtert dagegen korrekt auf den eigenen
-Mandanten. Beides zusammen ergibt eine Luecke: Hat Mandant A eine IBAN registriert,
-kann der Partner von Mandant B sie nie bekommen — und wird nie per IBAN gematcht.
+Was hier geprueft wird
+----------------------
+Zwei Mandanten fuehren denselben Zahlungspartner mit derselben IBAN. Das ist kein
+Sonderfall, sondern der Normalfall: Amazon, die Telekom und das Finanzamt haben genau
+eine IBAN, und jeder Mandant zahlt an dieselbe.
 
-Warum diese Datei die gemeinsame Fixture aus `tests/conftest.py` *nicht* benutzt: Dort
-bekommt jeder Mandant absichtlich eine eigene IBAN, weil dieselbe IBAN in zwei
-Mandanten nach ADR-008 ein Sonderfall ist — eben der, den diese Datei untersucht. Die
-Fixture wuerde die Ausgangslage also gerade wegnehmen. Ausserdem brauchen diese Tests
-weder Nutzer noch Token: Sie rufen den Matching-Service direkt auf, nicht die API.
+Drei Zusicherungen, drei Ebenen:
+
+1. Der Lookup bleibt im eigenen Mandanten — B findet nicht A's Partner.
+2. Die Registrierung **gelingt** fuer B, obwohl A dieselbe IBAN fuehrt.
+3. Der zweite Import erkennt B's Partner ueber die IBAN wieder.
+
+Die Vorgeschichte
+-----------------
+Zusicherung 2 und 3 waren bis Stufe 5 als ``xfail(strict=True)`` hinterlegt. ADR-008
+machte die IBAN **global** eindeutig, der Lookup filterte je Mandant — und die
+Registrierung fuer B uebersprang stillschweigend, was A belegt hatte. B wurde ueber
+diese IBAN nie erkannt, bei jedem Import erneut, ohne jeden Hinweis. Bemerkenswert war
+die Ungleichheit: Der manuelle Weg warf 409, der Importweg schwieg.
+
+ADR-018 kehrt die Regel um — eindeutig je Mandant. Die beiden Tests laufen seither
+gruen; die Markierungen sind entfernt. Sie beschreiben jetzt die Anforderung und nicht
+mehr den Mangel.
+
+Warum diese Datei die gemeinsame Fixture aus ``tests/conftest.py`` nicht benutzt
+--------------------------------------------------------------------------------
+Sie braucht weder Nutzer noch Token: Die Tests rufen den Matching-Service direkt auf,
+nicht die API. Der frueher genannte Grund — die Fixture gebe jedem Mandanten
+absichtlich eine eigene IBAN, weil dieselbe in zwei Mandanten nach ADR-008 ein
+Sonderfall sei — ist mit ADR-018 entfallen.
 """
 
-import pytest
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -38,7 +57,14 @@ async def _partner_mit_iban(
     session.add(partner)
     await session.flush()
     if iban:
-        session.add(PartnerIban(partner_id=partner.id, iban=iban, created_at=now))
+        session.add(
+            PartnerIban(
+                mandant_id=partner.mandant_id,
+                partner_id=partner.id,
+                iban=iban,
+                created_at=now,
+            )
+        )
     await session.commit()
     await session.refresh(partner)
     return partner
@@ -59,23 +85,15 @@ async def test_fremde_iban_wird_nicht_dem_falschen_mandanten_zugeordnet(
     assert result.outcome is not MatchOutcome.iban_match
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "BEFUND A1-2 (offen): ADR-008 macht die IBAN global eindeutig, der Import-Lookup "
-        "filtert aber auf den eigenen Mandanten. Die Registrierung ueberspringt still, was "
-        "ein fremder Mandant belegt hat. Fix erfordert eine Entscheidung ueber ADR-008 — "
-        "entweder IBAN pro Mandant eindeutig, oder der Import legt ein Review-Item an, statt "
-        "stillschweigend nichts zu tun."
-    ),
-)
 async def test_iban_wird_beim_import_auch_registriert_wenn_ein_fremder_mandant_sie_hat(
     db_session: AsyncSession,
 ):
-    """Der neue Partner von Mandant B muss die IBAN bekommen.
+    """Der neue Partner von Mandant B bekommt die IBAN, obwohl A sie fuehrt.
 
-    Sonst faellt jeder weitere Import desselben Zahlungspartners erneut auf die
-    schwaechere Namenserkennung zurueck — dauerhaft und ohne jeden Hinweis.
+    Sonst fiele jeder weitere Import desselben Zahlungspartners erneut auf die
+    schwaechere Namenserkennung zurueck — dauerhaft und ohne jeden Hinweis. Dieser Test
+    war bis Stufe 5 ein erwarteter Fehlschlag (A1-3); seit ADR-018 ist er die
+    Anforderung.
     """
     fremder = await create_mandant(db_session, name="Mandant A")
     eigener = await create_mandant(db_session, name="Mandant B")
@@ -98,18 +116,13 @@ async def test_iban_wird_beim_import_auch_registriert_wenn_ein_fremder_mandant_s
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "BEFUND A1-2 (offen): ADR-008 macht die IBAN global eindeutig, der Import-Lookup "
-        "filtert aber auf den eigenen Mandanten. Die Registrierung ueberspringt still, was "
-        "ein fremder Mandant belegt hat. Fix erfordert eine Entscheidung ueber ADR-008 — "
-        "entweder IBAN pro Mandant eindeutig, oder der Import legt ein Review-Item an, statt "
-        "stillschweigend nichts zu tun."
-    ),
-)
 async def test_zweiter_import_erkennt_den_partner_wieder(db_session: AsyncSession):
-    """Folgefehler: beim zweiten Import muesste iban_match herauskommen."""
+    """Der zweite Import erkennt B's Partner ueber die IBAN — nicht ueber den Namen.
+
+    Die Probe darauf, dass die Registrierung aus dem Test davor auch wirkt: Ein
+    ``iban_match`` kann nur herauskommen, wenn die IBAN tatsaechlich am Partner haengt.
+    Vorher war das Ergebnis dauerhaft ``name_match``.
+    """
     fremder = await create_mandant(db_session, name="Mandant A")
     eigener = await create_mandant(db_session, name="Mandant B")
     await _partner_mit_iban(db_session, fremder.id, "Amazon A", IBAN)

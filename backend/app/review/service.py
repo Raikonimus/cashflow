@@ -287,17 +287,23 @@ class ReviewService:
                 status_code=status.HTTP_404_NOT_FOUND, detail="Journal line not found"
             )
 
-        # ADR-013: register IBAN automatically when confirming
+        # ADR-013: register IBAN automatically when confirming. Die Eindeutigkeit gilt
+        # seit ADR-018 je Mandant — vorher hätte eine IBAN, die ein anderer Mandant
+        # führt, die Registrierung hier stillschweigend entfallen lassen (A1-3).
         if journal_line.partner_iban_raw and journal_line.partner_id:
             normalized = _normalize_iban(journal_line.partner_iban_raw)
             existing_iban = (
                 await self._session.exec(  # type: ignore[attr-defined]
-                    select(PartnerIban).where(PartnerIban.iban == normalized)
+                    select(PartnerIban).where(
+                        PartnerIban.iban == normalized,
+                        PartnerIban.mandant_id == mandant_id,
+                    )
                 )
             ).first()
             if existing_iban is None:
                 self._session.add(
                     PartnerIban(
+                        mandant_id=mandant_id,
                         partner_id=journal_line.partner_id,
                         iban=normalized,
                         created_at=utcnow(),
@@ -1324,7 +1330,13 @@ class ReviewService:
                 partner_ibans = (
                     await self._session.exec(
                         select(PartnerIban)
-                        .where(PartnerIban.partner_id == partner_id)
+                        .where(
+                            PartnerIban.partner_id == partner_id,
+                            # Der Eintrag traegt seinen Mandanten selbst; die
+                            # partner_id kommt aus einer Buchungszeile und damit aus
+                            # Daten, nicht aus einem geprueften Pfadparameter.
+                            PartnerIban.mandant_id == item.mandant_id,
+                        )
                         .order_by(col(PartnerIban.created_at))
                     )
                 ).all()

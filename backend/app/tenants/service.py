@@ -767,8 +767,16 @@ class AccountService:
     ) -> Account:
         if data.iban is not None:
             normalized_iban = data.iban.replace(" ", "").upper()
+            # Je Mandant eindeutig, nicht global (ADR-018). Die globale Prüfung hier
+            # hatte nie eine Entscheidung hinter sich — ADR-008 nannte Konten
+            # ausdrücklich als offene Folgefrage. Sie verhinderte, dass zwei Firmen
+            # dasselbe Bankkonto erfassen, was es fachlich durchaus gibt (Holding und
+            # Tochter, oder derselbe Steuerberater für beide).
             existing = await self._session.exec(
-                select(Account).where(Account.iban == normalized_iban)
+                select(Account).where(
+                    Account.iban == normalized_iban,
+                    Account.mandant_id == mandant_id,
+                )
             )
             if existing.first() is not None:
                 raise HTTPException(
@@ -804,9 +812,12 @@ class AccountService:
             account.name = data.name
         if data.iban is not None:
             normalized_iban = data.iban.replace(" ", "").upper()
+            # Je Mandant eindeutig — siehe create_account und ADR-018.
             existing = await self._session.exec(
                 select(Account).where(
-                    Account.iban == normalized_iban, Account.id != account_id
+                    Account.iban == normalized_iban,
+                    Account.mandant_id == mandant_id,
+                    Account.id != account_id,
                 )
             )
             if existing.first() is not None:
@@ -1023,6 +1034,7 @@ class AccountService:
                             select(PartnerIban).where(
                                 PartnerIban.partner_id == line.partner_id,
                                 PartnerIban.iban == normalized,
+                                PartnerIban.mandant_id == mandant_id,
                             )
                         )
                     ).first()
@@ -1036,6 +1048,7 @@ class AccountService:
                             select(PartnerAccount).where(
                                 PartnerAccount.partner_id == line.partner_id,
                                 PartnerAccount.account_number == normalized_acct,
+                                PartnerAccount.mandant_id == mandant_id,
                             )
                         )
                     ).first()

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.imports.models import JournalLine, JournalLineSplit
+from app.imports.tenancy_utils import buchungen_des_mandanten
 from app.partners.conflict_utils import (
     PartnerAssignmentCriteria,
     detect_conflicting_criteria,
@@ -43,7 +44,6 @@ from app.partners.schemas import (
 )
 from app.services.models import Service, ServiceType
 from app.services.service import ServiceManagementService, ensure_base_service
-from app.tenants.models import Account as _Account
 
 if TYPE_CHECKING:
     from app.partners.schemas import AccountPreviewResponse
@@ -106,11 +106,18 @@ class PartnerService:
             term = f"%{search.lower()}%"
             # IBAN-Suche: Leerzeichen entfernen und Großbuchstaben für normalisierte IBANs
             iban_term = f"%{search.replace(' ', '').upper()}%"
+            # Die Unterabfragen tragen den Mandanten selbst, obwohl die aeussere
+            # Query ihn schon filtert. Seit ADR-018 haben beide Tabellen eine eigene
+            # mandant_id, und eine Suche ueber die Kennungen *aller* Mandanten, die
+            # erst durch den Join eingeschraenkt wird, ist unnoetig teuer und haengt
+            # an der aeusseren Bedingung.
             iban_subq = select(PartnerIban.partner_id).where(
-                PartnerIban.iban.like(iban_term)  # type: ignore[union-attr]
+                PartnerIban.iban.like(iban_term),  # type: ignore[union-attr]
+                PartnerIban.mandant_id == mandant_id,
             )
             account_subq = select(PartnerAccount.partner_id).where(
-                PartnerAccount.account_number.ilike(term)  # type: ignore[union-attr]
+                PartnerAccount.account_number.ilike(term),  # type: ignore[union-attr]
+                PartnerAccount.mandant_id == mandant_id,
             )
             base_filter.append(
                 or_(
@@ -131,7 +138,10 @@ class PartnerService:
             iban_count = len(
                 (
                     await self._session.exec(
-                        select(PartnerIban.id).where(PartnerIban.partner_id == p.id)  # type: ignore[arg-type]
+                        select(PartnerIban.id).where(
+                            PartnerIban.partner_id == p.id,  # type: ignore[arg-type]
+                            PartnerIban.mandant_id == mandant_id,
+                        )
                     )
                 ).all()
             )
@@ -288,10 +298,16 @@ class PartnerService:
         partner = await self.get_partner(partner_id, mandant_id)
 
         ibans_result = await self._session.exec(
-            select(PartnerIban).where(PartnerIban.partner_id == partner_id)
+            select(PartnerIban).where(
+                PartnerIban.partner_id == partner_id,
+                PartnerIban.mandant_id == mandant_id,
+            )
         )
         accounts_result = await self._session.exec(
-            select(PartnerAccount).where(PartnerAccount.partner_id == partner_id)
+            select(PartnerAccount).where(
+                PartnerAccount.partner_id == partner_id,
+                PartnerAccount.mandant_id == mandant_id,
+            )
         )
         names_result = await self._session.exec(
             select(PartnerName).where(PartnerName.partner_id == partner_id)
@@ -389,7 +405,7 @@ class PartnerService:
         await ensure_base_service(self._session, partner.id)
 
         if iban is not None:
-            await self._add_iban_entity(partner.id, iban)
+            await self._add_iban_entity(partner.id, mandant_id, iban)
 
         await self._session.commit()
         await self._session.refresh(partner)
@@ -402,7 +418,7 @@ class PartnerService:
         self, partner_id: UUID, mandant_id: UUID, iban: str
     ) -> PartnerIban:
         await self.get_partner(partner_id, mandant_id)  # verify ownership
-        return await self._add_iban_entity(partner_id, iban, commit=True)
+        return await self._add_iban_entity(partner_id, mandant_id, iban, commit=True)
 
     async def preview_iban(
         self,
@@ -421,30 +437,23 @@ class PartnerService:
             await self._session.exec(
                 select(JournalLine).where(
                     JournalLine.partner_iban_raw == normalized_iban,
+                    buchungen_des_mandanten(mandant_id),
                 )
             )
         ).all()
 
-        # Fallback: auch nach Teiltreffer suchen (raw-Vergleich)
+        # Fallback: auch nach Teiltreffer suchen (raw-Vergleich). Die Entscheidung
+        # haengt daran, dass der exakte Anlauf nur eigene Zeilen gesehen hat — mit dem
+        # Mandantenfilter erst danach entschied eine fremde Zeile darueber (M18).
         if not lines:
             lines = (
                 await self._session.exec(
                     select(JournalLine).where(
                         JournalLine.partner_iban_raw.ilike(f"%{normalized_iban}%"),  # type: ignore[union-attr]
+                        buchungen_des_mandanten(mandant_id),
                     )
                 )
             ).all()
-
-        # Nur Zeilen desselben Mandanten
-
-        account_ids = set(
-            (
-                await self._session.exec(
-                    select(_Account.id).where(_Account.mandant_id == mandant_id)
-                )
-            ).all()
-        )
-        lines = [ln for ln in lines if ln.account_id in account_ids]
 
         # Splits vorladen (erste Split pro Zeile für Service-Name)
         if lines:
@@ -483,7 +492,7 @@ class PartnerService:
                 if line.partner_id not in partner_conflict_cache:
                     partner_conflict_cache[line.partner_id] = (
                         await load_partner_assignment_criteria(
-                            self._session, line.partner_id
+                            self._session, line.partner_id, mandant_id
                         )
                     )
                 conflict_reasons = detect_conflicting_criteria(
@@ -524,17 +533,11 @@ class PartnerService:
         await self.get_partner(partner_id, mandant_id)
         normalized_iban = _normalize_iban(iban)
 
-        entity = await self._add_iban_entity(partner_id, normalized_iban, commit=False)
+        entity = await self._add_iban_entity(
+            partner_id, mandant_id, normalized_iban, commit=False
+        )
 
         # Buchungszeilen desselben Mandanten mit dieser IBAN suchen (nur fremde)
-
-        account_ids = set(
-            (
-                await self._session.exec(
-                    select(_Account.id).where(_Account.mandant_id == mandant_id)
-                )
-            ).all()
-        )
 
         # NULL != UUID ergibt in SQL NULL (falsy) -> explizit IS NULL einschließen
         not_this_partner = or_(
@@ -546,6 +549,7 @@ class PartnerService:
                 select(JournalLine).where(
                     JournalLine.partner_iban_raw == normalized_iban,
                     not_this_partner,
+                    buchungen_des_mandanten(mandant_id),
                 )
             )
         ).all()
@@ -555,11 +559,10 @@ class PartnerService:
                     select(JournalLine).where(
                         JournalLine.partner_iban_raw.ilike(f"%{normalized_iban}%"),  # type: ignore[union-attr]
                         not_this_partner,
+                        buchungen_des_mandanten(mandant_id),
                     )
                 )
             ).all()
-
-        matching_lines = [ln for ln in matching_lines if ln.account_id in account_ids]
 
         # Zeilen ohne Partner direkt zuordnen; Zeilen fremder Partner nur selektiv verschieben
         unassigned_lines = [ln for ln in matching_lines if ln.partner_id is None]
@@ -614,7 +617,14 @@ class PartnerService:
     ) -> None:
         await self.get_partner(partner_id, mandant_id)  # verify ownership
         entity = await self._session.get(PartnerIban, iban_id)
-        if entity is None or entity.partner_id != partner_id:
+        # Beide Bedingungen: die IBAN muss zu diesem Partner *und* zu diesem Mandanten
+        # gehoeren. Die zweite ist seit ADR-018 pruefbar und faengt den Fall, in dem
+        # die erste durch eine kuenftige Aenderung wegfaellt.
+        if (
+            entity is None
+            or entity.partner_id != partner_id
+            or entity.mandant_id != mandant_id
+        ):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="IBAN not found"
             )
@@ -633,8 +643,11 @@ class PartnerService:
         normalized_acct, normalized_blz, normalized_bic = (
             self._normalize_account_fields(account_number, blz, bic)
         )
-        await self._ensure_account_available(normalized_acct, normalized_blz)
+        await self._ensure_account_available(
+            normalized_acct, normalized_blz, mandant_id
+        )
         entity = PartnerAccount(
+            mandant_id=mandant_id,
             partner_id=partner_id,
             account_number=normalized_acct,
             blz=normalized_blz,
@@ -664,30 +677,22 @@ class PartnerService:
             await self._session.exec(
                 select(JournalLine).where(
                     JournalLine.partner_account_raw == normalized_acct,
+                    buchungen_des_mandanten(mandant_id),
                 )
             )
         ).all()
 
-        # Fallback: auch nach blz-loser Übereinstimmung suchen (raw-Vergleich)
+        # Fallback: auch nach blz-loser Übereinstimmung suchen (raw-Vergleich). Zur
+        # Reihenfolge siehe preview_iban und Befund M18.
         if not lines:
             lines = (
                 await self._session.exec(
                     select(JournalLine).where(
                         JournalLine.partner_account_raw.ilike(f"%{normalized_acct}%"),  # type: ignore[union-attr]
+                        buchungen_des_mandanten(mandant_id),
                     )
                 )
             ).all()
-
-        # Nur Zeilen desselben Mandanten
-
-        account_ids = set(
-            (
-                await self._session.exec(
-                    select(_Account.id).where(_Account.mandant_id == mandant_id)
-                )
-            ).all()
-        )
-        lines = [ln for ln in lines if ln.account_id in account_ids]
 
         # Splits vorladen (erste Split pro Zeile für Service-Name)
         if lines:
@@ -727,7 +732,7 @@ class PartnerService:
                 if line.partner_id not in partner_conflict_cache:
                     partner_conflict_cache[line.partner_id] = (
                         await load_partner_assignment_criteria(
-                            self._session, line.partner_id
+                            self._session, line.partner_id, mandant_id
                         )
                     )
                 conflict_reasons = detect_conflicting_criteria(
@@ -771,9 +776,12 @@ class PartnerService:
         normalized_acct, normalized_blz, normalized_bic = (
             self._normalize_account_fields(account_number, blz, bic)
         )
-        await self._ensure_account_available(normalized_acct, normalized_blz)
+        await self._ensure_account_available(
+            normalized_acct, normalized_blz, mandant_id
+        )
 
         entity = PartnerAccount(
+            mandant_id=mandant_id,
             partner_id=partner_id,
             account_number=normalized_acct,
             blz=normalized_blz,
@@ -785,14 +793,6 @@ class PartnerService:
 
         # Buchungszeilen desselben Mandanten mit dieser Kontonummer suchen (nur fremde)
 
-        account_ids = set(
-            (
-                await self._session.exec(
-                    select(_Account.id).where(_Account.mandant_id == mandant_id)
-                )
-            ).all()
-        )
-
         # NULL != UUID ergibt in SQL NULL (falsy) → explizit IS NULL einschließen
         not_this_partner = or_(
             JournalLine.partner_id != partner_id,
@@ -803,6 +803,7 @@ class PartnerService:
                 select(JournalLine).where(
                     JournalLine.partner_account_raw == normalized_acct,
                     not_this_partner,
+                    buchungen_des_mandanten(mandant_id),
                 )
             )
         ).all()
@@ -812,11 +813,10 @@ class PartnerService:
                     select(JournalLine).where(
                         JournalLine.partner_account_raw.ilike(f"%{normalized_acct}%"),  # type: ignore[union-attr]
                         not_this_partner,
+                        buchungen_des_mandanten(mandant_id),
                     )
                 )
             ).all()
-
-        matching_lines = [ln for ln in matching_lines if ln.account_id in account_ids]
 
         # Zeilen ohne Partner direkt zuordnen; Zeilen fremder Partner nur selektiv verschieben
         unassigned_lines = [ln for ln in matching_lines if ln.partner_id is None]
@@ -879,12 +879,19 @@ class PartnerService:
         return normalized_acct, normalized_blz, normalized_bic
 
     async def _ensure_account_available(
-        self, normalized_acct: str, normalized_blz: str | None
+        self, normalized_acct: str, normalized_blz: str | None, mandant_id: UUID
     ) -> None:
+        """Prueft, ob BLZ und Kontonummer im **eigenen** Mandanten noch frei sind.
+
+        Bis 2026-09-10 pruefte diese Stelle global (ADR-008) und wies damit ein Konto
+        ab, das ein anderer Mandant fuehrte — ohne sagen zu koennen, welcher. Seit
+        ADR-018 gilt die Eindeutigkeit je Mandant.
+        """
         existing = await self._session.exec(
             select(PartnerAccount).where(
                 PartnerAccount.account_number == normalized_acct,
                 PartnerAccount.blz == normalized_blz,
+                PartnerAccount.mandant_id == mandant_id,
             )
         )
         if existing.first() is not None:
@@ -898,7 +905,12 @@ class PartnerService:
     ) -> None:
         await self.get_partner(partner_id, mandant_id)  # verify ownership
         entity = await self._session.get(PartnerAccount, account_id)
-        if entity is None or entity.partner_id != partner_id:
+        # Siehe remove_iban.
+        if (
+            entity is None
+            or entity.partner_id != partner_id
+            or entity.mandant_id != mandant_id
+        ):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Account not found"
             )
@@ -939,11 +951,20 @@ class PartnerService:
         await self._session.commit()
 
     async def _add_iban_entity(
-        self, partner_id: UUID, iban: str, commit: bool = False
+        self, partner_id: UUID, mandant_id: UUID, iban: str, commit: bool = False
     ) -> PartnerIban:
+        """Registriert eine IBAN am Partner, wenn sie im Mandanten noch frei ist.
+
+        Der 409 gilt seit ADR-018 nur noch innerhalb des Mandanten. Vorher wies er auch
+        ab, was ein fremder Mandant fuehrte — was der Nutzer nicht erfahren durfte und
+        deshalb nicht verstehen konnte.
+        """
         normalized = _normalize_iban(iban)
         existing = await self._session.exec(
-            select(PartnerIban).where(PartnerIban.iban == normalized)
+            select(PartnerIban).where(
+                PartnerIban.iban == normalized,
+                PartnerIban.mandant_id == mandant_id,
+            )
         )
         if existing.first() is not None:
             raise HTTPException(
@@ -951,7 +972,10 @@ class PartnerService:
                 detail="IBAN already assigned to another partner",
             )
         entity = PartnerIban(
-            partner_id=partner_id, iban=normalized, created_at=_utcnow()
+            mandant_id=mandant_id,
+            partner_id=partner_id,
+            iban=normalized,
+            created_at=_utcnow(),
         )
         self._session.add(entity)
         if commit:
@@ -981,8 +1005,8 @@ class PartnerMergeService:
         target = await self._get_active_partner(target_id, mandant_id)
 
         # Transfer children (dedup-safe)
-        await self._transfer_ibans(source_id, target_id)
-        await self._transfer_accounts(source_id, target_id)
+        await self._transfer_ibans(source_id, target_id, mandant_id)
+        await self._transfer_accounts(source_id, target_id, mandant_id)
         await self._transfer_names(source_id, target_id)
 
         # Reassign journal lines (table may not exist before Bolt 006)
@@ -1047,17 +1071,33 @@ class PartnerMergeService:
             )
         return partner
 
-    async def _transfer_ibans(self, source_id: UUID, target_id: UUID) -> None:
+    async def _transfer_ibans(
+        self, source_id: UUID, target_id: UUID, mandant_id: UUID
+    ) -> None:
+        """Haengt die IBANs des Quellpartners an den Zielpartner um.
+
+        ``mandant_id`` ist seit ADR-018 mitzugeben. Beide Partner sind vom Aufrufer
+        gegen den Mandanten geprueft (``_get_active_partner``), die Bedingung ist also
+        redundant — genau darum geht es: Ein Verschmelzen, das IBANs ueber eine
+        Mandantengrenze traegt, waere unter den schwerwiegendsten Fehlern des Systems,
+        und die Query soll ihn nicht erst durch eine Pruefung weiter oben ausschliessen.
+        """
         target_existing = (
             await self._session.exec(
-                select(PartnerIban.iban).where(PartnerIban.partner_id == target_id)
+                select(PartnerIban.iban).where(
+                    PartnerIban.partner_id == target_id,
+                    PartnerIban.mandant_id == mandant_id,
+                )
             )
         ).all()
         target_set = set(target_existing)
 
         source_ibans = (
             await self._session.exec(
-                select(PartnerIban).where(PartnerIban.partner_id == source_id)
+                select(PartnerIban).where(
+                    PartnerIban.partner_id == source_id,
+                    PartnerIban.mandant_id == mandant_id,
+                )
             )
         ).all()
 
@@ -1070,11 +1110,15 @@ class PartnerMergeService:
 
         await self._session.flush()
 
-    async def _transfer_accounts(self, source_id: UUID, target_id: UUID) -> None:
+    async def _transfer_accounts(
+        self, source_id: UUID, target_id: UUID, mandant_id: UUID
+    ) -> None:
+        """Haengt die Kontoverbindungen des Quellpartners um — siehe ``_transfer_ibans``."""
         target_existing = (
             await self._session.exec(
                 select(PartnerAccount.account_number).where(
-                    PartnerAccount.partner_id == target_id
+                    PartnerAccount.partner_id == target_id,
+                    PartnerAccount.mandant_id == mandant_id,
                 )
             )
         ).all()
@@ -1082,7 +1126,10 @@ class PartnerMergeService:
 
         source_accounts = (
             await self._session.exec(
-                select(PartnerAccount).where(PartnerAccount.partner_id == source_id)
+                select(PartnerAccount).where(
+                    PartnerAccount.partner_id == source_id,
+                    PartnerAccount.mandant_id == mandant_id,
+                )
             )
         ).all()
 
@@ -1125,21 +1172,16 @@ class PartnerMergeService:
 
             service_svc = ServiceManagementService(self._session)
 
-            # Collect account IDs scoped to this mandant
-            account_ids_result = await self._session.exec(
-                select(_Account.id).where(_Account.mandant_id == mandant_id)
-            )
-            account_ids_set = set(account_ids_result.all())
-            if not account_ids_set:
-                return 0
-
-            # Fetch all lines for source partner then filter by mandant accounts in Python
-            all_lines = (
+            lines = (
                 await self._session.exec(
-                    select(JournalLine).where(JournalLine.partner_id == source_id)
+                    select(JournalLine).where(
+                        JournalLine.partner_id == source_id,
+                        buchungen_des_mandanten(mandant_id),
+                    )
                 )
             ).all()
-            lines = [ln for ln in all_lines if ln.account_id in account_ids_set]
+            if not lines:
+                return 0
 
             return await service_svc.prepare_lines_for_partner_change(
                 mandant_id, lines, target_id

@@ -434,6 +434,7 @@ class TestPartnerCRUD:
 
         db_session.add(
             PartnerIban(
+                mandant_id=mandant.id,
                 partner_id=partner_id,
                 iban="AT611904300234573201",
                 created_at=import_utcnow(),
@@ -441,6 +442,7 @@ class TestPartnerCRUD:
         )
         db_session.add(
             PartnerAccount(
+                mandant_id=mandant.id,
                 partner_id=partner_id,
                 account_number="1234567",
                 blz="19043",

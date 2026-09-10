@@ -483,7 +483,7 @@ class ServiceManagementService:
                 if line.partner_id not in partner_conflict_cache:
                     partner_conflict_cache[line.partner_id] = (
                         await load_partner_assignment_criteria(
-                            self._session, line.partner_id
+                            self._session, line.partner_id, mandant_id
                         )
                     )
                 conflict_reasons = detect_conflicting_criteria(

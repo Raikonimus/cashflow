@@ -396,7 +396,7 @@ def main() -> int:
         "--max-offen",
         type=int,
         default=0,
-        help="erlaubte Zahl triagierter OFFEN-Befunde (Stand 2026-09-09: 43)",
+        help="erlaubte Zahl triagierter OFFEN-Befunde (Stand 2026-09-10: 35)",
     )
     parser.add_argument("--only", help="nur Befunde dieser Klasse zeigen")
     args = parser.parse_args()

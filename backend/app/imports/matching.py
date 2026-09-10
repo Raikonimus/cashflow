@@ -127,6 +127,7 @@ class PartnerMatchingService:
                     # Auto-Anreicherung: Kontonummer + BIC ergänzen wenn noch nicht bekannt
                     await self._maybe_add_account(
                         partner_id,
+                        mandant_id,
                         account_raw,
                         blz_raw,
                         bic_raw,
@@ -170,6 +171,7 @@ class PartnerMatchingService:
                     # Auto-Anreicherung: IBAN + BIC ergänzen wenn noch nicht bekannt
                     await self._maybe_add_iban(
                         partner_id,
+                        mandant_id,
                         iban_raw,
                         excluded_ibans=excluded_ibans | no_enrich_ibans,
                     )
@@ -217,11 +219,13 @@ class PartnerMatchingService:
                 partner_id = row_name.id
                 await self._maybe_add_iban(
                     partner_id,
+                    mandant_id,
                     iban_raw,
                     excluded_ibans=excluded_ibans | no_enrich_ibans,
                 )
                 await self._maybe_add_account(
                     partner_id,
+                    mandant_id,
                     account_raw,
                     blz_raw,
                     bic_raw,
@@ -258,10 +262,14 @@ class PartnerMatchingService:
         if len(matched_by_service) == 1:
             pid, pname = matched_by_service[0]
             await self._maybe_add_iban(
-                pid, iban_raw, excluded_ibans=excluded_ibans | no_enrich_ibans
+                pid,
+                mandant_id,
+                iban_raw,
+                excluded_ibans=excluded_ibans | no_enrich_ibans,
             )
             await self._maybe_add_account(
                 pid,
+                mandant_id,
                 account_raw,
                 blz_raw,
                 bic_raw,
@@ -330,11 +338,13 @@ class PartnerMatchingService:
             self._session.add(PartnerName(partner_id=new_partner.id, name=name_raw, created_at=utcnow()))  # type: ignore[arg-type]
         await self._maybe_add_iban(
             new_partner.id,  # type: ignore[arg-type]
+            mandant_id,
             iban_raw,
             excluded_ibans=excluded_ibans | no_enrich_ibans,
         )
         await self._maybe_add_account(
             new_partner.id,  # type: ignore[arg-type]
+            mandant_id,
             account_raw,
             blz_raw,
             bic_raw,
@@ -345,10 +355,21 @@ class PartnerMatchingService:
     async def _maybe_add_iban(
         self,
         partner_id: UUID,
+        mandant_id: UUID,
         iban_raw: str | None,
         excluded_ibans: frozenset[str] = frozenset(),
     ) -> None:
-        """Fügt IBAN zum Partner hinzu, wenn sie noch nicht registriert ist."""
+        """Fügt IBAN zum Partner hinzu, wenn sie im Mandanten noch nicht registriert ist.
+
+        Hier sass Befund A1-3. Die Prüfung lief global (ADR-008), der Lookup dagegen je
+        Mandant. Hatte ein anderer Mandant die IBAN, fand ``existing`` sie, die
+        Registrierung entfiel — und der eigene Partner wurde über diese IBAN nie
+        erkannt. Nicht einmal einen Hinweis gab es: Der manuelle Weg wirft 409, dieser
+        schwieg.
+
+        Seit ADR-018 ist die IBAN je Mandant eindeutig, und damit prüft die Zeile das,
+        was der Lookup danach auch sucht.
+        """
         if not iban_raw:
             return
         normalized = _normalize_iban(iban_raw)
@@ -356,23 +377,36 @@ class PartnerMatchingService:
             return
         existing = (
             await self._session.exec(
-                select(PartnerIban).where(PartnerIban.iban == normalized)
+                select(PartnerIban).where(
+                    PartnerIban.iban == normalized,
+                    PartnerIban.mandant_id == mandant_id,
+                )
             )
         ).first()
         if existing is None:
             self._session.add(
-                PartnerIban(partner_id=partner_id, iban=normalized, created_at=utcnow())
+                PartnerIban(
+                    mandant_id=mandant_id,
+                    partner_id=partner_id,
+                    iban=normalized,
+                    created_at=utcnow(),
+                )
             )
 
     async def _maybe_add_account(
         self,
         partner_id: UUID,
+        mandant_id: UUID,
         account_raw: str | None,
         blz_raw: str | None,
         bic_raw: str | None = None,
         excluded_accounts: frozenset[str] = frozenset(),
     ) -> None:
-        """Fügt BLZ+Kontonummer (+BIC) zum Partner hinzu, wenn noch nicht registriert."""
+        """Fügt BLZ+Kontonummer (+BIC) hinzu, wenn im Mandanten noch nicht registriert.
+
+        Dasselbe wie bei ``_maybe_add_iban``: Die Prüfung lief global, der Lookup je
+        Mandant. Siehe dort und ADR-018.
+        """
         if not account_raw:
             return
         normalized_acct = _normalize_account(account_raw)
@@ -385,12 +419,14 @@ class PartnerMatchingService:
                 select(PartnerAccount).where(
                     PartnerAccount.account_number == normalized_acct,
                     PartnerAccount.blz == normalized_blz,
+                    PartnerAccount.mandant_id == mandant_id,
                 )
             )
         ).first()
         if existing is None:
             self._session.add(
                 PartnerAccount(
+                    mandant_id=mandant_id,
                     partner_id=partner_id,
                     blz=normalized_blz,
                     account_number=normalized_acct,

@@ -125,10 +125,16 @@ async def create_partner_db(
     session.add(partner)
     await session.flush()
     if iban:
-        pi = PartnerIban(partner_id=partner.id, iban=iban, created_at=now)
+        pi = PartnerIban(
+            mandant_id=partner.mandant_id,
+            partner_id=partner.id,
+            iban=iban,
+            created_at=now,
+        )
         session.add(pi)
     if account_number:
         pa = PartnerAccount(
+            mandant_id=partner.mandant_id,
             partner_id=partner.id,
             account_number=account_number,
             blz=blz,

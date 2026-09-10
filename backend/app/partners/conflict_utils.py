@@ -30,11 +30,24 @@ def normalize_account(raw: str) -> str:
 async def load_partner_assignment_criteria(
     session: AsyncSession,
     partner_id: UUID,
+    mandant_id: UUID,
 ) -> PartnerAssignmentCriteria:
+    """Laedt die Kennungen eines Partners, an denen ein Zuordnungskonflikt haengt.
+
+    ``mandant_id`` ist seit ADR-018 mitzugeben, obwohl ``partner_id`` allein eindeutig
+    ist. Der Grund ist nicht die Eindeutigkeit, sondern die Erzwingbarkeit: Diese
+    Funktion wird aus drei Diensten heraus aufgerufen und bekommt ihre ``partner_id``
+    aus einer **Buchungszeile** (``line.partner_id``) — also aus Daten, nicht aus einem
+    geprueften Pfadparameter. Steht der Mandant in der Query, kann eine Zeile mit einer
+    fremden ``partner_id`` hier keine fremden Kennungen herausgeben.
+    """
     ibans = set(
         (
             await session.exec(
-                select(PartnerIban.iban).where(PartnerIban.partner_id == partner_id)
+                select(PartnerIban.iban).where(
+                    PartnerIban.partner_id == partner_id,
+                    PartnerIban.mandant_id == mandant_id,
+                )
             )
         ).all()
     )
@@ -42,7 +55,8 @@ async def load_partner_assignment_criteria(
         (
             await session.exec(
                 select(PartnerAccount.account_number).where(
-                    PartnerAccount.partner_id == partner_id
+                    PartnerAccount.partner_id == partner_id,
+                    PartnerAccount.mandant_id == mandant_id,
                 )
             )
         ).all()

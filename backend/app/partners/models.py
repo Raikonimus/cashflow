@@ -27,25 +27,54 @@ class Partner(SQLModel, table=True):
 
 
 class PartnerIban(SQLModel, table=True):
+    """Eine IBAN eines Partners — eindeutig **je Mandant**, nicht global.
+
+    Die Eindeutigkeit war bis 2026-09-10 global (ADR-008). Das ergab einen blinden
+    Fleck: Registrierte Mandant A eine IBAN, uebersprang der Import sie fuer Mandant B
+    stillschweigend, und B wurde ueber diese IBAN nie erkannt (Befund A1-3). ADR-018
+    kehrt die Regel um; Migration 029 traegt die Spalte nach.
+
+    ``mandant_id`` steht auch am Partner und ist hier eine Kopie. Ohne sie liesse sich
+    die Eindeutigkeit nicht in der Datenbank ausdruecken — ein ``UNIQUE`` ueber eine
+    Fremdtabelle gibt es nicht. Die Kopie kann nur auseinanderlaufen, wenn ein Partner
+    den Mandanten wechselt, und das tut kein Pfad im System.
+    """
+
     __tablename__ = "partner_ibans"
+    __table_args__ = (
+        UniqueConstraint("mandant_id", "iban", name="uq_partner_ibans_mandant_iban"),
+    )
 
     id: UUID | None = Field(default_factory=uuid4, primary_key=True)
+    mandant_id: UUID = Field(foreign_key="mandants.id", index=True)
     partner_id: UUID = Field(foreign_key="partners.id", index=True)
-    iban: str = Field(max_length=34, unique=True)
+    iban: str = Field(max_length=34)
     created_at: datetime = Field(default_factory=utcnow)
 
 
 class PartnerAccount(SQLModel, table=True):
-    """BLZ + Kontonummer als zusätzlicher Partner-Identifier (neben IBAN)."""
+    """BLZ + Kontonummer als zusätzlicher Partner-Identifier (neben IBAN).
+
+    Eindeutig **je Mandant**, aus demselben Grund wie bei ``PartnerIban`` — siehe dort
+    und ADR-018.
+
+    Zu beachten: ``blz`` ist nullbar, und in SQL kollidieren NULL-Werte nicht. Zwei
+    Zeilen mit derselben Kontonummer und ohne BLZ sind deshalb erlaubt. Das war vor der
+    Umstellung schon so und ist hier nicht Gegenstand.
+    """
 
     __tablename__ = "partner_accounts"
     __table_args__ = (
         UniqueConstraint(
-            "blz", "account_number", name="uq_partner_accounts_blz_account"
+            "mandant_id",
+            "blz",
+            "account_number",
+            name="uq_partner_accounts_mandant_blz_account",
         ),
     )
 
     id: UUID | None = Field(default_factory=uuid4, primary_key=True)
+    mandant_id: UUID = Field(foreign_key="mandants.id", index=True)
     partner_id: UUID = Field(foreign_key="partners.id", index=True)
     blz: str | None = Field(default=None, max_length=20)  # Bankleitzahl (optional)
     account_number: str = Field(max_length=50)  # Kontonummer

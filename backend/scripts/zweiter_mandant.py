@@ -203,7 +203,14 @@ async def lege_welt_an(
         await session.exec(select(PartnerIban).where(PartnerIban.iban == IBAN))
     ).first()
     if iban_irgendwo is None:
-        session.add(PartnerIban(partner_id=partner.id, iban=IBAN, created_at=jetzt))
+        session.add(
+            PartnerIban(
+                mandant_id=partner.mandant_id,
+                partner_id=partner.id,
+                iban=IBAN,
+                created_at=jetzt,
+            )
+        )
         bericht.neu(f"IBAN {IBAN} fuer '{PARTNER_NAME}'")
     elif iban_irgendwo.partner_id == partner.id:
         bericht.schon_da(f"IBAN {IBAN}")

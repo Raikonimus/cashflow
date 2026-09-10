@@ -372,7 +372,11 @@ class TestListReviewItems:
 
         partner = await create_partner_db(db_session, mandant.id, "Amazon EU")
         db_session.add(
-            PartnerIban(partner_id=partner.id, iban="DE12500105170648489890")
+            PartnerIban(
+                mandant_id=partner.mandant_id,
+                partner_id=partner.id,
+                iban="DE12500105170648489890",
+            )
         )
         await db_session.commit()
 

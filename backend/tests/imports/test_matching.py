@@ -36,7 +36,14 @@ async def _create_active_partner(
     session.add(partner)
     await session.flush()
     if iban:
-        session.add(PartnerIban(partner_id=partner.id, iban=iban, created_at=now))
+        session.add(
+            PartnerIban(
+                mandant_id=partner.mandant_id,
+                partner_id=partner.id,
+                iban=iban,
+                created_at=now,
+            )
+        )
     if alias:
         session.add(PartnerName(partner_id=partner.id, name=alias, created_at=now))
     await session.commit()
@@ -62,7 +69,14 @@ async def _create_inactive_partner(
     session.add(partner)
     await session.flush()
     if iban:
-        session.add(PartnerIban(partner_id=partner.id, iban=iban, created_at=now))
+        session.add(
+            PartnerIban(
+                mandant_id=partner.mandant_id,
+                partner_id=partner.id,
+                iban=iban,
+                created_at=now,
+            )
+        )
     if alias:
         session.add(PartnerName(partner_id=partner.id, name=alias, created_at=now))
     await session.commit()
@@ -164,30 +178,52 @@ class TestIbanMatch:
         assert result_no_name.outcome != MatchOutcome.iban_match
 
     async def test_iban_not_matched_across_mandants(self, db_session: AsyncSession):
-        """An IBAN registered under another mandant must not match."""
+        """Eine IBAN eines anderen Mandanten trifft nicht — der eigene Partner schon.
+
+        Der zweite Teil dieses Tests erwartete bis Stufe 5 ``no_partner_identified``
+        und hielt damit Befund A1-3 fest, ohne es zu sagen: Der erste Aufruf legte
+        einen Partner für den eigenen Mandanten an, konnte ihm die IBAN aber nicht
+        geben, weil sie global vergeben war (ADR-008). Der zweite Aufruf fand deshalb
+        nichts — und das galt dauerhaft, bei jedem weiteren Import.
+
+        Seit ADR-018 ist die IBAN je Mandant eindeutig. Der erste Aufruf registriert
+        sie beim eigenen Partner, der zweite erkennt ihn daran wieder. Die Aussage des
+        Tests bleibt dieselbe und wird schärfer: Nicht „es trifft nichts", sondern „es
+        trifft der **eigene** Partner und nicht der fremde".
+        """
         other_mandant = await create_mandant(db_session, "Other GmbH")
-        await _create_active_partner(
+        fremder = await _create_active_partner(
             db_session, other_mandant.id, "Fremdfirma", iban="DE89370400440532013000"
         )
 
         own_mandant = await create_mandant(db_session, "Own AG")
         svc = PartnerMatchingService(db_session)
 
-        # Mit Namen → neuer Partner für eigenen Mandanten
+        # Mit Namen → neuer Partner für eigenen Mandanten, nicht der fremde
         result = await svc.match(
             mandant_id=own_mandant.id,
             iban_raw="DE89370400440532013000",
             name_raw="Fremdfirma Kopie",
         )
         assert result.outcome == MatchOutcome.new_partner
+        assert result.partner_id != fremder.id
+        await db_session.commit()
 
-        # Ohne Namen → kein Partner identifizierbar, kein Cross-Mandant-Match
+        # Ohne Namen → der eben angelegte eigene Partner, über die IBAN erkannt
         result_no_name = await svc.match(
             mandant_id=own_mandant.id,
             iban_raw="DE89370400440532013000",
             name_raw=None,
         )
-        assert result_no_name.outcome == MatchOutcome.no_partner_identified
+        assert result_no_name.outcome == MatchOutcome.iban_match, (
+            f"Der eigene Partner wird über seine IBAN nicht wiedererkannt, sondern "
+            f"ergibt {result_no_name.outcome} — dann ist die Registrierung im ersten "
+            f"Aufruf unterblieben (Befund A1-3)."
+        )
+        assert result_no_name.partner_id == result.partner_id
+        assert (
+            result_no_name.partner_id != fremder.id
+        ), "Der Treffer ist der Partner des anderen Mandanten — ein Mandantenleck."
 
 
 # ---------------------------------------------------------------------------
