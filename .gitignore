@@ -37,3 +37,9 @@ backend/cashflow.db.backup-*
 
 # Local cleanup analysis artifacts
 backend/false_duplicates_unmapped_*.csv
+
+# Abdeckungsmessung — Rohdaten und Berichte entstehen bei jedem `make coverage`
+backend/.coverage
+backend/.coverage.*
+backend/htmlcov/
+frontend/coverage/
