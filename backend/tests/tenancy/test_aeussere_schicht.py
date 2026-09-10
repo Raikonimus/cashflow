@@ -37,7 +37,7 @@ from __future__ import annotations
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import AnmeldeHelfer
+from tests.conftest import PASSWORT, AnmeldeHelfer
 from tests.tenancy.endpunkte import Endpunkt, registrierte_endpunkte
 from tests.tenancy.erwartungen import (
     kurz,
@@ -191,28 +191,51 @@ async def test_der_admin_erreicht_jeden_mandanten(
     pruefstand: Pruefstand,
     anmelden: AnmeldeHelfer,
 ):
-    """ADR-001 festgenagelt: Ein Admin ohne jede Zuordnung liest jeden Mandanten.
+    """Die Admin-Ausnahme festgenagelt: ein Admin ohne jede Zuordnung liest jeden Mandanten.
 
-    Das ist kein Leck, sondern eine Entscheidung — aber eine, die niemand versehentlich
-    zuruecknehmen und niemand versehentlich ausweiten sollte. Der Test haelt sie fest,
-    damit die fuenf Ausnahmen oben nicht als Luecke gelesen werden, sondern als das,
-    was sie sind.
+    Das ist kein Leck, sondern eine gewollte Ausnahme — aber eine, zu der es keinen
+    Entscheidungssatz gibt (Befund M17), und die niemand versehentlich zuruecknehmen und
+    niemand versehentlich ausweiten sollte. Der Test
+    haelt sie fest, damit die fuenf Ausnahmen oben nicht als Luecke gelesen werden,
+    sondern als das, was sie sind.
 
     ``admin`` hat in der Pruefumgebung **keine** Zeile in ``mandant_users``. Dass er
     trotzdem durchkommt, liegt allein am Zweig in ``require_mandant_access``.
-    """
-    kopf = await anmelden(pruefstand.admin, pruefstand.a.welt)
 
+    Seit ADR-019 muss auch er den Mandanten **waehlen** — deshalb wird hier je Seite
+    neu angemeldet. Die Reichweite ist unveraendert, der Weg dorthin hat einen Schritt
+    mehr. Genau diese Unterscheidung prueft der Test: nicht „der Admin darf ueberall
+    hin, ohne etwas zu sagen", sondern „der Admin darf jeden Mandanten waehlen, auch
+    ohne Zuordnung".
+    """
     for seite, bezeichnung in ((pruefstand.a, "A"), (pruefstand.b, "B")):
+        # Dass das Anmelden mit *diesem* Mandanten gelingt, ist bereits die halbe
+        # Aussage: `select-mandant` prueft die Zugehoerigkeit und laesst den Admin
+        # trotzdem durch.
+        kopf = await anmelden(pruefstand.admin, seite.welt)
+
         antwort = await client.get(
             f"/api/v1/mandants/{seite.id}/partners", headers=kopf
         )
         assert antwort.status_code == 200, (
             f"Der Admin erreicht Mandant {bezeichnung} nicht: {kurz(antwort)}. "
-            f"Wenn das Absicht ist, widerspricht es ADR-001 und der Plan gehoert "
-            f"angepasst."
+            f"Wenn das Absicht ist, ist die Admin-Ausnahme zurueckgenommen und der "
+            f"Plan gehoert angepasst."
         )
 
-    # Das Token nennt Mandant A — trotzdem antwortet B. Genau das ist Befund M10, hier
-    # fuer den Admin: Die Auswahl ist Anzeigezustand, keine Grenze.
-    assert True
+    # Gegenprobe: Ohne die Admin-Rolle geht dasselbe nicht. Ohne sie koennte das
+    # Ergebnis oben auch von einem System kommen, das gar nichts prueft.
+    antwort = await client.post(
+        "/api/v1/auth/login",
+        json={"email": pruefstand.a.nutzer.email, "password": PASSWORT},
+    )
+    assert antwort.status_code == 200, antwort.text
+    fremde_wahl = await client.post(
+        "/api/v1/auth/select-mandant",
+        json={"mandant_id": str(pruefstand.b.id)},
+        headers={"Authorization": f"Bearer {antwort.json()['access_token']}"},
+    )
+    assert fremde_wahl.status_code == 403, (
+        f"{pruefstand.a.nutzer.email} kann Mandant B waehlen, obwohl er ihm nicht "
+        f"zugeordnet ist: {kurz(fremde_wahl)}"
+    )

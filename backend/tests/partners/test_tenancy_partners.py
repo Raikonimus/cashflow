@@ -460,14 +460,19 @@ async def test_nutzer_beider_mandanten_erreicht_beide(
 ):
     """``nutzer_beide`` darf beide sehen — die Trennung ist keine Abschottung.
 
-    Hier zeigt sich auch Befund M10: Das Token ist fuer A gewaehlt, wirkt aber auf B,
-    weil `require_mandant_access` die Mitgliedschaft prueft und nicht den gewaehlten
-    Mandanten. Fuer die Berechtigung folgerichtig — festgehalten, weil daran haengt,
-    dass die Auswahl Anzeigezustand ist und keine Grenze.
-    """
-    header = await anmelden(zwei_mandanten.nutzer_beide, zwei_mandanten.a)
+    Die Aussage ist unveraendert, der Weg dorthin nicht. Bis Stufe 5 genuegte **ein**
+    Token: Es war fuer A gewaehlt und wirkte auch auf B, weil
+    ``require_mandant_access`` nur die Mitgliedschaft pruefte (Befund M10). Seit
+    ADR-019 ist die Auswahl eine Grenze, und der Nutzer muss den Mandanten benennen,
+    in dem er arbeitet.
 
+    Was der Test damit prueft, ist genau das Verbleibende: Die Zuordnung zu zwei
+    Mandanten ist echt, und keiner der beiden ist ihm verschlossen. Dass ein fuer A
+    gewaehltes Token B **nicht** mehr erreicht, prueft
+    ``tests/tenancy/test_token_und_pfad.py``.
+    """
     for welt in (zwei_mandanten.a, zwei_mandanten.b):
+        header = await anmelden(zwei_mandanten.nutzer_beide, welt)
         antwort = await client.get(
             f"/api/v1/mandants/{welt.id}/partners/{welt.partner.id}", headers=header
         )

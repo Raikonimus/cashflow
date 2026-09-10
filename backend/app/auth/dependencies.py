@@ -82,12 +82,54 @@ def require_role(min_role: str):
 async def require_mandant_access(
     mandant_id: UUID,
     current_user: User = Depends(get_current_user),
+    payload: dict = Depends(get_jwt_payload),
     session: AsyncSession = Depends(get_session),
 ) -> None:
+    """Prueft zwei Dinge: den **gewaehlten** Mandanten und die **Zugehoerigkeit**.
+
+    Zwei Schranken, zwei Zwecke
+    ---------------------------
+    1. **Die Auswahl muss zum Pfad passen.** Alle mandantengebundenen Endpunkte nehmen
+       ihre ``mandant_id`` aus dem Pfad. Ohne diesen Vergleich waere die Auswahl beim
+       Anmelden bloss Anzeigezustand: Ein Nutzer mit zwei Mandanten koennte mit einem
+       fuer A gewaehlten Token die Endpunkte von B ansprechen. Das war Befund M10, und
+       die Entscheidung dazu fiel in Stufe 5 auf *erzwingen* — siehe ADR-019.
+    2. **Der Nutzer muss dem Mandanten zugeordnet sein.** Das ist die eigentliche
+       Berechtigung und steht in ``mandant_users``.
+
+    Warum die Auswahl **vor** der Rollenausnahme geprueft wird
+    ----------------------------------------------------------
+    Ein Admin umgeht die Zugehoerigkeitspruefung absichtlich. Diese Ausnahme nennt der
+    Code „ADR-001 / RBAC design", doch ADR-001 ist die Entscheidung *Client-only
+    Logout*; einen Entscheidungssatz zur Admin-Ausnahme gibt es nicht (Befund M17). Er
+    umgeht damit aber **nicht** die Auswahl: Auch ein Admin muss sagen, in welchem Mandanten er arbeitet. Sonst haette
+    gerade die Rolle mit der groessten Reichweite die schwaechste Bindung an das, was
+    die Oberflaeche anzeigt.
+
+    Fuer den Admin ist das keine Einschraenkung, sondern ein Zwischenschritt: ``login``
+    liefert ihm alle aktiven Mandanten, und ``select-mandant`` gibt ihm zu jedem ein
+    Token. Er erreicht weiter jeden Mandanten — er muss ihn nur benennen.
+
+    Ein Token ohne ``mandant_id`` erreicht keinen dieser Endpunkte. Das trifft genau
+    die Zustaende, in denen es auch nichts anzuzeigen gibt: mehrere Mandanten und noch
+    keine Auswahl, oder gar keine Zuordnung (Befund M6).
     """
-    Verify current user has access to the given mandant.
-    Admin bypasses this check (ADR-001 / RBAC design).
-    """
+    gewaehlt = payload.get("mandant_id")
+    if gewaehlt is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No mandant selected",
+        )
+    if str(gewaehlt) != str(mandant_id):
+        # Bewusst dieselbe Meldung wie bei fehlender Zugehoerigkeit: Ob der Nutzer den
+        # angefragten Mandanten *duerfte* und nur einen anderen gewaehlt hat, ist seine
+        # eigene Angelegenheit — die Unterscheidung nach aussen zu tragen bringt
+        # nichts und macht die Antwort zur Auskunft.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access to mandant denied",
+        )
+
     if current_user.role == UserRole.admin.value:
         return
 
