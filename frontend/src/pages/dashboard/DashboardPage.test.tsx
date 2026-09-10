@@ -59,6 +59,96 @@ function mockBalances(
 describe('DashboardPage', () => {
   beforeEach(() => setup())
 
+  it('nennt in der Überschrift das Datum der jüngsten Buchung', async () => {
+    // Zwei Konten mit unterschiedlichem Importstand: Die Überschrift sagt, nach welcher
+    // Buchung der Stand gilt — das ist die letzte, die es gibt, nicht die älteste.
+    mockBalances({
+      accounts: [
+        {
+          account_id: 'a1',
+          account_name: 'Selten importiert',
+          iban: null,
+          currency: 'EUR',
+          is_active: true,
+          opening_balance: '0.00',
+          booked_amount: '100.00',
+          current_balance: '100.00',
+          line_count: 1,
+          last_booking_date: '2026-06-12',
+          foreign_currency_line_count: 0,
+        },
+        {
+          account_id: 'a2',
+          account_name: 'Hauptkonto',
+          iban: null,
+          currency: 'EUR',
+          is_active: true,
+          opening_balance: '0.00',
+          booked_amount: '900.00',
+          current_balance: '900.00',
+          line_count: 1,
+          last_booking_date: '2026-08-31',
+          foreign_currency_line_count: 0,
+        },
+      ],
+      totals: [
+        {
+          currency: 'EUR',
+          account_count: 2,
+          opening_balance: '0.00',
+          booked_amount: '1000.00',
+          current_balance: '1000.00',
+        },
+      ],
+    })
+
+    await act(async () => {
+      renderPage()
+    })
+
+    expect(
+      await screen.findByRole('heading', {
+        name: 'Kontostand nach letzter Buchung vom 31.08.2026',
+      }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Aktueller Kontostand')).not.toBeInTheDocument()
+  })
+
+  it('lässt das Datum weg, solange keine Buchung importiert ist', async () => {
+    mockBalances({
+      accounts: [
+        {
+          account_id: 'a1',
+          account_name: 'Neues Konto',
+          iban: null,
+          currency: 'EUR',
+          is_active: true,
+          opening_balance: '250.00',
+          booked_amount: '0.00',
+          current_balance: '250.00',
+          line_count: 0,
+          last_booking_date: null,
+          foreign_currency_line_count: 0,
+        },
+      ],
+      totals: [
+        {
+          currency: 'EUR',
+          account_count: 1,
+          opening_balance: '250.00',
+          booked_amount: '0.00',
+          current_balance: '250.00',
+        },
+      ],
+    })
+
+    await act(async () => {
+      renderPage()
+    })
+
+    expect(await screen.findByRole('heading', { name: 'Kontostand' })).toBeInTheDocument()
+  })
+
   it('zeigt Startsaldo, Buchungen und Kontostand je Konto', async () => {
     mockBalances({
       accounts: [

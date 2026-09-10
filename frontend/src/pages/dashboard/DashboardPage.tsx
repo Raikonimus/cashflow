@@ -25,6 +25,21 @@ function formatDate(value: string | null): string {
   return `${day}.${month}.${year}`
 }
 
+/** Datum der jüngsten importierten Buchung über alle Konten.
+ *
+ *  Bewusst das jüngste und nicht das älteste: Die Überschrift sagt, *nach welcher Buchung*
+ *  der Stand gilt, und das ist die letzte, die es gibt. Wie weit die Summe über alle Konten
+ *  hinweg vollständig ist, kann davon abweichen, wenn ein Konto seltener importiert wird —
+ *  dafür steht die Spalte „Stand vom" je Konto in der Tabelle darunter. Die
+ *  Liquiditätsvorschau auf derselben Seite nennt dasselbe Datum (`as_of`).
+ */
+function latestBookingDate(accounts: AccountBalanceRow[]): string | null {
+  const dates = accounts
+    .map((account) => account.last_booking_date)
+    .filter((date): date is string => !!date)
+  return dates.length > 0 ? dates.reduce((a, b) => (a > b ? a : b)) : null
+}
+
 function amountClass(value: string): string {
   return Number.parseFloat(value) < 0 ? 'text-red-600' : 'text-gray-900'
 }
@@ -63,6 +78,7 @@ export function DashboardPage() {
 
   const accounts = data?.accounts ?? []
   const totals = data?.totals ?? []
+  const lastBooking = latestBookingDate(accounts)
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">
@@ -70,7 +86,11 @@ export function DashboardPage() {
 
       <section>
         <div className="mb-3 flex items-baseline justify-between">
-          <h2 className="text-base font-semibold text-gray-800">Aktueller Kontostand</h2>
+          <h2 className="text-base font-semibold text-gray-800">
+            {lastBooking
+              ? `Kontostand nach letzter Buchung vom ${formatDate(lastBooking)}`
+              : 'Kontostand'}
+          </h2>
           <Link to="/accounts" className="text-sm text-blue-600 hover:underline">
             Konten verwalten
           </Link>
