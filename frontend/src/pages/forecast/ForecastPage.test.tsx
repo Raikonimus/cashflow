@@ -424,6 +424,40 @@ describe('ForecastPage – Regel-Editor', () => {
     })
   })
 
+  it('macht nach dem Speichern alle Ansichten ungültig, die die Prognose zeigen', async () => {
+    // Matrix, Liquiditätskurve und Saldo-Leiste lesen dieselbe Prognose. Fehlt eine
+    // davon in dieser Liste, steht sie danach mit einem anderen Stand daneben — und
+    // beide Zahlen sehen für sich richtig aus.
+    const invalidated: unknown[] = []
+    const spy = vi.spyOn(QueryClient.prototype, 'invalidateQueries').mockImplementation(function (
+      this: QueryClient,
+      filters?: { queryKey?: unknown },
+    ) {
+      invalidated.push(filters?.queryKey)
+      return Promise.resolve()
+    })
+
+    server.use(http.put(RULE_URL, () => HttpResponse.json(ruleResponse())))
+    renderPage()
+    await openEditor()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Händisch' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Regel speichern' }))
+
+    await waitFor(() => expect(invalidated.length).toBeGreaterThan(0))
+    const keys = invalidated.map((key) => (Array.isArray(key) ? key[0] : key))
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        'income-expense-matrix',
+        'income-expense-multi-matrix',
+        'liquidity',
+        'balance-timeline',
+        'balance-timeline-multi',
+      ]),
+    )
+    spy.mockRestore()
+  })
+
   it('überträgt Sondermonate mit Faktor', async () => {
     let payload: PayloadRecord | null = null
     server.use(

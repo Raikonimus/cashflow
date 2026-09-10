@@ -101,6 +101,22 @@ function buildIncomeMatrixResponse(groups: Array<Record<string, unknown>>, total
   }
 }
 
+function buildBalanceTimeline(year: number, options: { firstForecastMonth?: number | null } = {}) {
+  const firstForecastMonth = options.firstForecastMonth ?? null
+  return {
+    year,
+    currency: 'EUR',
+    opening_balance: '1000.00',
+    months: Array.from({ length: 12 }, (_, index) => ({
+      month: index + 1,
+      closing_balance: `${1000 + (index + 1) * 100}.00`,
+      is_forecast: firstForecastMonth !== null && index + 1 >= firstForecastMonth,
+    })),
+    first_forecast_month: firstForecastMonth,
+    as_of: '2026-08-31',
+  }
+}
+
 afterEach(() => {
   act(() => {
     useAuthStore.setState({ token: null, user: null, selectedMandant: null, mandants: [] })
@@ -113,6 +129,10 @@ beforeEach(() => {
     http.get(`/api/v1/mandants/${MANDANT_ID}/journal/years`, () =>
       HttpResponse.json({ years: [2026] }),
     ),
+    http.get(`/api/v1/mandants/${MANDANT_ID}/reports/balance-timeline`, ({ request }) => {
+      const requestedYear = Number(new URL(request.url).searchParams.get('year') ?? '2026')
+      return HttpResponse.json(buildBalanceTimeline(requestedYear))
+    }),
   )
 })
 
@@ -1836,5 +1856,125 @@ describe('IncomeExpensePage', () => {
     expect(
       await screen.findByText('Excel-Export fehlgeschlagen. Bitte erneut versuchen.'),
     ).toBeInTheDocument()
+  })
+})
+
+describe('Saldo-Leiste über der Matrix', () => {
+  function renderWithMatrix() {
+    server.use(
+      http.get(`/api/v1/mandants/${MANDANT_ID}/reports/income-expense`, () =>
+        HttpResponse.json(buildIncomeMatrixResponse([])),
+      ),
+    )
+    return renderPage()
+  }
+
+  it('zeigt den Kontostand je Monat und das Jahresende in der Jahresspalte', async () => {
+    setup('viewer')
+
+    await act(async () => {
+      renderWithMatrix()
+    })
+
+    const strip = await screen.findByRole('table', { name: 'Kontostand zum Monatsende' })
+    const cells = within(strip).getAllByRole('cell')
+    // Erste Spalte: Stand am Jahresende, danach Januar bis Dezember.
+    expect(cells).toHaveLength(13)
+    expect(cells[0]).toHaveTextContent('2.200')
+    expect(cells[1]).toHaveTextContent('1.100')
+    expect(cells[12]).toHaveTextContent('2.200')
+    // Der Startsaldo steht im Kopf der Leiste, nicht in der Tabelle.
+    expect(screen.getByText('Stand 01.01.2026: 1.000 €')).toBeInTheDocument()
+  })
+
+  it('hebt prognostizierte Monate ab und lässt die Ist-Monate schwarz', async () => {
+    setup('viewer')
+    server.use(
+      http.get(`/api/v1/mandants/${MANDANT_ID}/reports/balance-timeline`, () =>
+        HttpResponse.json(buildBalanceTimeline(2026, { firstForecastMonth: 9 })),
+      ),
+    )
+
+    await act(async () => {
+      renderWithMatrix()
+    })
+
+    const strip = await screen.findByRole('table', { name: 'Kontostand zum Monatsende' })
+    const cells = within(strip).getAllByRole('cell')
+    // Index 0 ist die Jahresspalte, Index 1 der Januar — September liegt auf 9.
+    expect(cells[8]).not.toHaveAttribute('title')
+    expect(cells[9]).toHaveAttribute('title', 'Prognostizierter Kontostand')
+    // Das Jahresende erbt die Prognose aus dem Dezember.
+    expect(cells[0]).toHaveAttribute('title', 'Prognostizierter Kontostand')
+  })
+
+  it('hebt einen negativen Kontostand hervor', async () => {
+    setup('viewer')
+    server.use(
+      http.get(`/api/v1/mandants/${MANDANT_ID}/reports/balance-timeline`, () =>
+        HttpResponse.json({
+          ...buildBalanceTimeline(2026),
+          months: Array.from({ length: 12 }, (_, index) => ({
+            month: index + 1,
+            closing_balance: index === 4 ? '-250.00' : '1000.00',
+            is_forecast: false,
+          })),
+        }),
+      ),
+    )
+
+    await act(async () => {
+      renderWithMatrix()
+    })
+
+    const strip = await screen.findByRole('table', { name: 'Kontostand zum Monatsende' })
+    const cells = within(strip).getAllByRole('cell')
+    // Index 0 ist die Jahresspalte, Index 1 der Januar — der Mai liegt auf 5.
+    expect(cells[5]).toHaveTextContent('-250')
+    expect(cells[5].className).toContain('text-red-700')
+    expect(cells[4].className).not.toContain('text-red')
+  })
+
+  it('zeigt in der Mehrjahresansicht den Stand zum Jahresende je Jahr', async () => {
+    setup('viewer')
+    server.use(
+      http.get(`/api/v1/mandants/${MANDANT_ID}/journal/years`, () =>
+        HttpResponse.json({ years: [2025, 2026] }),
+      ),
+    )
+
+    await act(async () => {
+      renderWithMatrix()
+    })
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Mehrjahresansicht' })).toBeEnabled(),
+    )
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Mehrjahresansicht' }))
+    })
+
+    const strip = await screen.findByRole('table', { name: 'Kontostand zum Jahresende' })
+    const headers = within(strip)
+      .getAllByRole('columnheader')
+      .map((cell) => cell.textContent)
+    expect(headers).toEqual(['Periode', 'Gesamt', '2025', '2026'])
+    const cells = within(strip).getAllByRole('cell')
+    expect(cells).toHaveLength(3)
+    expect(cells[0]).toHaveTextContent('2.200')
+  })
+
+  it('zeigt Striche statt Zahlen, wenn der Kontostand nicht geladen werden kann', async () => {
+    setup('viewer')
+    server.use(
+      http.get(`/api/v1/mandants/${MANDANT_ID}/reports/balance-timeline`, () =>
+        HttpResponse.json({ detail: 'kaputt' }, { status: 500 }),
+      ),
+    )
+
+    await act(async () => {
+      renderWithMatrix()
+    })
+
+    expect(await screen.findByText('Kontostand konnte nicht geladen werden.')).toBeInTheDocument()
   })
 })

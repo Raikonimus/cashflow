@@ -9,7 +9,7 @@ import {
   faFileExcel,
 } from '@fortawesome/free-solid-svg-icons'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { getIncomeExpenseMatrix, listJournalYears } from '@/api/journal'
+import { getBalanceTimeline, getIncomeExpenseMatrix, listJournalYears } from '@/api/journal'
 import type {
   IncomeExpenseGroupRow,
   IncomeExpenseMatrixResponse,
@@ -27,7 +27,18 @@ import type { ServiceGroupSection } from '@/api/services'
 import { ScenarioSelect } from '@/components/ScenarioSelect'
 import type { Scenario } from '@/api/forecast'
 import { useAuthStore } from '@/store/auth-store'
+import { BalanceStrip } from './BalanceStrip'
+import type { BalanceStripColumn } from './BalanceStrip'
 import type { ExcelSheet } from './income-expense-excel'
+import {
+  FORECAST_CELL_CLASS,
+  LABEL_COLUMN_WIDTH_CLASS,
+  TABLE_CLASS,
+  VALUE_COLUMN_WIDTH_CLASS,
+  formatMoney,
+} from './income-expense-shared'
+import { SyncedScrollProvider } from './SyncedScrollProvider'
+import { useSyncedScrollRef } from './synced-scroll'
 
 const BASE_SERVICE_NAME = 'Basisleistung'
 const MONTH_KEYS: Array<keyof MatrixCells> = [
@@ -60,8 +71,6 @@ const HEADERS = [
   'Nov',
   'Dez',
 ]
-const LABEL_COLUMN_WIDTH_CLASS = 'w-[26rem]'
-const VALUE_COLUMN_WIDTH_CLASS = 'w-[6.5rem]'
 const SECTION_LABELS: Record<ServiceGroupSection, string> = {
   income: 'Einnahmen',
   expense: 'Ausgaben',
@@ -70,8 +79,6 @@ const SECTION_LABELS: Record<ServiceGroupSection, string> = {
 const SECTION_ORDER: ServiceGroupSection[] = ['income', 'expense', 'neutral']
 const EDIT_ROLES = new Set(['accountant', 'mandant_admin', 'admin'])
 const YEAR_COLUMN_INDEX = 0
-// Prognosewerte sind grau und kursiv — die Grenze zum Ist bleibt so auf einen Blick sichtbar.
-const FORECAST_CELL_CLASS = 'italic text-gray-400'
 const DRAG_AUTO_SCROLL_EDGE_PX = 96
 const DRAG_AUTO_SCROLL_MAX_SPEED_PX = 18
 
@@ -125,18 +132,6 @@ interface DisplaySections {
   income: DisplaySection
   expense: DisplaySection
   neutral: DisplaySection
-}
-
-function formatMoney(value: string, currency: string): string {
-  const numeric = Number.parseFloat(value)
-  if (Number.isNaN(numeric)) {
-    return currency === 'EUR' ? '0' : `0 ${currency}`
-  }
-  const formatted = numeric.toLocaleString('de-DE', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  })
-  return currency === 'EUR' ? formatted : `${formatted} ${currency}`
 }
 
 function cellsToArray(cells: MatrixCells): string[] {
@@ -622,6 +617,7 @@ function SectionTable({
   pendingServiceId: string | null
   pendingGroupIds: string[]
 }>) {
+  const scrollRef = useSyncedScrollRef<HTMLDivElement>()
   const [dragOverGroupId, setDragOverGroupId] = useState<string | null>(null)
   const [serviceDragSourceGroupId, setServiceDragSourceGroupId] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
@@ -744,8 +740,8 @@ function SectionTable({
           )}
         </div>
       </header>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[1200px] table-fixed text-sm">
+      <div ref={scrollRef} className="overflow-x-auto">
+        <table className={TABLE_CLASS}>
           <colgroup>
             <col className={LABEL_COLUMN_WIDTH_CLASS} />
             {columns.map((column) => (
@@ -1042,6 +1038,21 @@ export function IncomeExpensePage() {
     enabled: !!mandantId && viewMode === 'multi-year' && availableYears.length > 0,
   })
 
+  const balanceTimelineQuery = useQuery({
+    queryKey: ['balance-timeline', mandantId, year, scenario],
+    queryFn: () => getBalanceTimeline(mandantId, year, scenario),
+    enabled: !!mandantId && viewMode === 'year',
+  })
+
+  const multiYearBalanceQuery = useQuery({
+    queryKey: ['balance-timeline-multi', mandantId, availableYears.join(','), scenario],
+    queryFn: () =>
+      Promise.all(
+        availableYears.map((entryYear) => getBalanceTimeline(mandantId, entryYear, scenario)),
+      ),
+    enabled: !!mandantId && viewMode === 'multi-year' && availableYears.length > 0,
+  })
+
   const canGoToPreviousYear = availableYears.includes(year - 1)
   const canGoToNextYear = availableYears.includes(year + 1)
 
@@ -1089,6 +1100,89 @@ export function IncomeExpensePage() {
     const months = MONTH_KEYS.slice(1).map((_, index) => index + 1 >= firstForecastMonth)
     return [months.some(Boolean), ...months]
   }, [availableYears, multiYearMatrixQuery.data, periodColumns, viewMode, yearMatrixQuery.data])
+
+  // Die Leiste benutzt dieselben Spalten wie die Matrix. Solange nichts geladen ist,
+  // stehen dort Striche statt Zahlen — die Spaltenbreiten sollen nicht springen.
+  const balanceStrip = useMemo(() => {
+    const isMultiYear = viewMode === 'multi-year'
+    const empty = {
+      title: isMultiYear ? 'Kontostand zum Jahresende' : 'Kontostand zum Monatsende',
+      columns: periodColumns.map((column) => ({
+        key: column.key,
+        label: column.label,
+        balance: null,
+        isForecast: false,
+      })) as BalanceStripColumn[],
+      currency: 'EUR',
+      openingBalance: null as string | null,
+      openingLabel: '',
+      asOf: null as string | null,
+    }
+
+    if (isMultiYear) {
+      const timelines = multiYearBalanceQuery.data
+      if (!timelines || timelines.length === 0) {
+        return empty
+      }
+      const yearEnds = timelines.map((timeline) => timeline.months.at(-1) ?? null)
+      const last = yearEnds.at(-1) ?? null
+      return {
+        ...empty,
+        columns: [
+          {
+            key: 'total',
+            label: 'Gesamt',
+            balance: last?.closing_balance ?? null,
+            isForecast: last?.is_forecast ?? false,
+          },
+          ...timelines.map((timeline, index) => ({
+            key: String(timeline.year),
+            label: String(timeline.year),
+            balance: yearEnds[index]?.closing_balance ?? null,
+            isForecast: yearEnds[index]?.is_forecast ?? false,
+          })),
+        ],
+        currency: timelines[0].currency,
+        openingBalance: timelines[0].opening_balance,
+        openingLabel: `Stand 01.01.${timelines[0].year}`,
+        asOf: timelines[0].as_of,
+      }
+    }
+
+    const timeline = balanceTimelineQuery.data
+    if (!timeline) {
+      return empty
+    }
+    // Unter der Jahresspalte steht der Stand am Jahresende — die Jahressumme eines
+    // Bestands ist der Bestand am Schluss, nicht die Summe der Monatsstände.
+    const december = timeline.months.at(-1) ?? null
+    return {
+      ...empty,
+      columns: [
+        {
+          key: 'year_total',
+          label: 'Jahr',
+          balance: december?.closing_balance ?? null,
+          isForecast: december?.is_forecast ?? false,
+        },
+        ...timeline.months.map((entry) => ({
+          key: String(MONTH_KEYS[entry.month]),
+          label: HEADERS[entry.month],
+          balance: entry.closing_balance,
+          isForecast: entry.is_forecast,
+        })),
+      ],
+      currency: timeline.currency,
+      openingBalance: timeline.opening_balance,
+      openingLabel: `Stand 01.01.${timeline.year}`,
+      asOf: timeline.as_of,
+    }
+  }, [balanceTimelineQuery.data, multiYearBalanceQuery.data, periodColumns, viewMode])
+
+  const balanceIsLoading =
+    viewMode === 'multi-year' ? multiYearBalanceQuery.isLoading : balanceTimelineQuery.isLoading
+  const balanceIsError =
+    viewMode === 'multi-year' ? multiYearBalanceQuery.isError : balanceTimelineQuery.isError
 
   const exportPeriod = useMemo(() => {
     if (viewMode === 'multi-year') {
@@ -1484,7 +1578,17 @@ export function IncomeExpensePage() {
       )}
 
       {sections && !isLoading && !isError && (
-        <>
+        <SyncedScrollProvider>
+          <BalanceStrip
+            title={balanceStrip.title}
+            columns={balanceStrip.columns}
+            currency={balanceStrip.currency}
+            openingBalance={balanceStrip.openingBalance}
+            openingLabel={balanceStrip.openingLabel}
+            asOf={balanceStrip.asOf}
+            isLoading={balanceIsLoading}
+            isError={balanceIsError}
+          />
           <SectionTable
             title={SECTION_LABELS.income}
             columns={periodColumns}
@@ -1551,7 +1655,7 @@ export function IncomeExpensePage() {
             pendingServiceId={pendingServiceId}
             pendingGroupIds={pendingGroupIds}
           />
-        </>
+        </SyncedScrollProvider>
       )}
 
       <OverlayDialog

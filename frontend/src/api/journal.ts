@@ -274,3 +274,33 @@ export async function getLiquidity(
   })
   return resp.data
 }
+
+// ─── Saldo-Zeitleiste ─────────────────────────────────────────────────────────
+
+export interface BalanceTimelineMonth {
+  month: number
+  closing_balance: string
+  is_forecast: boolean
+}
+
+export interface BalanceTimelineResponse {
+  year: number
+  currency: string
+  /** Stand zum 1. Januar, also vor der ersten Buchung des Jahres. */
+  opening_balance: string
+  months: BalanceTimelineMonth[]
+  first_forecast_month: number | null
+  as_of: string | null
+}
+
+export async function getBalanceTimeline(
+  mandantId: string,
+  year: number,
+  scenario: Scenario = 'expected',
+): Promise<BalanceTimelineResponse> {
+  const resp = await apiClient.get<BalanceTimelineResponse>(
+    `/mandants/${mandantId}/reports/balance-timeline`,
+    { params: { year, scenario } },
+  )
+  return resp.data
+}

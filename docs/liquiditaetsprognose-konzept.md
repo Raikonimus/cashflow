@@ -220,6 +220,9 @@ nicht Handpflege einer zweiten Rechnungsverwaltung.
   Unsicherheitsband aus den gemessenen Fehlern  ← Phase 3, umgesetzt
 - `GET|POST|DELETE /mandants/{id}/forecast/snapshots[/{sid}]` — Planstände festhalten und
   gegen das Ist vergleichen  ← Phase 3, umgesetzt
+- `GET /mandants/{id}/reports/balance-timeline?year=…` — Kontostand zu jedem Monatsende
+  eines Jahres: Ist, soweit gebucht, sonst Prognose. Die Prognosemonate werden nicht neu
+  gerechnet, sondern aus `reports/liquidity` übernommen  ← nachgereicht, umgesetzt
 
 **UI:**
 
@@ -235,9 +238,23 @@ nicht Handpflege einer zweiten Rechnungsverwaltung.
    stehen schwarze und graue Werte nebeneinander. Genau das ist der Nutzen der Darstellung: Man
    sieht, wo die Realität aufhört. Die Jahressumme links ist dann eine Mischung und wird als
    solche markiert. Der Excel-Export übernimmt die Unterscheidung.
-3. **Liquiditätskurve** — gehört ins Dashboard, nicht in die Matrix: Die Matrix zeigt Flüsse,
-   die Kurve den Pegel. Kumulierter Kontostand über die Zeit, drei Linien (pessimistisch/
-   erwartet/optimistisch), Nulllinie markiert, Warnung bei Unterschreitung eines Schwellwerts.
+3. **Liquiditätskurve** — gehört ins Dashboard: Kumulierter Kontostand über die Zeit, drei
+   Linien (pessimistisch/erwartet/optimistisch), Nulllinie markiert, Warnung bei
+   Unterschreitung eines Schwellwerts.
+
+   **Der Pegel steht zusätzlich als Leiste über der Matrix.** Hier stand bis 2026-09-09, der
+   Pegel gehöre *nicht* in die Matrix, weil die Matrix Flüsse zeigt. Der Satz stimmte nur
+   halb: Wer Monat für Monat auf Ein- und Auszahlungen sieht, will als Nächstes wissen, wo
+   das Konto danach steht — und musste dafür die Seite wechseln. Über den drei Tabellen steht
+   deshalb eine einzelne Zeile mit dem Kontostand zum jeweiligen Monatsende, in denselben
+   Spalten und mit derselben Grenze zwischen Ist und Prognose. Was im Dashboard bleibt, ist
+   die *Kurve*: Verlauf, Szenarien, Unsicherheitsband, Tiefpunkt. Die Leiste zeigt nur die
+   Zahl, die zur Spalte darunter gehört.
+
+   Beide lesen denselben Wert: `reports/balance-timeline` rechnet die Prognosemonate nicht
+   selbst, sondern übernimmt `closing_balance` aus `reports/liquidity`. Ein Test hält die
+   beiden aneinander — zwei Rechenwege zur selben Zahl wären genau der Zwilling, den der
+   Code-Review fünfmal gefunden hat.
 4. **Regel-Editor je Leistung** — Abschnitt „Prognose" in `ServiceManagementPage`: erkanntes
    Muster mit Sparkline der Historie, Regeltyp-Dropdown mit Parametern, Live-Vorschau der
    nächsten zwölf Monate.

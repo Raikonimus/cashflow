@@ -213,6 +213,10 @@ export function ForecastRuleEditor({
     queryClient.invalidateQueries({ queryKey: ['income-expense-matrix'] })
     queryClient.invalidateQueries({ queryKey: ['income-expense-multi-matrix'] })
     queryClient.invalidateQueries({ queryKey: ['liquidity', mandantId] })
+    // Die Saldo-Leiste steht in derselben Ansicht wie die Matrix. Fehlt sie hier,
+    // zeigt sie nach einer Regeländerung einen anderen Stand als die Zeilen darunter.
+    queryClient.invalidateQueries({ queryKey: ['balance-timeline'] })
+    queryClient.invalidateQueries({ queryKey: ['balance-timeline-multi'] })
   }
 
   const serverForm = useMemo(
