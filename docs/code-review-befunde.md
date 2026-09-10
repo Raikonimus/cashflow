@@ -234,12 +234,46 @@ Was zu diesem Punkt gehört:
 | Sind die zentralen Tabellen direkt oder transitiv gebunden? | `JournalLine`, `Service`, `PartnerIban`, `PartnerAccount` u. a. nur transitiv (siehe A1-4) |
 | Kennen die Eindeutigkeits-Schlüssel den Mandanten? | nein — `partner_ibans`, `partner_accounts` und `accounts` sind global eindeutig (ADR-008) |
 | Gibt es Tests mit zwei Mandanten? | erst die drei aus Etappe 1 |
+| Sind die betroffenen Module überhaupt geprüft? | nein — siehe Abdeckung unten |
 | Läuft die Anwendung je produktiv mit mehr als einem Mandanten? | zu klären — davon hängt die Dringlichkeit von allem hier ab |
 
 Die letzte Zeile ist die wichtigste. Bleibt es dauerhaft bei einem Mandanten, ist der
 gesamte Komplex eine Vorsichtsmaßnahme ohne Gegenwartsnutzen. Kommt ein zweiter dazu,
 muss die Trennung *vorher* strukturell stehen — nachträglich lässt sich nicht feststellen,
 welche Daten schon vermischt wurden, weil die Fehler leise sind.
+
+### Nachgetragen am 2026-09-10: Die Abdeckung zeigt auf dieselbe Stelle
+
+Am 2026-09-10 wurde die Testabdeckung zum ersten Mal gemessen — `pytest-cov` und
+`@vitest/coverage-v8` waren seit Monaten installiert und nie aufgerufen worden. Backend
+gesamt **65,99 %**, Frontend **77,5 %**. Die Verteilung ist der eigentliche Befund:
+
+| Modul | Anweisungen | ungeprüft | Abdeckung |
+|---|---:|---:|---:|
+| `app/services/service.py` | 764 | 463 | **39 %** |
+| `app/partners/service.py` | 431 | 301 | **30 %** |
+| `app/tenants/service.py` | 356 | 206 | **42 %** |
+| `app/auth/service.py` | 246 | 149 | **39 %** |
+| zum Vergleich: `app/forecast/profiler.py` | 200 | 10 | 95 % |
+| zum Vergleich: `app/forecast/backtest.py` | 164 | 4 | 98 % |
+
+Das sind **1.119 ungeprüfte Anweisungen in genau den vier Dateien, die Mandanten, Konten,
+Partner, Leistungen und Anmeldung verwalten** — und es sind dieselben Dateien, in denen
+`check_tenancy.py` die meisten OFFEN-Einträge meldet. Zwei unabhängige Messungen zeigen
+auf denselben Bereich, weil beide dasselbe messen: Was nie unter Prüfdruck stand.
+
+Das ist kein zusätzlicher Befund, sondern eine Verschärfung des bestehenden. Die Annahme
+„die Mandantentrennung hängt an der Sorgfalt einzelner Queries" wird dadurch schlechter,
+dass in diesen Dateien zwei von fünf Zeilen von keinem Test berührt werden. Eine
+strukturelle Absicherung ohne begleitende Tests würde man beim Umbau nicht bemerken —
+weder das, was sie repariert, noch das, was sie kaputtmacht.
+
+`app/auth/service.py` gehört mit in dieses Paket und nicht daneben: Dort entsteht die
+Mandantenzuordnung eines Nutzers. Ein Fehler an dieser Stelle ist kein Anzeigefehler,
+sondern ein Zugriff auf fremde Daten.
+
+**Empfehlung für die Umsetzung:** Die Abdeckung dieser vier Module vor dem strukturellen
+Umbau anheben, nicht danach. Sonst fehlt genau das Netz, das den Umbau tragen müsste.
 
 Die Befunde A1-3 und A1-4 sowie die Konto-IBAN-Frage sind Teilaspekte davon und werden
 zusammen mit diesem Punkt entschieden, nicht einzeln vorab.
