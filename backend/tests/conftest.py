@@ -70,9 +70,18 @@ from app.auth.models import MandantUser, User, UserRole
 from app.auth.security import hash_password
 from app.imports.models import ImportRun, ImportStatus, JournalLine, JournalLineSplit
 from app.main import app
-from app.partners.models import Partner, PartnerIban
-from app.services.models import Service, ServiceType
-from app.tenants.models import Account, Mandant
+from app.partners.models import Partner, PartnerAccount, PartnerIban, PartnerName
+from app.services.models import (
+    KeywordTargetType,
+    Service,
+    ServiceGroup,
+    ServiceGroupSection,
+    ServiceMatcher,
+    ServiceMatcherType,
+    ServiceType,
+    ServiceTypeKeyword,
+)
+from app.tenants.models import Account, ColumnMappingConfig, Mandant
 
 # Alle Testnutzer teilen dasselbe Passwort — die Tests pruefen Mandantentrennung,
 # nicht Passwortstaerke. Dieselbe Zeichenkette benutzen die Fixtures der Testmodule.
@@ -216,7 +225,25 @@ class MandantWelt:
     ``leistung``                  **transitiv** ueber ``partner_id``
     ``zeilen``                    **transitiv** ueber ``account_id``
     ``aufteilung``                **transitiv** ueber ``journal_line_id``/``service_id``
+    ``partner_iban``              **transitiv** ueber ``partner_id``
+    ``partner_konto``             **transitiv** ueber ``partner_id``
+    ``partner_name``              **transitiv** ueber ``partner_id``
+    ``matcher``                   **transitiv** ueber ``service_id``
+    ``schlagwort``                direkt gebunden (``service_type_keywords.mandant_id``)
+    ``gruppe``                    direkt gebunden (``service_groups.mandant_id``)
+    ``spaltenzuordnung``          **transitiv** ueber ``account_id``
     ============================  ========================================
+
+    Die Spaltenzuordnung ist aus einem Grund dabei, der beim Schreiben der Tests
+    auffiel: Ohne sie antwortet ``GET .../column-mapping`` **immer** mit 404 — auch
+    auf das eigene Konto. Ein Angriffstest gegen ein fremdes Konto haette dann
+    ebenfalls 404 ergeben und waere gruen geblieben, ohne etwas zu belegen. Erst wenn
+    beim fremden Konto tatsaechlich etwas zu holen waere, prueft der Test etwas.
+
+    Die drei Partner-Kennungen gibt es, damit die Endpunkte mit einer **dritten**
+    Kennung im Pfad pruefbar sind — ``DELETE .../partners/{partner_id}/ibans/{iban_id}``
+    und seine Geschwister. Dort muessen zwei Dinge stimmen: dass der Partner zum
+    Mandanten gehoert *und* dass das Kind zum Partner gehoert.
 
     Die drei transitiv gebundenen sind die interessanten: Sie tragen keine eigene
     ``mandant_id``, ihre Zugehoerigkeit haengt an einem Join oder an einer Pruefung im
@@ -232,6 +259,13 @@ class MandantWelt:
     zeilen: tuple[JournalLine, ...]
     aufteilung: JournalLineSplit
     iban: str
+    partner_iban: PartnerIban
+    partner_konto: PartnerAccount
+    partner_name: PartnerName
+    matcher: ServiceMatcher
+    schlagwort: ServiceTypeKeyword
+    gruppe: ServiceGroup
+    spaltenzuordnung: ColumnMappingConfig
 
     @property
     def id(self) -> UUID:
@@ -243,6 +277,12 @@ class MandantWelt:
 # Partner- und Leistungsname sind fuer beide Mandanten gleich (siehe Modulkopf).
 PARTNER_NAME = "Muster Handels GmbH"
 LEISTUNG_NAME = "Wareneinkauf"
+# Auch Muster, Schlagwort und Gruppenname sind in beiden Mandanten gleich — dieselbe
+# Absicht wie beim Partnernamen. `service_type_keywords` und `service_groups` sind je
+# Mandant eindeutig, `service_matchers` je Leistung; alle drei lassen das zu.
+MATCHER_MUSTER = "Wareneinkauf"
+SCHLAGWORT_MUSTER = "Lieferung"
+GRUPPEN_NAME = "Materialaufwand"
 
 
 async def erzeuge_mandant_welt(
@@ -252,6 +292,8 @@ async def erzeuge_mandant_welt(
     urheber: User,
     iban: str,
     kontoname: str,
+    blz: str,
+    kontonummer: str,
 ) -> MandantWelt:
     """Baut einen Mandanten samt Konto, Partner, Leistung, Import und Buchungen.
 
@@ -289,7 +331,24 @@ async def erzeuge_mandant_welt(
     session.add(partner)
     await session.flush()
 
-    session.add(PartnerIban(partner_id=partner.id, iban=iban, created_at=jetzt))
+    partner_iban = PartnerIban(partner_id=partner.id, iban=iban, created_at=jetzt)
+    session.add(partner_iban)
+
+    # Kontonummer und BLZ sind nach ADR-008 global eindeutig (auf `(blz,
+    # account_number)`), deshalb je Mandant ein eigenes Paar. Der Zusatzname ist
+    # nur je Partner eindeutig und darf gleich lauten.
+    partner_konto = PartnerAccount(
+        partner_id=partner.id,
+        blz=blz,
+        account_number=kontonummer,
+        created_at=jetzt,
+    )
+    session.add(partner_konto)
+
+    partner_name = PartnerName(
+        partner_id=partner.id, name=f"{PARTNER_NAME} (Zusatzname)", created_at=jetzt
+    )
+    session.add(partner_name)
 
     leistung = Service(
         partner_id=partner.id,
@@ -300,6 +359,51 @@ async def erzeuge_mandant_welt(
         updated_at=jetzt,
     )
     session.add(leistung)
+
+    spaltenzuordnung = ColumnMappingConfig(
+        account_id=konto.id,
+        valuta_date_col="Valuta",
+        booking_date_col="Buchung",
+        amount_col="Betrag",
+        partner_iban_col="IBAN",
+        partner_name_col="Empfaenger",
+        description_col="Text",
+    )
+    session.add(spaltenzuordnung)
+
+    matcher = ServiceMatcher(
+        service_id=leistung.id,
+        pattern=MATCHER_MUSTER,
+        pattern_type=ServiceMatcherType.string.value,
+        created_at=jetzt,
+        updated_at=jetzt,
+    )
+    session.add(matcher)
+
+    # `service_type_keywords.mandant_id` ist nullbar — ein Schlagwort ohne Mandanten
+    # gilt global. Hier bewusst mandantengebunden, weil gerade die Trennung geprueft
+    # wird; der globale Fall ist ein eigener Gegenstand.
+    schlagwort = ServiceTypeKeyword(
+        mandant_id=mandant.id,
+        pattern=SCHLAGWORT_MUSTER,
+        pattern_type=ServiceMatcherType.string.value,
+        # Schlagwoerter zielen auf `KeywordTargetType`, nicht auf `ServiceType` —
+        # sie erkennen nur Personengruppen, nicht jede Leistungsart.
+        target_service_type=KeywordTargetType.employee.value,
+        created_at=jetzt,
+        updated_at=jetzt,
+    )
+    session.add(schlagwort)
+
+    gruppe = ServiceGroup(
+        mandant_id=mandant.id,
+        section=ServiceGroupSection.expense.value,
+        name=GRUPPEN_NAME,
+        sort_order=0,
+        created_at=jetzt,
+        updated_at=jetzt,
+    )
+    session.add(gruppe)
 
     import_lauf = ImportRun(
         account_id=konto.id,
@@ -355,7 +459,22 @@ async def erzeuge_mandant_welt(
     session.add(aufteilung)
 
     await session.commit()
-    for objekt in (konto, partner, leistung, import_lauf, eingang, ausgang, aufteilung):
+    for objekt in (
+        konto,
+        partner,
+        leistung,
+        import_lauf,
+        eingang,
+        ausgang,
+        aufteilung,
+        partner_iban,
+        partner_konto,
+        partner_name,
+        matcher,
+        schlagwort,
+        gruppe,
+        spaltenzuordnung,
+    ):
         await session.refresh(objekt)
 
     return MandantWelt(
@@ -367,6 +486,13 @@ async def erzeuge_mandant_welt(
         zeilen=(eingang, ausgang),
         aufteilung=aufteilung,
         iban=iban,
+        partner_iban=partner_iban,
+        partner_konto=partner_konto,
+        partner_name=partner_name,
+        matcher=matcher,
+        schlagwort=schlagwort,
+        gruppe=gruppe,
+        spaltenzuordnung=spaltenzuordnung,
     )
 
 
@@ -422,10 +548,22 @@ async def zwei_mandanten(db_session: AsyncSession) -> ZweiMandanten:
     admin = await erzeuge_nutzer(db_session, "admin@example.com", UserRole.admin)
 
     welt_a = await erzeuge_mandant_welt(
-        db_session, "Mandant A", urheber=admin, iban=IBAN_A, kontoname="Konto A"
+        db_session,
+        "Mandant A",
+        urheber=admin,
+        iban=IBAN_A,
+        kontoname="Konto A",
+        blz="10000",
+        kontonummer="1111111",
     )
     welt_b = await erzeuge_mandant_welt(
-        db_session, "Mandant B", urheber=admin, iban=IBAN_B, kontoname="Konto B"
+        db_session,
+        "Mandant B",
+        urheber=admin,
+        iban=IBAN_B,
+        kontoname="Konto B",
+        blz="20000",
+        kontonummer="2222222",
     )
 
     nutzer_a = await erzeuge_nutzer(db_session, "a@example.com", UserRole.accountant)

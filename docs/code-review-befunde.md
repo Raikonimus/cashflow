@@ -827,6 +827,82 @@ Bei den fünf verhaltensändernden ESLint-Befunden war die Behebung mehr als Kos
   `extractErrorMessage` ersetzt, das zusätzlich den 422-Fall mit Feldliste auflöst,
   den der `any`-Code verschluckte.
 
+## M15 — Loeschen einer Leistung meldete 404 nach erfolgreichem Loeschen · **mittel** · behoben
+
+**Gefunden am 2026-09-10** in Stufe 3 des Mandantenfähigkeitsplans, durch die
+Gegenprobe eines Mandantentests — nicht durch den Angriff.
+
+**Ort:** [services/service.py:1129](../backend/app/services/service.py#L1129)
+(`revalidate_partner_lines`), erreicht über `delete_service`.
+
+`delete_service` löscht die Leistung, **committet**, und ruft danach die Neubewertung
+des Partners. Die sammelt in `touched_service_ids` alle Leistungskennungen, auf die
+Aufteilungen zeigen — darunter die gerade gelöschte, weil die Aufteilung sie eben noch
+nannte. Für jede ruft sie `detect_service_type_for_service`, das über `_get_service`
+nachlädt und bei unbekannter Kennung 404 wirft.
+
+Zwei Folgen, die zweite ist die schwerere:
+
+1. Die Leistung war gelöscht, die Antwort lautete **404 „Service not found"**. Der
+   Aufrufer bekam einen Fehlschlag für einen Vorgang, der stattgefunden hatte.
+2. Die Neubewertung brach ab, **bevor** ihr abschließendes `commit()` lief. Die
+   Umhängung der Aufteilungen auf die Basisleistung und das Aufräumen der
+   Review-Einträge gingen beim Schließen der Sitzung verloren — zurück blieben
+   Aufteilungen, die auf eine nicht mehr existierende Leistung zeigen.
+
+**Voraussetzung:** eine Leistung mit mindestens einer zugeordneten Buchung. Ohne
+Aufteilung steht keine Kennung in `touched_service_ids` und alles läuft durch. Genau
+deshalb blieb es unentdeckt: `app/services/service.py` stand bei 41 % Abdeckung.
+
+**Behoben:** Die Schleife übergeht Kennungen, die nicht mehr auflösbar sind — eine
+gesammelte Kennung darf im selben Durchlauf verschwinden. Regressionstest in
+`backend/tests/partners/test_leistung_loeschen.py`, gegen den unbehobenen Stand
+geprüft.
+
+---
+
+## M16 — Sammelzuordnung nahm einen Partner aus einem anderen Mandanten · **hoch** · behoben
+
+**Gefunden am 2026-09-10** in Stufe 3 des Mandantenfähigkeitsplans. Das erste echte
+Mandantenleck seit Etappe 1 des Reviews.
+
+**Ort:** [journal/service.py:1154](../backend/app/journal/service.py#L1154)
+(`bulk_assign`), erreichbar über `POST /mandants/{mandant_id}/journal/bulk-assign`.
+
+`bulk_assign` prüfte die **Buchungszeilen** sorgfältig gegen den Mandanten — alle
+Konten des Mandanten werden vorab aufgelöst, und eine fremde Zeile in der Liste ergibt
+403. Das **Ziel** der Zuordnung, `partner_id`, wurde nicht geprüft.
+
+Damit ließ sich eine Buchung des eigenen Mandanten einem Partner eines **anderen**
+Mandanten zuordnen. Nachgewiesen, nicht abgeleitet: Der Aufruf antwortete
+`200 {"assigned":1,"skipped":0}`, schrieb die Änderung und protokollierte sie als
+`journal_bulk_assigned`.
+
+**Wirkung:** dauerhaft und lautlos. Die Buchung fehlt danach in den Auswertungen des
+eigenen Mandanten und erscheint in denen des fremden — ohne Fehlermeldung, ohne
+Hinweis, und ohne dass eine Summe für sich betrachtet auffällig aussieht.
+
+**Warum es unentdeckt blieb:** Der Fall braucht zwei Mandanten. Bis zum 2026-09-10
+hatte keine Test- und keine Entwicklungsdatenbank des Projekts einen zweiten — genau
+die Beobachtung, mit der der vertagte Sammelpunkt begann. Die Zeilenprüfung
+zwei Zeilen darüber zeigt, dass die Gefahr bekannt war; nur die zweite Kennung wurde
+vergessen. Das ist die Signatur, die das Review als häufigste beschrieben hat:
+korrekter Code neben korrektem Code, mit einem stillen Widerspruch dazwischen.
+
+**Behoben:** `partner_id` wird gegen `mandant_id` geprüft, mit derselben Antwort für
+„fehlt" und „fremd" — sonst wäre an ihr ablesbar, welche Partner es in anderen
+Mandanten gibt. Regressionstest
+`backend/tests/journal/test_tenancy_journal.py::test_fremder_partner_kann_nicht_sammelzugeordnet_werden`,
+gegen den unbehobenen Stand geprüft.
+
+**Was daraus folgt:** `check_tenancy.py` hat diese Stelle **nicht** gemeldet und konnte
+es nicht — die Query auf `JournalLine` trägt ihren Filter, das Fehlende ist eine
+Validierung, keine Query. Die statische Prüfung deckt also eine Klasse von Lecks
+grundsätzlich nicht ab. Genau dafür ist Stufe 4 gedacht, und dieser Befund ist das
+Argument, sie nicht zu überspringen.
+
+---
+
 ## Weiterhin offen
 
 Nur noch der vertagte Sammelpunkt **Mandantenfähigkeit** (mit A1-3, A1-4 und A2-3) —

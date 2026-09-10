@@ -78,7 +78,8 @@ source = ["app"]
 # Zahl zeigen, nicht verbergen.
 
 [tool.coverage.report]
-# Ratsche, keine Zielvorgabe: Der Wert am 2026-09-10 war 66,13 %. Die Grenze darf nur
+# Ratsche, keine Zielvorgabe: Der Wert am 2026-09-10 war zunaechst 66,13 % und nach
+# Stufe 3 des Mandantenfaehigkeitsplans 68,33 %. Die Grenze darf nur
 # steigen. Sie zwingt niemanden, Tests zu schreiben — sie verhindert, dass die
 # Abdeckung unbemerkt sinkt. Wer sie senkt, tut das in einem Commit, und das ist
 # sichtbar. Dasselbe Muster wie --max-offen bei der Mandantenpruefung.
@@ -86,7 +87,7 @@ source = ["app"]
 # Was sie nicht leistet: Coverage misst Ausfuehrung, nicht Pruefung. Eine Zeile, die
 # ein Test durchlaeuft, ohne etwas zu behaupten, zaehlt als abgedeckt. Die Quote sagt,
 # wo gar kein Test hinsieht — nicht, ob die Tests, die hinsehen, etwas taugen.
-fail_under = 66
+fail_under = 68
 precision = 2
 show_missing = false
 

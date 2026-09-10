@@ -212,7 +212,7 @@ Struktur unwichtiger wäre, sondern weil man ihren Umbau sonst nicht bemerkt.
 Stufe 0  Prüfumgebung: zwei Mandanten            ← ERLEDIGT 2026-09-10
 Stufe 1  Auswahl beim Anmelden reparieren        ← ERLEDIGT 2026-09-10 (M4 M5 M6 M9 M2)
 Stufe 2  Zuordnung in der Nutzerverwaltung       ← ERLEDIGT 2026-09-10 (M7 M8)
-Stufe 3  Abdeckung der vier Module anheben       M12
+Stufe 3  Abdeckung der vier Module anheben       ← ERLEDIGT 2026-09-10 (M12, fand M15+M16)
 Stufe 4  Isolationstest über alle 76 Endpunkte   M1 M10
 Stufe 5  Struktur statt Disziplin                M11 M13 M14
 ```
@@ -474,6 +474,137 @@ sie dürfen laut CI-Kommentar nur steigen.
 
 **Fertig, wenn:** die vier Module deutlich über ihrem heutigen Stand liegen und jede
 PRUEFEN-Zeile in ihnen entweder einen Test hat oder im Bericht als geprüft vermerkt ist.
+
+#### Begonnen am 2026-09-10 · `partners` und `services`
+
+Zwei der vier Module sind durch. Neu sind
+`backend/tests/partners/test_tenancy_partners.py` (31 Fälle) und
+`test_tenancy_services.py` (24 Fälle); die Fixture `zwei_mandanten` trägt jetzt auch
+Partner-IBAN, Partnerkonto, Zusatzname, Matcher, Schlagwort und Leistungsgruppe je
+Mandant, damit die Endpunkte mit einer **dritten** Kennung im Pfad überhaupt
+angreifbar sind.
+
+**Ergebnis zur Mandantentrennung: kein Leck.** Alle Partner- und
+Leistungs-Endpunkte weisen eine fremde zweite oder dritte Kennung ab. `get_partner`
+und `_get_service` prüfen zweistufig — erst die Zugehörigkeit des Elternobjekts zum
+Mandanten, dann die des Kindes zum Elternobjekt. Die zwölf OFFEN-Einträge in
+`partners/service.py` sind durchweg der bekannte A1-4-Fall: Der Mandantenfilter steht
+in Python statt in SQL. Das ist eine Frage der Struktur und der Datenmenge, kein
+Zugriffsproblem.
+
+**Aber ein anderer Befund fiel dabei heraus** (siehe `code-review-befunde.md`, M15):
+Das Löschen einer Leistung mit zugeordneten Buchungen löschte sie, committete — und
+meldete dann **404 „Service not found"**. Gefunden hat ihn nicht der Angriff, sondern
+die *Gegenprobe*: der Nachweis, dass derselbe Aufruf auf die eigenen Daten
+funktioniert. Ohne diese zweite Hälfte wäre der Test grün geblieben und der Fehler
+weiter unsichtbar.
+
+**Zwei Lehren über die Tests selbst:**
+
+1. **Die Gegenprobe darf nicht auf 2xx bestehen.** Löschen kann fachlich abgelehnt
+   werden (409 bei Buchungen an der Leistung, 409 bei der Basisleistung) — und genau
+   das belegt, dass der Aufruf die Mandantenprüfung passiert hat. Geprüft wird
+   deshalb „nicht 403/404/422 und kein Serverfehler". Das 422 gehört dazu: Eine
+   Eingabeprüfung schlägt zu, *bevor* die Zugehörigkeit geprüft wird, und ein Test,
+   der sie durchlässt, belegt nichts.
+2. **Test und Anwendung teilen die Datenbanksitzung** — und das kann einen Test
+   lügen lassen. Der erste Entwurf des Regressionstests zu M15 hatte drei Fälle;
+   gegen den unbehobenen Stand geprüft schlug nur einer an. Die anderen zwei sahen
+   die *ausstehenden* Änderungen der abgebrochenen Neubewertung, die im Betrieb beim
+   Schließen der Sitzung verlorengehen. Folgeprüfungen stehen jetzt hinter der
+   Zusicherung auf Erfolg im selben Test, damit sie nur erreicht werden, wenn der
+   Aufruf wirklich durchlief.
+
+#### Fortgesetzt am 2026-09-10 · `review` und `journal`
+
+Damit sind alle vier Module aus der Empfehlung durch. Neu:
+`backend/tests/review/test_tenancy_review.py` (10 Fälle) und
+`backend/tests/journal/test_tenancy_journal.py` (13 Fälle).
+
+**`review`: kein Leck.** Alle Endpunkte weisen einen fremden Eintrag ab, auch die
+schreibenden (`confirm`, `reject`, `reassign`) — und der fremde Eintrag steht danach
+nachweislich noch auf `open`.
+
+**`journal`: ein echtes Leck, Befund M16.** `POST .../journal/bulk-assign` prüfte die
+Buchungszeilen gegen den Mandanten, das **Ziel** der Zuordnung aber nicht. Eine
+Buchung des eigenen Mandanten ließ sich damit einem Partner eines anderen zuordnen —
+nachgewiesen, nicht abgeleitet: `200 {"assigned":1}`, geschrieben und protokolliert.
+Behoben und mit Regressionstest festgenagelt.
+
+Der Befund ist das Argument dafür, Stufe 4 nicht zu überspringen:
+**`check_tenancy.py` hat diese Stelle nicht gemeldet und konnte es nicht.** Die Query
+trägt ihren Filter; was fehlte, war eine Validierung. Eine statische Prüfung deckt
+diese Klasse von Lecks grundsätzlich nicht ab.
+
+Die Geldpfade werden hier nicht auf „keine fremden Zeilen in der Liste" geprüft,
+sondern **nachgerechnet**: Beide Mandanten haben dieselben Buchungsbeträge, also
+verdoppelt ein fehlender Filter die Summe. Der Kontostand muss exakt
+`1000 + 500 − 120 = 1380` sein.
+
+**Noch eine Lehre über Tests.** Die erste Fassung des Liquiditätstests suchte den
+Betrag „1760" (die Summe beider Mandanten) im Rohtext der Antwort. Sie schlug an —
+aber aus dem falschen Grund: 1760,00 steht dort als `closing_high` eines
+Unsicherheitsbands, ein völlig korrekt errechneter Wert. Eine Textsuche über eine
+Antwort mit hundert Beträgen trifft irgendwann jeden Beliebigen; sie prüft nicht, sie
+rät. Ersetzt durch eine Zusicherung auf `start_balance`.
+
+**Stand der Abdeckung** nach `partners` und `services` (vor `review`/`journal`
+gemessen):
+
+| Modul | vorher | nachher |
+|---|---:|---:|
+| `app/partners/service.py` | 30,2 % | **38,3 %** |
+| `app/services/service.py` | 40,7 % | **45,4 %** |
+| Gesamt | 67,1 % | **68,3 %** |
+
+#### Abgeschlossen am 2026-09-10 · `tenants`
+
+`backend/tests/tenants/test_tenancy_accounts.py` (24 Fälle) zieht denselben Angriff
+über alle Konto-Endpunkte. **Kein Leck.** `accounts` ist der empfindlichste Anker des
+Systems — `JournalLine` findet seinen Mandanten nur über `account_id` —, und die
+schreibenden Wege (`column-mapping`, `remap`, `excluded-identifiers/apply`) sind
+dieselben, die in Etappe 1 ein Leck hatten.
+
+**Ein dritter Fall von „der Test prüft nichts".** `GET .../column-mapping` antwortete
+auf das eigene Konto mit 404 „No column mapping configured" — die Fixture hatte keine
+Spaltenzuordnung. Damit hätte der *Angriff* auf ein fremdes Konto ebenfalls 404
+ergeben und wäre grün geblieben, ohne etwas zu belegen: Beim fremden Konto war
+schlicht nichts zu holen. Die Fixture trägt jetzt je Mandant eine Spaltenzuordnung,
+damit ein Leck tatsächlich Daten liefern würde.
+
+Das ist innerhalb einer Stufe der dritte Fall derselben Art. Die Gegenprobe ist
+deshalb keine Höflichkeit gegenüber dem Endpunkt, sondern die einzige Absicherung
+dagegen, dass ein Angriffstest ins Leere läuft.
+
+Festgehalten wird außerdem der **heutige** Stand der Konto-IBAN-Frage: Eine IBAN, die
+ein anderer Mandant führt, blockiert das Anlegen mit 409. Der Test verteidigt das
+nicht — fällt die Entscheidung in Stufe 5 anders, schlägt er an und wird mit ihr
+geändert.
+
+#### Bilanz von Stufe 3
+
+| | |
+|---|---|
+| Neue Tests | 102 in sechs Dateien |
+| Gefundene Mandantenlecks | **1** — M16, `bulk-assign` ohne Partnerprüfung |
+| Weitere Befunde | M15, `delete_service` meldete 404 nach erfolgreichem Löschen |
+| Tests, die nichts prüften | 3 gefunden und behoben (Statuscode-Gegenprobe, geteilte Sitzung, fehlende Spaltenzuordnung) |
+| Abdeckung gesamt | 66,1 % → **68,3 %**, Ratsche auf 68 gezogen |
+
+**Was die Abdeckungszahlen nicht zeigen:** `review` (60,3 → 60,9 %) und `journal`
+(67,0 → 66,7 %) haben sich kaum bewegt — bei `journal` ist die Quote sogar leicht
+gesunken, weil die Behebung von M16 Zeilen hinzufügte. Das ist erwartbar und kein
+Widerspruch: Diese Tests folgen den Zugriffspfaden, nicht der Zeilenzahl. Der Zweck
+war nie die Quote, sondern die Frage, ob ein Mandant verlorengehen kann.
+
+Der Ertrag steht deshalb nicht in der Prozentspalte, sondern in den zwei Befunden —
+und in der Erkenntnis, dass `check_tenancy.py` einen von ihnen grundsätzlich nicht
+finden konnte.
+
+Offen in Stufe 3: `auth` (41,9 %, aber durch Stufe 1+2 schon deutlich angehoben und
+ohne OFFEN-Einträge). Als eigenständiger Schritt verzichtbar — die verbleibende
+Lücke dort betrifft Einladungen und Passwort-Zurücksetzen, nicht die
+Mandantentrennung.
 
 ---
 
