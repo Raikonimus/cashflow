@@ -1127,6 +1127,16 @@ class ServiceManagementService:
                 await self._clear_manual_service_assignment_review(line.id)
 
         for service_id in touched_service_ids:
+            # Eine gesammelte Kennung kann waehrend desselben Durchlaufs
+            # verschwinden. `delete_service` loescht die Leistung, committet — und
+            # ruft dann diese Neubewertung. Die Aufteilungen zeigten noch auf die
+            # geloeschte Leistung, ihre Kennung steht also in `touched_service_ids`.
+            # `detect_service_type_for_service` wuerde daraus ein 404 machen, und
+            # zwar NACH dem erfolgreichen Loeschen: Der Aufrufer bekaeme einen
+            # Fehlschlag fuer einen Vorgang, der stattgefunden hat, und der Rest der
+            # Neubewertung bliebe liegen.
+            if await self._session.get(Service, service_id) is None:
+                continue
             await self.detect_service_type_for_service(partner.mandant_id, service_id)
 
         await self._session.commit()
