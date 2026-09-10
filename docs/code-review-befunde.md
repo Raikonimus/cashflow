@@ -903,8 +903,98 @@ Argument, sie nicht zu überspringen.
 
 ---
 
+## Stufe 4 — Isolationstest über alle 89 Endpunkte · **kein Leck**
+
+Ein Review-Dokument, das nur Fehler festhält, sagt nichts darüber, was geprüft wurde und
+in Ordnung war. Deshalb dieser Eintrag: Stufe 4 des Mandantenfähigkeitsplans hat am
+2026-09-10 **173 Angriffe über alle 89 mandantengebundenen Endpunkte** gefahren und
+**kein Mandantenleck** gefunden.
+
+| Sonde | Angriff | Fälle |
+|---|---|---:|
+| äußere Schicht | fremde `mandant_id` im Pfad | 84 |
+| innere Schicht, Pfad | eigener Mandant, fremde Objektkennung | 60 |
+| innere Schicht, **Rumpf** | eigener Mandant und Pfad, fremde Kennung im Rumpf | 14 × 2 |
+
+Die dritte Sonde ist die Klasse von **M16** — die einzige, die `check_tenancy.py`
+grundsätzlich nicht abdeckt. Zehn Endpunkte nehmen eine mandantengebundene Kennung im
+Rumpf, darunter `partners/merge`, `review/unidentified-groups/resolve` und
+`reassign_to_group_id` im Rumpf eines Löschaufrufs. Nach der Behebung von M16 trennen
+alle korrekt.
+
+**Was dabei berichtigt wurde:** Die Endpunktzählung aus M1 lief über die Dekoratorpfade
+und war blind für die zwei Router, die die `mandant_id` im **Prefix** tragen — `review`
+(10) und `imports` (3). Nicht 76 Endpunkte, sondern **89**; 89 − 13 = 76. Keiner der
+dreizehn war ungeschützt, aber alle dreizehn waren ungezählt.
+
+**Zwei Beobachtungen ohne Befundcharakter**, beide in
+`ServiceGroupService.delete_service_group` und beide beim Bauen der Sonden aufgefallen:
+
+1. Die Prüfung von `reassign_to_group_id` gegen den Mandanten steht **innerhalb** von
+   `if assignments`. Hat die zu löschende Gruppe keine zugeordnete Leistung, wird eine
+   fremde Zielgruppe stillschweigend angenommen und der Aufruf antwortet mit 204. Es
+   fließen keine Daten über die Grenze, weil überhaupt nichts umgehängt wird — aber die
+   Validierung greift nur unter Bedingungen.
+2. Die Schranke gegen das Umhängen auf die zu löschende Gruppe steht **nach** der
+   Schleife, die die Zuordnungen bereits umgesetzt hat. Der `raise` verhindert das
+   `commit`, und `get_session` schließt die Sitzung ohne zu committen — deshalb ohne
+   Wirkung. Die Reihenfolge ist trotzdem verkehrt.
+
+Der erste Punkt ist der Grund, warum die Prüfumgebung jetzt je Mandant eine
+`ServiceGroupAssignment` trägt: Ohne sie antwortete der Angriff mit 204 und der Test
+hätte ein Leck gemeldet, das es nicht gibt. Mit ihr antwortet er
+`404 Service group not found`. Einzelheiten in
+[mandantenfaehigkeit-plan.md](mandantenfaehigkeit-plan.md), Stufe 4.
+
+---
+
+## M17 — Die Admin-Ausnahme beruft sich auf den falschen Entscheidungssatz · **niedrig** · offen
+
+Gefunden am 2026-09-10 beim Merge-Check zu Stufe 4, Frage 6 („Passt die Dokumentation
+noch?").
+
+`require_mandant_access` in `backend/app/auth/dependencies.py` lässt Admins die
+Mandantenprüfung überspringen und begründet das im Docstring mit
+`Admin bypasses this check (ADR-001 / RBAC design).`
+
+**ADR-001 ist aber die Entscheidung *Client-only Logout ohne Token-Blacklisting***
+(`memory-bank/bolts/001-identity-access/adr-001-client-only-logout.md`, 2026-04-06). Sie
+sagt zur Mandantenprüfung nichts. Von den siebzehn Entscheidungssätzen im
+`decision-index.md` behandelt keiner die Admin-Ausnahme, und der Abschnitt „RBAC Guards"
+in `ddd-02-technical-design.md` beschreibt `require_role` und die Rollenhierarchie —
+nicht das Übergehen der Mandantenzugehörigkeit.
+
+**Der einzige schriftliche Beleg** ist eine Klammer im Schema der Anforderungen,
+`memory-bank/intents/001-cashflow-core/requirements.md:45`:
+
+```
+mandant_users                          -- Zuweisung User ↔ Mandant (außer Admin)
+```
+
+**Warum das zählt:** Es geht um die weitreichendste Zugriffsregel des Systems — ein
+Admin liest und schreibt jeden Mandanten, ohne eine Zeile in `mandant_users`. Das
+Verhalten ist gewollt und in einer Klammer belegt, aber nirgends als Entscheidung
+festgehalten, mit Alternativen und Folgen. Wer die Regel prüfen will, folgt dem Verweis
+im Code und landet beim Logout.
+
+Die Regel selbst ist **kein Befund** — Stufe 4 nagelt sie fest
+(`tests/tenancy/test_aeussere_schicht.py::test_der_admin_erreicht_jeden_mandanten`), und
+fünf Endpunkte der Mandantenverwaltung stehen genau deswegen auf der Ausnahmeliste von
+Sonde 1. Der Befund ist der falsche Verweis.
+
+**Nicht behoben, weil es eine Entscheidung ist:** Ob ein ADR nachgezogen wird — und mit
+welchem Inhalt, denn die Frage „bleibt die Ausnahme, oder wird sie eingeschränkt?" ist
+offen — ist keine Aufräumarbeit. Bis dahin steht der Zusammenhang im Kopf der
+Ausnahmeliste in `test_aeussere_schicht.py`, damit niemand demselben Verweis nachläuft.
+
+---
+
 ## Weiterhin offen
 
-Nur noch der vertagte Sammelpunkt **Mandantenfähigkeit** (mit A1-3, A1-4 und A2-3) —
-seit 2026-09-10 als Analyse und Prüfplan ausgearbeitet in
-[mandantenfaehigkeit-plan.md](mandantenfaehigkeit-plan.md).
+Der vertagte Sammelpunkt **Mandantenfähigkeit** (mit A1-3, A1-4 und A2-3) — seit
+2026-09-10 als Analyse und Prüfplan ausgearbeitet in
+[mandantenfaehigkeit-plan.md](mandantenfaehigkeit-plan.md). Stufen 0–4 sind umgesetzt,
+Stufe 5 (Struktur) steht aus.
+
+Dazu **M17** — die Admin-Ausnahme braucht einen Entscheidungssatz. Niedrig, aber eine
+Entscheidung und deshalb nicht nebenbei zu erledigen.

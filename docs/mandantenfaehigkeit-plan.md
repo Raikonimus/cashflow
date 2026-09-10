@@ -73,12 +73,19 @@ Datenbank hält.
 
 **M1 — Die äußere Schicht ist vollständig.** Maschinelle Zählung über alle `router.py`:
 
-| | Anzahl |
-|---|---:|
-| Endpunkte gesamt | 104 |
-| davon mit `{mandant_id}` im Pfad | 76 |
-| davon mit `require_mandant_access` | 69 |
-| ohne Prüfung | **7 — alle `require_role("admin")`** |
+| | Anzahl (Zählung) | Anzahl (Stufe 4, berichtigt) |
+|---|---:|---:|
+| Endpunkte gesamt | 104 | **105** |
+| davon mit `{mandant_id}` im Pfad | 76 | **89** |
+| davon mit `require_mandant_access` | 69 | **82** |
+| ohne Prüfung | **7 — alle `require_role("admin")`** | **7** |
+
+> **Berichtigt in Stufe 4.** Die Zählung lief über die Zeichenketten in den Dekoratoren
+> und war damit blind für die zwei Router, die die `mandant_id` im **Prefix** tragen —
+> `review` (10 Endpunkte) und `imports` (3). Die Rechnung geht genau auf: 89 − 13 = 76.
+> Die dreizehn waren nicht ungeschützt, aber ungezählt; siehe Stufe 4. Die Zahl 7 der
+> ungeprüften Endpunkte bleibt unverändert, und Stufe 4 hält sie als laufende
+> Zusicherung fest.
 
 Die sieben sind `POST/DELETE /mandants/{id}/users` und fünf Mandantenverwaltungs-Endpunkte
 in `tenants/router.py`. Admin umgeht die Mandantenprüfung laut ADR-001 absichtlich, die
@@ -157,8 +164,8 @@ Token verwandeln, obwohl der Mandant abgeschaltet ist.
 `mandant_id` im Pfad und `mandant_id` im Token. Ein Nutzer mit zwei Mandanten kann mit
 einem für A gewählten Token die Endpunkte von B ansprechen. Für die Berechtigung ist das
 folgerichtig — er darf beide sehen. Es heißt aber, dass die Auswahl nichts erzwingt, und
-das sollte dokumentiert sein, weil 76 Endpunkte ihre `mandant_id` aus dem Pfad nehmen und
-nicht aus dem Token.
+das sollte dokumentiert sein, weil 89 Endpunkte ihre `mandant_id` aus dem Pfad nehmen und
+nicht aus dem Token. Stufe 4 hält das Verhalten mit vier Zusicherungen fest.
 
 ### M11–M14 · Die innere Schicht — Bestand aus dem Review
 
@@ -213,7 +220,7 @@ Stufe 0  Prüfumgebung: zwei Mandanten            ← ERLEDIGT 2026-09-10
 Stufe 1  Auswahl beim Anmelden reparieren        ← ERLEDIGT 2026-09-10 (M4 M5 M6 M9 M2)
 Stufe 2  Zuordnung in der Nutzerverwaltung       ← ERLEDIGT 2026-09-10 (M7 M8)
 Stufe 3  Abdeckung der vier Module anheben       ← ERLEDIGT 2026-09-10 (M12, fand M15+M16)
-Stufe 4  Isolationstest über alle 76 Endpunkte   M1 M10
+Stufe 4  Isolationstest über alle 89 Endpunkte   ← ERLEDIGT 2026-09-10 (M1 M10)
 Stufe 5  Struktur statt Disziplin                M11 M13 M14
 ```
 
@@ -608,7 +615,7 @@ Mandantentrennung.
 
 ---
 
-### Stufe 4 — Isolationstest über alle 76 Endpunkte
+### Stufe 4 — Isolationstest über alle 89 Endpunkte
 
 **Warum:** `check_tenancy.py` ist eine statische Prüfung. Sie sieht, ob eine `mandant_id`
 im Statement vorkommt, nicht ob sie die richtige ist. Der Gegentest muss laufen.
@@ -629,8 +636,329 @@ Stufe 0. Wo ein Endpunkt sich nicht generisch bedienen lässt, kommt er auf eine
 **ausdrückliche Ausnahmeliste mit Begründung** — nicht stillschweigend aus dem Test.
 Diese Liste ist eine Ratsche wie `--max-offen`: sie darf nur kürzer werden.
 
-**Fertig, wenn:** der Test alle 76 Endpunkte erreicht, die Ausnahmeliste begründet ist
+**Fertig, wenn:** der Test alle Endpunkte erreicht, die Ausnahmeliste begründet ist
 und der Lauf in CI steht.
+
+#### Umgesetzt am 2026-09-10
+
+**Die Endpunktzahl war falsch — und der Grund ist genau der, vor dem diese Stufe warnt.**
+Die Zählung in M1 lief über die Zeichenketten in den `@router.get(...)`-Dekoratoren und
+fand 76 mandantengebundene Endpunkte. Aus den registrierten Routen der Anwendung sind es
+**89**. Zwei Router tragen die `mandant_id` im **Prefix** und nicht im Pfad des einzelnen
+Endpunkts:
+
+| Router | Prefix | im Dekoratorpfad unsichtbar |
+|---|---|---:|
+| `review_router` | `/mandants/{mandant_id}/review` | 10 |
+| `imports_router` | `/mandants/{mandant_id}/accounts/{account_id}/imports` | 3 |
+
+Die Rechnung geht genau auf: 89 − 13 = 76. Die Zählung aus M1 war nicht ungenau, sie war
+**systematisch blind** für diese zwei — und wäre es für jeden weiteren, der es ihnen
+nachmacht. Alle übrigen Router tragen `/mandants` als Prefix und die `{mandant_id}` im
+Dekoratorpfad, weshalb sie mitgezählt wurden.
+
+Keiner der dreizehn war ungeprüft — aber alle dreizehn waren ungezählt. Eine Zählung, die
+den Prefix nicht sieht, hätte auch einen ungeschützten Endpunkt dort nicht gesehen. Deshalb
+liest `tests/tenancy/endpunkte.py` die Liste aus `app.routes`, dem Zustand, den die
+Anwendung beim Start tatsächlich aufbaut.
+
+**Vier Sonden statt drei.** Der Plan sah drei vor. Beim Lesen der Rumpfschemata kam eine
+vierte Klasse zum Vorschein, die er nicht nennt und die den einen echten Befund der
+Stufe 3 enthält:
+
+| Sonde | Angriff | Fälle | Ergebnis |
+|---|---|---:|---|
+| 1 · äußere Schicht | `mandant_id` von B im Pfad | 84 | **kein Leck** — 403 an allen |
+| 2 · innere Schicht, Pfad | eigener Mandant, Objektkennung aus B | 60 | **kein Leck** — 403/404 an allen |
+| 3 · innere Schicht, **Rumpf** | eigener Mandant, eigener Pfad, fremde Kennung im Rumpf | 14 × 2 | **kein Leck** — 403/404 an allen |
+| 4 · M10 | Token für A, Pfad B, `nutzer_beide` | 6 | Verhalten festgehalten |
+
+**Die Rechnung über alle 89.** Wo keine zweite Kennung im Spiel ist, gibt es für die
+innere Schicht auch nichts zu prüfen — solche Endpunkte sind mit Sonde 1 vollständig
+abgedeckt:
+
+```
+89 mandantengebundene Endpunkte
+├── 32  tragen nur die mandant_id            → Sonde 1 genügt
+└── 57  tragen eine zweite Kennung           → Sonde 1 + 2 und/oder 3
+    ├── 53 im Pfad        (60 Kennungen)
+    ├── 10 im Rumpf       (14 Felder)
+    └──  6 in beidem
+```
+
+Sonde 3 ist die Klasse von M16: `bulk-assign` prüfte die Buchungszeilen gegen den
+Mandanten, das Zuordnungsziel `partner_id` nicht. Zehn Endpunkte nehmen eine
+mandantengebundene Kennung im Rumpf, vierzehn Felder insgesamt — darunter die
+gefährlichsten Schreibwege des Systems: `partners/merge` (zwei Partnerkennungen),
+`review/unidentified-groups/resolve` (Einträge, Partner und Leistung auf einmal) und
+`reassign_to_group_id` im Rumpf eines Löschaufrufs. Nach der Behebung von M16 trennt
+jeder von ihnen korrekt.
+
+**Was neu entstanden ist**
+
+| Was | Wo |
+|---|---|
+| Routen-Introspektion: Endpunkte, Mindestrolle, Zugangsprüfung, Rumpfart | `backend/tests/tenancy/endpunkte.py` (neu) |
+| Sonden: Kennungsquellen, 37 Rumpfbauer, Anfragebau, Welt-Erweiterung | `backend/tests/tenancy/sonden.py` (neu) |
+| Zusicherungen samt Begründung, warum welche Antwort was belegt | `backend/tests/tenancy/erwartungen.py` (neu) |
+| Sonde 1 — 84 Endpunkte, 5 begründete Ausnahmen, ADR-001 festgenagelt | `backend/tests/tenancy/test_aeussere_schicht.py` (neu) |
+| Sonde 2 und 3 — 88 Fälle, Sonde 3 in beide Richtungen, dazu der splits-Fall von Hand | `backend/tests/tenancy/test_innere_schicht.py` (neu) |
+| Sonde 4 — M10 und M6 festgehalten | `backend/tests/tenancy/test_token_und_pfad.py` (neu) |
+| Die Buchhaltung: 13 Tests über Liste und Schemata, fünf Ratschen | `backend/tests/tenancy/test_endpunktliste.py` (neu) |
+| Eigener CI-Schritt für die Buchhaltung, statischer Schritt umbenannt | `.github/workflows/ci.yml` |
+
+**Vier Dinge sind mechanisch statt abgeschrieben.** Das ist der Unterschied zwischen
+einer Prüfung, die heute stimmt, und einer, die morgen noch stimmt:
+
+1. **Die Endpunktliste** kommt aus `app.routes`. Ein neuer Endpunkt ist ohne weiteres
+   Zutun in Sonde 1 und 2.
+2. **Die Mindestrolle** kommt aus dem Abschluss von `require_role`. Das ist wichtiger,
+   als es aussieht: Ein 403 aus der Rollenprüfung sieht genauso aus wie eines aus
+   `require_mandant_access`. Stünde die Rolle in einer Tabelle im Testcode, wäre sie
+   nach der nächsten Rollenänderung falsch — und die Sonde hielte ein 403 aus der Rolle
+   für einen Beleg der Mandantentrennung. Sie wäre grün und wertlos.
+3. **Die kennungstragenden Rumpffelder** werden aus einem Probelauf des Rumpfbauers mit
+   einem mitschreibenden Holer ermittelt. Wer ein Feld im Bauer hinzufügt, hat es sofort
+   in Sonde 3.
+4. **Dieselben Felder zusätzlich aus dem Pydantic-Schema**, weil Punkt 3 allein nur
+   Abweichungen zwischen Bauer und Sonde findet — nicht ein Feld, das ins Schema kommt
+   und das kein Bauer je gesehen hat. Der Abgleich beider Listen ist eine Zusicherung;
+   siehe unten.
+
+**Fünf Ratschen halten den Zustand fest.** Alle dürfen kleiner werden, nie größer:
+
+| Ratsche | heute | was sie verhindert |
+|---|---:|---|
+| Ausnahmen Sonde 1 | 5 | ein Endpunkt verschwindet stillschweigend aus der Prüfung |
+| Ausnahmen Sonde 2/3 | **0** | dasselbe für die innere Schicht |
+| Endpunkte ohne `require_mandant_access` | 7 | M1 als laufende Zusicherung statt Momentaufnahme |
+| Endpunkte ohne `{mandant_id}` im Pfad | 16 | der stillste denkbare Fehler — siehe unten |
+| Rumpffelder, die von Hand statt von Sonde 3 geprüft werden | **1** | ein Kennungsfeld im Schema ohne Sonde |
+
+Die letzte ist die wichtigste. Ein Endpunkt, der mandantenbezogene Daten liefert, seinen
+Mandanten aber aus dem Token oder dem Rumpf nimmt, stünde in **keiner** Sondenliste, weil
+er den Pfadparameter nicht trägt. Er wäre nicht auf einer Ausnahmeliste, er wäre einfach
+nicht da. Die Liste der sechzehn mandantenlosen Endpunkte ist die einzige Stelle, an der
+er auffällt — jeder mit einer Begründung daneben.
+
+**Die fünf Ausnahmen und warum es keine Lücke ist.** `GET`/`PATCH /mandants/{mandant_id}`,
+`cleanup-preview`, `cleanup` und `deactivate` verlangen die Rolle `admin`, und ein Admin
+umgeht die Mandantenprüfung nach ADR-001 absichtlich. Es gibt für sie also **keinen
+Akteur, dessen Rolle reicht und dessen Mandantenzuordnung beschränkt ist** — Sonde 1 ist
+dort nicht formulierbar. Was prüfbar bleibt, wird geprüft: Ein `accountant` erreicht sie
+auch auf dem *eigenen* Mandanten nicht (403 aus der Rolle), und ein eigener Test nagelt
+ADR-001 fest, indem er belegt, dass der Admin ohne jede Zeile in `mandant_users` beide
+Mandanten liest. Damit steht die Entscheidung als Zusicherung im Code und nicht nur als
+Satz in einem Dokument.
+
+**Der vierte Fall von „der Test prüft nichts" — und der lehrreichste.**
+`DELETE /service-groups/{group_id}` mit einem `reassign_to_group_id` aus Mandant B
+antwortete mit **204**. Das sieht nach einem Leck aus, und die erste Fassung dieses
+Abschnitts hätte es als solches gemeldet. Es ist keines:
+
+```python
+if assignments and body.reassign_to_group_id is not None:
+    target_group = await self._get_service_group(mandant_id, body.reassign_to_group_id)
+```
+
+`_get_service_group` prüft den Mandanten. Nur steht der Aufruf **innerhalb** von
+`if assignments` — und die Gruppe der Prüfumgebung hatte keine zugeordnete Leistung. Ohne
+etwas umzuhängen wird das Feld nie gelesen, und der Löschvorgang gelingt, obwohl er eine
+fremde Gruppe nennt. Es wandert nichts über die Mandantengrenze, denn es wandert
+überhaupt nichts.
+
+Die Fixture trägt jetzt je Mandant eine `ServiceGroupAssignment`. Damit greift die
+Prüfung, und der Angriff antwortet mit `404 Service group not found`. **Vorher 204,
+nachher 404 — erst diese Umstellung macht die Sonde zu einer Aussage.**
+
+Der Fall ist eine eigene Spielart der drei aus Stufe 3: Dort fehlte der Datensatz beim
+*fremden* Objekt. Hier fehlte die Vorbedingung bei den *eigenen* Daten, sodass das
+angegriffene Feld nie zur Auswertung kam. Beides endet gleich — in einem grünen Test
+ohne Inhalt.
+
+**Der fünfte Fall — und der einzige, der es fast nach CI geschafft hätte.** Der erste
+Gesamtlauf brachte einen Fehlschlag, den kein Einzellauf zeigte:
+
+```
+FAILED tests/tenancy/test_endpunktliste.py::test_die_endpunkte_ohne_mandantenbezug_sind_festgehalten
+```
+
+`app` ist ein Modulsingleton, und **`tests/auth/test_rbac.py` hängt beim Import einen
+eigenen Router daran** (`/api/v1/test-rbac/…`, drei Endpunkte zum Prüfen der
+Rollenwächter). Der Inhalt von `app.routes` hängt damit davon ab, welche Testmodule
+pytest schon eingesammelt hat — und meine Buchhaltung hielt die drei Testrouten für
+mandantenlose Endpunkte ohne Begründung.
+
+Der naheliegende Ausweg wäre eine Ausnahme für `/test-rbac` gewesen. Sie hätte genau
+diesen einen Fall erledigt und beim nächsten Testrouter mit anderem Namen wieder
+angeschlagen. Stattdessen entscheidet jetzt das **Herkunftsmodul der
+Handhabungsfunktion**: Ein Endpunkt der Anwendung ist einer, dessen Funktion in `app.`
+liegt. Das gilt für jeden künftigen Testrouter mit und braucht keine Namensliste.
+
+Bemerkenswert ist, **wo** der Fehler aufgetreten wäre: Der eigene CI-Schritt führt
+`pytest tests/tenancy/test_endpunktliste.py` allein aus — dort wäre er grün geblieben.
+Rot geworden wäre der Gesamtlauf einen Schritt später. Ein Prüfschritt, der nur eine
+Datei ausführt, sieht eine Klasse von Fehlern grundsätzlich nicht; das ist der Preis
+für die schnelle, benannte Rückmeldung und hier bewusst bezahlt, weil der Gesamtlauf im
+selben Auftrag folgt.
+
+**Die Lücke unter Sonde 3 — eine Ebene tiefer derselbe Fehler.** Die Liste der
+kennungstragenden Rumpffelder kam aus den **Rumpfbauern**: Sie schützt davor, dass Bauer
+und Sonde auseinanderlaufen, aber nicht davor, dass ein Feld ins **Schema** kommt, das
+kein Bauer je gesehen hat. Wer `ReassignRequest` ein `service_id` hinzufügt, hat dann
+nicht eine Sonde weniger — er hat eine, die es nie gab. Meine eigene Behauptung „wer ein
+Feld hinzufügt, hat es sofort in Sonde 3" galt nur für Felder im Bauer.
+
+`sonden.kennungsfelder_im_schema()` liest deshalb die Pydantic-Schemata selbst,
+rekursiv, und `test_jedes_kennungsfeld_im_rumpf_wird_sondiert` hält beide Listen
+gegeneinander. Auch das nachgeprüft: Ein versuchsweise an `ReassignRequest` gehängtes
+`probe_service_id` wird namentlich gemeldet.
+
+Über alle elf Endpunkte mit Rumpfkennungen fand der Abgleich **genau eine** echte Lücke:
+`splits[].service_id` in `POST .../review/{item_id}/adjust`. `adjust` wählt seinen Weg am
+**Typ** des Review-Eintrags, und der kommt aus der `item_id` im Pfad —
+`service_assignment` nimmt `service_id`, `manual_service_assignment` nimmt `splits`. Ein
+Rumpfbauer kann nicht beides bedienen, weil ein Eintrag nur einen Typ hat.
+
+Statt einer Ausnahme steht der Fall von Hand geprüft in
+`test_eine_aufteilung_kann_keine_fremde_leistung_nennen`. **Kein Leck:**
+`manually_assign_journal_line_splits` ruft `_get_service(service_id, mandant_id)` in
+einer Schleife über jede Aufteilung, nicht nur über die erste. Die Mandantenprüfung
+reicht `_get_service` an den Partner der Leistung weiter — daher die Antwort
+`404 Partner not found`. Die innere Ausnahmeliste bleibt damit bei **null**.
+
+**Der sechste Fall — diesmal in meinem eigenen neuen Test, und die Lehre stand schon
+geschrieben.** Beim Absichern des splits-Feldes (siehe unten) schrieb ich erst einen Test
+mit **einem** Review-Eintrag für Angriff und Gegenprobe. Er war grün. Er belegte nichts:
+
+```
+ANGRIFF:     404 {"detail":"Partner not found"}          ← richtig
+GEGENPROBE:  409 {"detail":"Review item is already adjusted"}
+```
+
+`_adjust_manual_service_assignment_splits` setzt `item.status = "adjusted"` und ruft
+`flush()`, **bevor** es die Aufteilungen prüfen lässt. Im Betrieb verhindert die Ausnahme
+das `commit`, die Statusänderung ist verloren. Im Test teilen Anwendung und Test die
+Datenbanksitzung — die Gegenprobe sah den Eintrag als bereits erledigt. Das 409 ist kein
+403/404/422 und ging als Gegenprobe durch, obwohl der splits-Weg für eigene Daten **kein
+einziges Mal gelaufen** war.
+
+Das ist genau Lehre (b) aus Stufe 3, aufgeschrieben und trotzdem wiederholt. Jede Seite
+hat jetzt ihren eigenen Eintrag auf ihrer eigenen Buchungszeile; die Gegenprobe antwortet
+mit **200**. Der Unterschied zwischen 409 und 200 ist der ganze Wert des Tests.
+
+Das Sichtbarwerden lag nicht am Zusicherungstext, sondern daran, dass ich die
+Statuscodes **ausgedruckt** habe, statt der grünen Zeile zu glauben. Bei einem
+Angriffstest ist „grün" die schwächste Auskunft, die es gibt.
+
+**Zwei Beobachtungen beim Lesen, beide kein Befund.** Sie stehen hier, weil sie beim
+nächsten Umbau derselben Stelle zählen könnten:
+
+1. Die Prüfung von `reassign_to_group_id` ist an `if assignments` gebunden. Eine
+   ungültige Kennung wird also stillschweigend angenommen, wenn es nichts umzuhängen
+   gibt. Kein Datenabfluss, aber eine Validierung, die nur unter Bedingungen greift.
+2. In derselben Funktion steht die Schranke gegen das Umhängen auf die zu löschende
+   Gruppe **nach** der Schleife, die die Zuordnungen schon umgesetzt hat. Der `raise`
+   verhindert das `commit`, und `get_session` schließt die Sitzung ohne zu committen —
+   deshalb ohne Wirkung. Die Reihenfolge ist trotzdem verkehrt.
+
+**Was Stufe 4 nicht kann.** Die Sonden prüfen, ob ein Endpunkt eine *fremde Kennung*
+abweist. Sie prüfen nicht, ob eine Liste *fremde Zeilen* enthält — das tun die Tests aus
+Stufe 3, die die Geldpfade nachrechnen (beide Mandanten haben dieselben Beträge, ein
+fehlender Filter verdoppelt die Summe). Beide Arten sind nötig: Sonde 2 hätte M16
+gefunden, aber nicht das Leck aus Etappe 1, bei dem eine Liste zu viel enthielt.
+
+**Ist Stufe 4 ein Zwilling von Stufe 3?** Die erste Frage des Merge-Checks, auf die
+eigene Arbeit angewendet — und sie hat eine unbequeme Antwort: **teilweise ja.** Einige
+Fälle prüfen dasselbe zweimal, etwa „fremder Review-Eintrag ist nicht abrufbar" aus
+Stufe 3 und `GET .../review/{item_id} → item_id` aus Sonde 2. Die Doppelung ist gewollt,
+und die Arbeitsteilung ist diese:
+
+| | Stufe 3 | Stufe 4 |
+|---|---|---|
+| Auswahl | fünf Module, von Hand ausgesucht | **alle** Endpunkte, aus den Routen erzeugt |
+| Zusicherung | Inhalt: welche Zeilen, welche Summe, welcher Saldo | Abweisung: nimmt der Endpunkt eine fremde Kennung an? |
+| Lesbarkeit | jeder Test erklärt, warum *dieser* Endpunkt zählt | ein Testname, 172-mal dieselbe Frage |
+| Verhalten bei einem neuen Endpunkt | merkt nichts | prüft ihn ab dem ersten Lauf |
+
+Keine der beiden ersetzt die andere. Die Tests aus Stufe 3 zu löschen, würde die
+Begründungen verlieren — und die Nachrechnung der Geldpfade, die Sonde 2 gar nicht
+leistet. Stufe 4 zu löschen, würde die Vollständigkeit verlieren. Was **nicht** doppelt
+existiert, ist die Prüfumgebung: Stufe 4 setzt auf die Fixture `zwei_mandanten` aus
+Stufe 0 auf und legt bewusst **keine** siebte Kopie von `setup_db`, `db_session` und
+`client` an — das wäre der Zwilling, den Frage 1 sucht. Der Grund steht im Kopf von
+`tests/tenancy/conftest.py`.
+
+**Der Merge-Check auf die eigene Arbeit angewendet.** Die sechs Fragen aus
+`code-review-konzept.md` §10, kurz beantwortet:
+
+| Frage | Ergebnis |
+|---|---|
+| 1 · Zwilling? | **Ja, teilweise** — siehe oben, mit Arbeitsteilung. Keine siebte Kopie der Fixtures. |
+| 2 · Mandantentrennung | Keine neue Query, kein neuer Endpunkt. `check_tenancy --strict --max-offen 43` unverändert grün. |
+| 3 · Geld | Kein neuer Weg, auf dem ein Betrag entsteht. |
+| 4 · Bestand | Kein neuer schreibender Pfad in der Anwendung. Die Gegenproben schreiben, jede auf frischem Schema. |
+| 5 · Prüft die Prüfung? | **Nachgewiesen** — siehe unten. |
+| 6 · Dokumentation | **Ein Befund: M17.** |
+
+Zu **Frage 5** genügt hier keine Behauptung. Ich habe der Anwendung versuchsweise einen
+Endpunkt angehängt — rollengeschützt, mit einer zweiten Kennung im Pfad, ohne
+Mandantenprüfung, in keiner Sondenliste eingetragen — und nachgesehen:
+
+```
+test_die_zugangspruefung_haengt_an_jeder_route_ausser_den_sieben  FAILED  (0,3 s)
+  POST /api/v1/mandants/{mandant_id}/settings/tests/probe/{partner_id}
+
+test_fremder_mandant_wird_abgewiesen[…probe…]      erwartet 403, erhalten 200
+test_fremde_kennung_im_pfad[…probe… → partner_id]  erwartet 403/404, erhalten 200
+```
+
+Die Buchhaltung nennt den Endpunkt in einer Drittelsekunde, und **beide Sonden greifen
+von selbst** — ohne dass ihn jemand eingetragen hätte. Danach zurückgesetzt. Ein
+zweiter Versuch mit einem Endpunkt *ohne* jede Rollenprüfung bricht schon beim Einsammeln
+der Liste ab, mit der Meldung „Keine Rolle im Abhaengigkeitsbaum gefunden — entweder hat
+der Endpunkt keine Rollenpruefung, dann ist das der Befund".
+
+Zu **Frage 6** siehe M17 in `code-review-befunde.md`: `require_mandant_access` begründet
+die Admin-Ausnahme mit „ADR-001", doch ADR-001 ist *Client-only Logout*. Zur
+weitreichendsten Zugriffsregel des Systems gibt es keinen Entscheidungssatz; ihr
+einziger schriftlicher Beleg ist eine Klammer im Anforderungsschema
+(`requirements.md:45`, „Zuweisung User ↔ Mandant (außer Admin)"). Das Verhalten ist
+gewollt und jetzt durch einen Test festgehalten — der Verweis ist falsch. Nicht behoben,
+weil ein nachgezogener ADR eine Entscheidung ist und keine Aufräumarbeit. **Auch dieser
+Plan nennt die Ausnahme durchgehend „ADR-001"**, weil das der Name im Code ist; der
+Zusammenhang steht im Kopf der Ausnahmeliste in `test_aeussere_schicht.py`.
+
+**Warum die Abdeckungsratsche bei 68 bleibt, obwohl 69,97 % gemessen sind.** Die
+69,97 % gelten für den Arbeitsbaum, und der trägt parallel fremde Forecast-/Netto-Arbeit
+mit eigenen Tests. CI prüft den **Branch**, und dort sind es **69,01 %**. Eine Ratsche
+auf 69 hätte also 0,01 Prozentpunkte Luft — das ist keine Ratsche, sondern eine
+Stolperfalle: Die nächste ungetestete Zeile macht CI rot, ohne dass die Abdeckung
+tatsächlich gefallen wäre.
+
+Die Regel im Repo lautet „auf die ganze Zahl darunter", und `floor(69,01) = 69` erfüllt
+sie dem Wortlaut nach. Dem Zweck nach nicht: Bei 68,3 % ließ dieselbe Regel 0,3 Punkte
+Luft, hier 0,01. Deshalb bleibt sie bei 68. Sobald die Netto-Arbeit ebenfalls auf `main`
+liegt, ist der Abstand wieder groß genug, und das Anheben ist eine Zeile.
+
+Aufgefallen ist das nur, weil der Branch **allein** in einem eigenen Worktree gemessen
+wurde. Im Arbeitsbaum hätte die 69 gehalten und wäre in CI umgefallen.
+
+#### Bilanz von Stufe 4
+
+| | |
+|---|---|
+| Endpunkte mandantengebunden | **89** (M1 nannte 76 — der Prefix fehlte in der Zählung) |
+| Neue Tests | 198 in vier Dateien, dazu drei Hilfsmodule |
+| Sondenfälle | 84 + 60 + 28 = 172 generisch, 1 von Hand, dazu 6 für M10 |
+| Gefundene Mandantenlecks | **0** |
+| Weitere Befunde | **M17** — die Admin-Ausnahme beruft sich auf den falschen Entscheidungssatz (niedrig, offen) |
+| Beobachtungen ohne Befundcharakter | 2 in `delete_service_group` |
+| Tests, die nichts prüften | 3 gefunden und behoben (fehlende Leistung im Rumpf, fehlende Gruppenzuordnung, geteilter Review-Eintrag) |
+| Test, der aus fremdem Grund fiel | 1 — `app.routes` wird von `tests/auth/test_rbac.py` mitbestückt |
+| Abdeckung gesamt | 68,7 % → **69,97 %** im Arbeitsbaum, **69,01 %** auf dem Branch allein — Ratsche bleibt bei 68, siehe unten |
+| Ausnahmen | 5, alle die Admin-Ausnahme, alle mit Ersatzprüfung |
+| Ratschen in CI | 4 |
 
 ---
 
@@ -644,7 +972,7 @@ Erst jetzt, mit Netz. Hier werden die im Review vertagten Teilaspekte entschiede
 | A1-3 · M13 | ADR-008 umkehren (Eindeutigkeit je Mandant) oder den Importweg 409/Review-Item werfen lassen? | heute schluckt der Import eine fremde IBAN still |
 | Konto-IBAN · M13 | `create_account` prüft global (409 „IBAN already in use") ohne ADR-Grundlage | zwei Firmen mit gemeinsamem Konto können es nicht beide erfassen |
 | A2-3 · M14 | `base_currency` aus dem Konto lesen statt aus dem Literal | ein Mandant mit CHF-Konto bekäme heute eine leere Matrix |
-| M10 | Soll das Token den Mandanten erzwingen oder nur anzeigen? | ADR-Entscheidung, kein Code — betrifft alle 76 Endpunkte |
+| M10 | Soll das Token den Mandanten erzwingen oder nur anzeigen? | ADR-Entscheidung, kein Code — betrifft alle 89 Endpunkte; Verhalten ist seit Stufe 4 in `tests/tenancy/test_token_und_pfad.py` festgenagelt |
 
 Die naheliegende Frage „warum nicht Row-Level-Security?" gehört hierher und nicht früher:
 Sie ist erst beantwortbar, wenn Stufe 4 zeigt, was die heutige Trennung tatsächlich
