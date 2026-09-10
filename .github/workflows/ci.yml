@@ -58,7 +58,11 @@ jobs:
         # es die richtige ist. Befund M16 (Stufe 3) war fuer sie deshalb unsichtbar:
         # Die Query trug ihren Filter, was fehlte war eine Validierung. Der Schritt
         # darunter deckt diese Klasse ab.
-        run: python checks/check_tenancy.py --strict --max-offen 43
+        # 43 -> 28 in Stufe 5: Der Helfer buchungen_des_mandanten() bringt den
+        # Mandantenfilter in acht Abfragen auf JournalLine hinein, die ihn vorher
+        # erst danach in Python anwendeten (Befund A1-4). Die Ratsche muss beim
+        # Beheben mitsinken, sonst schweigt sie, wenn gleichzeitig einer dazukommt.
+        run: python checks/check_tenancy.py --strict --max-offen 28
 
       - name: Mandantentrennung (Endpunktliste)
         # Die Buchhaltung der Stufe-4-Sonden — laeuft in unter einer Sekunde und

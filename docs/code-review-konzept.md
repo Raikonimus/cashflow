@@ -365,7 +365,7 @@ einem stillen Widerspruch dazwischen.** Danach wird zuerst gesucht.
 ```
 git diff main...HEAD          # das, was dazukommt
 cd backend  && ruff check app tests && black --check app tests \
-            && python checks/check_tenancy.py --strict --max-offen 43 && pytest -q
+            && python checks/check_tenancy.py --strict --max-offen 28 && pytest -q
 cd frontend && npm run format:check && npm run lint && npm run typecheck && npx vitest run
 ```
 

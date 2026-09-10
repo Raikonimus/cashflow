@@ -1,15 +1,24 @@
 ---
 id: ADR-008
-status: accepted
+status: superseded
 date: 2026-04-06
 bolt: 004-partner-management
 deciders: [construction-agent]
+superseded_by: ADR-018
 ---
 
 # ADR-008: Partner-IBAN ist global unique (nicht pro Mandant)
 
 ## Status
-Accepted
+
+**Superseded am 2026-09-10 durch [ADR-018](adr-018-iban-unique-per-mandant.md).**
+
+Die Begründung unten trägt nicht: Sie leitet globale Eindeutigkeit aus
+deterministischem Matching ab, aber der Import-Lookup filtert je Mandant — die
+Bestimmtheit war schon dadurch gegeben. Die globale Regel erzeugte keinen Schutz,
+sondern einen blinden Fleck: Registrierte ein Mandant eine IBAN, bekam jeder andere sie
+nie und wurde über sie nie erkannt (Befund A1-3). Das Dokument bleibt stehen, weil es
+erklärt, warum der Code fünf Monate so aussah.
 
 ## Kontext
 

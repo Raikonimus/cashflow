@@ -1,6 +1,6 @@
 ---
-last_updated: 2026-04-08T16:00:00Z
-total_decisions: 17
+last_updated: 2026-09-10T00:00:00Z
+total_decisions: 19
 ---
 
 # Decision Index
@@ -17,6 +17,22 @@ Use this to find relevant prior decisions when working on related features.
 ---
 
 ## Decisions
+
+### ADR-019: Der gewählte Mandant ist eine Grenze, nicht bloß Anzeigezustand
+- **Status**: accepted
+- **Date**: 2026-09-10
+- **Bolt**: 001-identity-access (Mandantenfähigkeit, Stufe 5)
+- **Path**: `bolts/001-identity-access/adr-019-selected-mandant-is-a-boundary.md`
+- **Summary**: `require_mandant_access` vergleicht die `mandant_id` aus dem Token mit der aus dem Pfad und weist Abweichungen mit 403 ab — vor der Zugehörigkeitsprüfung, also auch für Admins. Ein Token ohne `mandant_id` erreicht keinen mandantengebundenen Endpunkt. Behebt Befund M10, bei dem die Auswahl nach dem Anmelden nichts erzwang.
+- **Read when**: Änderungen an `require_mandant_access` oder am Tokenaufbau; Frage, warum ein gültiges Token 403 liefert; Zugriffe ohne Frontend (Skripte, Integrationen, Dienstkonten); Diskussion über Row-Level-Security
+
+### ADR-018: IBAN und Kontonummer sind je Mandant eindeutig, nicht global
+- **Status**: accepted — **ersetzt ADR-008**
+- **Date**: 2026-09-10
+- **Bolt**: 004-partner-management (Mandantenfähigkeit, Stufe 5)
+- **Path**: `bolts/004-partner-management/adr-018-iban-unique-per-mandant.md`
+- **Summary**: `partner_ibans` und `partner_accounts` bekommen eine eigene `mandant_id`; die Eindeutigkeit wird auf `(mandant_id, iban)` bzw. `(mandant_id, blz, account_number)` erweitert, `accounts.iban` wird je Mandant geprüft (Migration 029). ADR-008 begründete globale Eindeutigkeit mit deterministischem Matching — der Lookup filtert aber ohnehin je Mandant, weshalb die globale Regel keinen Schutz erzeugte, sondern einen blinden Fleck: Registrierte Mandant A eine IBAN, bekam B sie nie und wurde über sie nie erkannt (Befund A1-3).
+- **Read when**: IBAN- oder Kontonummer-basierte Lookups im Import-Matching; weitere Identifier zur Partnererkennung; geteilte Stammdaten zwischen Mandanten; bevor ADR-008 zitiert wird
 
 ### ADR-017: Audit-Log schreibt Login, Logout und Imports
 - **Status**: accepted
@@ -87,12 +103,12 @@ Use this to find relevant prior decisions when working on related features.
 - **Read when**: Partner-Listen-Queries (is_active-Filter!); Import-Matching (inaktive ignorieren); Re-Aktivierungs-Feature; Datenbankbereinigung/Archivierung; neue Queries die auf partners joinen
 
 ### ADR-008: Partner-IBAN ist global unique (nicht pro Mandant)
-- **Status**: accepted
+- **Status**: **superseded** am 2026-09-10 durch ADR-018
 - **Date**: 2026-04-06
 - **Bolt**: 004-partner-management (Partner Core)
 - **Path**: `bolts/004-partner-management/adr-008-iban-global-unique.md`
-- **Summary**: Eine IBAN identifiziert weltweit eindeutig ein Bankkonto. `partner_ibans.iban` hat einen globalen UNIQUE-Constraint (kein Compound-Key mit mandant_id). Import-Matching ist deterministisch — eine IBAN gehört immer genau einem Partner.
-- **Read when**: Import-Matching-Implementierung; IBAN-Lookups; Multi-Tenancy-Fragen zu geteilten Stammdaten; Entscheidung ob andere Entities globale Uniqueness brauchen
+- **Summary**: Eine IBAN identifiziert weltweit eindeutig ein Bankkonto. `partner_ibans.iban` hat einen globalen UNIQUE-Constraint (kein Compound-Key mit mandant_id). Import-Matching ist deterministisch — eine IBAN gehört immer genau einem Partner. **Gilt nicht mehr:** Der Import-Lookup filtert je Mandant, die globale Regel erzeugte deshalb keine Bestimmtheit, sondern einen blinden Fleck (Befund A1-3). Siehe ADR-018.
+- **Read when**: Nur noch, um zu verstehen, warum der Code bis 2026-09-10 so aussah. Für alles Übrige gilt ADR-018.
 
 ### ADR-007: Remapping-Trigger gibt 202 Accepted zurück (Async Placeholder)
 - **Status**: accepted

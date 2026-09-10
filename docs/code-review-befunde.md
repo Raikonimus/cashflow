@@ -110,7 +110,7 @@ fremden Daten angelegt. Schreibend und nicht ohne Weiteres rückgängig zu mache
 
 ---
 
-## A1-3 — Global eindeutige IBAN blockiert fremde Mandanten still · **hoch** · offen
+## A1-3 — Global eindeutige IBAN blockiert fremde Mandanten still · **hoch** · behoben
 
 **Ort:** [app/imports/matching.py:326](../backend/app/imports/matching.py#L326)
 (`_maybe_add_iban`), [:348](../backend/app/imports/matching.py#L348)
@@ -132,7 +132,12 @@ angelegt, die IBAN nicht registriert. Zweiter Import: Ergebnis ist `name_match` 
 `iban_match` — dauerhaft, bei jedem weiteren Import, ohne Hinweis. Die Namenserkennung
 ist schwächer und produziert Review-Arbeit, die nie aufhört.
 
-**Warum offen:** Der Fix ist eine Entscheidung über ADR-008, keine Mechanik. Zwei Wege:
+**Behoben am 2026-09-10** in Stufe 5: Weg 1 wurde gewählt (ADR-018, Migration 029).
+`partner_ibans` und `partner_accounts` führen eine eigene `mandant_id`, die
+Eindeutigkeit gilt je Mandant. Der `xfail(strict=True)` im Test unten ist entfernt; die
+beiden Fälle sind jetzt Zusicherungen und keine dokumentierten Mängel mehr.
+
+**Die Entscheidung war der Fix, nicht die Mechanik.** Zwei Wege standen offen:
 
 1. **IBAN pro Mandant eindeutig** (Compound-Key + Migration). Kehrt ADR-008 um; dessen
    Begründung („eine IBAN identifiziert weltweit ein Konto") gilt weiter, trifft aber
@@ -144,13 +149,19 @@ ist schwächer und produziert Review-Arbeit, die nie aufhört.
 Bemerkenswert: Der manuelle Weg (`_add_iban_entity`) wirft 409, der Importweg schweigt.
 Dieselbe Regel, zwei Verhalten.
 
-**Test:** [tests/imports/test_tenancy_iban_registration.py](../backend/tests/imports/test_tenancy_iban_registration.py) — als `xfail(strict=True)` hinterlegt, damit der Befund
-dokumentiert bleibt und die Suite grün ist. Wird der Fehler behoben, schlägt der
-`xfail` an und erinnert daran, die Markierung zu entfernen.
+**Test:** [tests/imports/test_tenancy_iban_registration.py](../backend/tests/imports/test_tenancy_iban_registration.py) — lag als `xfail(strict=True)` vor, damit der Befund
+dokumentiert blieb und die Suite grün war. Die Markierung hat ihren Zweck erfüllt: Nach
+dem Fix schlug sie an und wurde entfernt.
+
+Angeschlagen hat auch ein zweiter Test, der die Kehrseite festhielt:
+`test_iban_not_matched_across_mandants` erwartete beim zweiten Import
+`no_partner_identified` — und beschrieb damit unbemerkt genau diesen Befund. Er prüft
+jetzt, dass der **eigene** Partner über seine IBAN wiedererkannt wird und nicht der
+fremde.
 
 ---
 
-## A1-4 — Mandantenfilter in Python statt in SQL · **mittel** · offen
+## A1-4 — Mandantenfilter in Python statt in SQL · **mittel** · behoben
 
 **Ort:** u. a. [app/partners/service.py:336](../backend/app/partners/service.py#L336)
 (`preview_iban`), [:442](../backend/app/partners/service.py#L442)
@@ -166,18 +177,29 @@ account_ids = set(... Account.id where Account.mandant_id == mandant_id ...)
 lines = [ln for ln in lines if ln.account_id in account_ids]
 ```
 
-**Fehlerszenario:** Kein aktueller. Das Risiko ist die nächste Änderung: Der Filter steht
-bis zu zehn Zeilen von der Query entfernt, wird von nichts erzwungen, und ein früher
-`return`, ein neuer Zweig oder eine herausgezogene Hilfsfunktion lassen ihn verschwinden —
-ohne dass ein Test es merkt. Genau so sind A1-1 und A1-2 entstanden: als jemand einen
-zweiten Pfad neben einen korrekten gelegt hat.
+**Fehlerszenario:** „Kein aktueller" stand hier — und war falsch. Beim Umsetzen in
+Stufe 5 zeigte sich, dass die Reihenfolge schon heute das Ergebnis ändert: Die
+Entscheidung `if not lines` über den ILIKE-Fallback fällt **vor** dem Filter, weshalb
+Zeilen eines fremden Mandanten den Fallback verschlucken. Siehe **M18**.
+
+Das ursprünglich genannte Risiko bestand daneben: Der Filter stand bis zu zehn Zeilen
+von der Query entfernt, wurde von nichts erzwungen, und ein früher `return`, ein neuer
+Zweig oder eine herausgezogene Hilfsfunktion hätten ihn verschwinden lassen — ohne dass
+ein Test es merkt. Genau so sind A1-1 und A1-2 entstanden: als jemand einen zweiten Pfad
+neben einen korrekten gelegt hat.
 
 Dazu kommt die Wirkung auf die Datenmenge: Die Fallback-Suche `partner_iban_raw ILIKE
 '%…%'` läuft über die Buchungen **aller** Mandanten, bevor gesiebt wird.
 
-**Vorschlag:** `JournalLine` über einen Join auf `Account` in der Query filtern. Ein
-gemeinsamer Helfer (`_lines_of_mandant(mandant_id)`), der die Join-Bedingung kapselt,
-macht die Regel erzwingbar statt merkbar.
+**Behoben am 2026-09-10** in Stufe 5, wie vorgeschlagen: `buchungen_des_mandanten()` in
+[app/imports/tenancy_utils.py](../backend/app/imports/tenancy_utils.py) kapselt die
+Bedingung als Ausdruck, der in jedes `.where(...)` passt. Fünf Fundstellen umgestellt —
+die vier genannten und `_reassign_journal_lines`, das denselben Fehler beging und im
+Befund fehlte.
+
+`check_tenancy.py` meldete diese acht Abfragen als `OFFEN`; jetzt zählt sie sie als
+`OK`. Zusammen mit den Filtern, die ADR-018 möglich gemacht hat, sinkt die Ratsche von
+**43 auf 28**.
 
 ---
 
@@ -986,6 +1008,92 @@ Sonde 1. Der Befund ist der falsche Verweis.
 welchem Inhalt, denn die Frage „bleibt die Ausnahme, oder wird sie eingeschränkt?" ist
 offen — ist keine Aufräumarbeit. Bis dahin steht der Zusammenhang im Kopf der
 Ausnahmeliste in `test_aeussere_schicht.py`, damit niemand demselben Verweis nachläuft.
+
+---
+
+## M18 — Der späte Mandantenfilter verdrängte den Fallback · **mittel** · behoben
+
+Gefunden am 2026-09-10 beim Umsetzen von A1-4 in Stufe 5.
+
+A1-4 stufte die vier Funktionen in `app/partners/service.py` als „korrekt, aber auf
+fragile Weise" ein und schrieb: **„Fehlerszenario: Kein aktueller."** Das war falsch.
+
+Die Funktionen suchen in zwei Anläufen:
+
+```python
+lines = <exakte Übereinstimmung>       # über alle Mandanten
+if not lines:
+    lines = <ILIKE-Teiltreffer>        # Fallback
+lines = [ln for ln in lines if ...]    # Mandantenfilter, zehn Zeilen später
+```
+
+Die Entscheidung `if not lines` fällt **vor** dem Filter. Findet der exakte Anlauf
+Zeilen, die einem **anderen** Mandanten gehören, gilt er als erfolgreich, der Fallback
+wird übersprungen — und der Filter räumt danach alles weg.
+
+**Fehlerszenario:** Mandant A hat eine Buchung mit `partner_iban_raw = "DE11…"`.
+Mandant B hat eine Buchung, die dieselbe IBAN eingebettet trägt (`"VOR DE11… NACH"`) —
+so entstehen Rohwerte, wenn eine CSV-Spalte mehr als die IBAN enthält. B ruft die
+IBAN-Vorschau für `DE11…` auf. Der exakte Anlauf findet A's Zeile, der Fallback
+entfällt, der Filter entfernt A's Zeile: **B sieht eine leere Vorschau**, obwohl der
+Teiltreffer in seinen eigenen Daten liegt. Belegt mit `Gesehen: []`.
+
+Das ist kein Datenabfluss — zu sehen bekommt niemand etwas Fremdes. Es ist die andere
+Richtung: **fremde Daten bestimmen, was der eigene Mandant nicht sieht.** Eine Klasse,
+an die bei „Mandantentrennung" niemand denkt, weil sie nicht nach einem Leck aussieht.
+
+**Behoben** mit `buchungen_des_mandanten()` in `app/imports/tenancy_utils.py`: Die
+Bedingung steht jetzt **in** der Query, an allen fünf Fundstellen. Damit sieht der
+exakte Anlauf nur eigene Zeilen, und `if not lines` entscheidet über die richtige Menge.
+Nebenwirkung: Die Fallback-Suche `ILIKE '%…%'` lief bisher über die Buchungen aller
+Mandanten, bevor gesiebt wurde.
+
+**Test:** `tests/partners/test_fallback_und_mandant.py`, gegen den unbehobenen Stand
+geprüft. Dazu eine Gegenprobe, dass A's Zeile in B's Vorschau nicht erscheint — sonst
+wäre der Test auch von einer Fassung erfüllt, die den Filter ganz weglässt.
+
+**Nebenbei:** `check_tenancy.py` meldete diese acht Abfragen als `OFFEN`. Mit dem Helfer
+zählt sie sie als `OK`; die Ratsche sinkt von 43 auf **35**.
+
+---
+
+## M19 — Verwaiste `partner_ibans`-Zeilen blockierten ihre IBAN global · **niedrig** · behoben
+
+Gefunden am 2026-09-10 beim Schreiben von Migration 029.
+
+`partner_ibans` enthält 19 Zeilen (von 2840), deren Partner es nicht mehr gibt. SQLite
+setzt Fremdschlüssel nur mit `PRAGMA foreign_keys=ON` durch, und das ist nicht gesetzt;
+die Zeilen sind beim Löschen von Partnern zurückgeblieben, bevor
+`delete_partner_clean()` sie mitnahm. Der heutige Löschpfad ist sauber — es ist Altlast.
+
+**Zwei Schäden auf einmal:**
+
+1. Die Zeilen sind auf jedem Pfad **unerreichbar**: Der Import-Lookup verbindet über
+   `partners` und filtert auf den Mandanten, findet also nichts.
+2. Unter globaler Eindeutigkeit (ADR-008) belegten sie ihre IBAN trotzdem für **alle**
+   Mandanten — genau der Schaden aus A1-3, nur ohne Nutznießer.
+
+**Und sie sind zweifach kaputt.** Achtzehn der 19 tragen **zwei aneinandergeklebte
+IBANs mit einem Zeilenumbruch** dazwischen:
+
+```
+AT692011130000008960\nAT112011184376189300
+```
+
+Parserreste eines Imports vom 2026-04-13, entstanden aus einer CSV-Spalte mit zwei
+IBANs. 92 Buchungszeilen tragen solche Rohwerte, alle mit einem Partner — sie wurden
+über den Namen zugeordnet. Die neunzehnte ist eine wohlgeformte IBAN und hat sie für
+jeden Mandanten blockiert.
+
+**Behoben** in Migration 029: Die Zeilen werden entfernt, mit Ausgabe der Anzahl. Ohne
+Partner gibt es keinen Mandanten zum Nachtragen, und die Spalte `mandant_id` muss
+`NOT NULL` sein, damit die neue Eindeutigkeit trägt. Der Löschvorgang ist nicht
+umkehrbar; das steht im Kopf der Migration.
+
+**Was offen bleibt:** `PRAGMA foreign_keys` ist in `app/core/database.py` nicht gesetzt.
+Der `ON DELETE CASCADE` auf `partner_ibans.partner_id` steht damit im Schema, ohne zu
+wirken. Das ist eine eigene Entscheidung — sie berührt jede Löschung im System und
+gehört nicht in die Mandantenfähigkeit.
 
 ---
 

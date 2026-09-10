@@ -176,11 +176,15 @@ sie aufgreift.
 kein Query-Interceptor. `check_tenancy.py` heute:
 
 ```
-264 Queries geprueft — OFFEN: 43, PRUEFEN: 103, OK: 98, GLOBAL: 20
+Stand 2026-09-09:  264 Queries — OFFEN: 43, PRUEFEN: 103, OK:  98, GLOBAL: 20
+nach Stufe 5:      281 Queries — OFFEN: 35, PRUEFEN: 103, OK: 116, GLOBAL: 27
 ```
 
-Die 43 OFFEN sind einzeln gelesen und als Fehlalarm oder bewusst global eingestuft; die
-Ratsche in CI (`--max-offen 43`) hält die Zahl fest. Ihre Verteilung ist der Befund:
+Die 43 OFFEN waren einzeln gelesen und als Fehlalarm oder bewusst global eingestuft; die
+Ratsche in CI hielt die Zahl fest. **Stufe 5 hat acht davon behoben** — die Abfragen auf
+`JournalLine` in `partners/service.py`, die ihren Mandantenfilter erst in Python
+anwendeten (A1-4). Die Ratsche steht jetzt auf `--max-offen 35`. Die Verteilung war der
+Befund:
 
 | Datei | OFFEN | Abdeckung |
 |---|---:|---:|
@@ -221,7 +225,7 @@ Stufe 1  Auswahl beim Anmelden reparieren        ← ERLEDIGT 2026-09-10 (M4 M5 
 Stufe 2  Zuordnung in der Nutzerverwaltung       ← ERLEDIGT 2026-09-10 (M7 M8)
 Stufe 3  Abdeckung der vier Module anheben       ← ERLEDIGT 2026-09-10 (M12, fand M15+M16)
 Stufe 4  Isolationstest über alle 89 Endpunkte   ← ERLEDIGT 2026-09-10 (M1 M10)
-Stufe 5  Struktur statt Disziplin                M11 M13 M14
+Stufe 5  Struktur statt Disziplin                ← ERLEDIGT 2026-09-10 (M11 M13 M14)
 ```
 
 ---
@@ -968,16 +972,229 @@ Erst jetzt, mit Netz. Hier werden die im Review vertagten Teilaspekte entschiede
 
 | Punkt | Frage | Wirkung |
 |---|---|---|
-| A1-4 · M11 | Join-Helfer `_lines_of_mandant(mandant_id)` einführen? Betrifft vier Funktionen | macht die Regel erzwingbar statt merkbar; senkt OFFEN |
-| A1-3 · M13 | ADR-008 umkehren (Eindeutigkeit je Mandant) oder den Importweg 409/Review-Item werfen lassen? | heute schluckt der Import eine fremde IBAN still |
-| Konto-IBAN · M13 | `create_account` prüft global (409 „IBAN already in use") ohne ADR-Grundlage | zwei Firmen mit gemeinsamem Konto können es nicht beide erfassen |
-| A2-3 · M14 | `base_currency` aus dem Konto lesen statt aus dem Literal | ein Mandant mit CHF-Konto bekäme heute eine leere Matrix |
-| M10 | Soll das Token den Mandanten erzwingen oder nur anzeigen? | ADR-Entscheidung, kein Code — betrifft alle 89 Endpunkte; Verhalten ist seit Stufe 4 in `tests/tenancy/test_token_und_pfad.py` festgenagelt |
+| A1-4 · M11 | ~~Join-Helfer einführen?~~ **Ja** — `buchungen_des_mandanten()`, fünf Funktionen (nicht vier) | OFFEN 43 → 28; fand dabei M18 |
+| A1-3 · M13 | ~~ADR-008 umkehren oder laut scheitern?~~ **Umgekehrt** — je Mandant eindeutig | ADR-018, Migration 029; A1-3 behoben |
+| Konto-IBAN · M13 | ~~global oder je Mandant?~~ **Je Mandant** | ADR-018; gemeinsam genutzte Konten sind erfassbar |
+| A2-3 · M14 | ~~aus dem Konto lesen?~~ **Ja**, abgeleitet — drei Literale, nicht zwei | `_basiswaehrung()`; A2-3 behoben |
+| M10 | ~~erzwingen oder anzeigen?~~ **Erzwingen** | ADR-019; von 310 Tests fielen genau die sechs, die das alte Verhalten beschrieben |
 
 Die naheliegende Frage „warum nicht Row-Level-Security?" gehört hierher und nicht früher:
 Sie ist erst beantwortbar, wenn Stufe 4 zeigt, was die heutige Trennung tatsächlich
 leistet. Bei SQLite als Entwicklungsdatenbank ist RLS ohnehin keine Option — das wäre
 eine Entscheidung über die Datenbank, nicht über die Mandantenfähigkeit.
+
+#### Umgesetzt am 2026-09-10
+
+Alle fünf Punkte sind entschieden und umgesetzt. Die drei Entscheidungen fielen so:
+
+| Punkt | Entscheidung | Wo sie steht |
+|---|---|---|
+| A1-3 · Partner-IBAN | **je Mandant eindeutig** — ADR-008 umgekehrt | ADR-018, Migration 029 |
+| Konto-IBAN | **je Mandant eindeutig**, konsistent zur Partner-IBAN | ADR-018 |
+| M10 · Token | **erzwingen** — die Auswahl ist eine Grenze | ADR-019 |
+| A2-3 · `base_currency` | **aus den Konten ableiten**, kein neues Feld | `JournalService._basiswaehrung()` |
+| A1-4 · Join-Helfer | Mechanik, keine Entscheidung | `app/imports/tenancy_utils.py` |
+
+**A1-4 war kein latentes Risiko, sondern ein Fehler.** Der Befund stufte die vier
+Funktionen als „korrekt, aber auf fragile Weise" ein und schrieb ausdrücklich
+„Fehlerszenario: Kein aktueller". Beim Umsetzen zeigte sich das Gegenteil. Die Suchen
+laufen in zwei Anläufen:
+
+```python
+lines = <exakte Übereinstimmung>       # über alle Mandanten
+if not lines:
+    lines = <ILIKE-Teiltreffer>        # Fallback
+lines = [ln for ln in lines if ...]    # Mandantenfilter, zehn Zeilen später
+```
+
+`if not lines` entscheidet **vor** dem Filter. Fand der exakte Anlauf Zeilen eines
+**fremden** Mandanten, galt er als erfolgreich, der Fallback entfiel, und der Filter
+räumte danach alles weg — der eigene Mandant sah eine leere Vorschau. Gegen den
+unbehobenen Stand geprüft: `Gesehen: []`. Das ist **M18**, und es ist eine Klasse, an
+die bei „Mandantentrennung" niemand denkt: kein Datenabfluss, sondern fremde Daten, die
+bestimmen, was der eigene Mandant *nicht* sieht.
+
+Umgestellt sind fünf Fundstellen, nicht vier — `_reassign_journal_lines` beging denselben
+Fehler und fehlte im Befund. Sein Kommentar sagte es selbst: „Fetch all lines for source
+partner then filter by mandant accounts in Python".
+
+**Die Ratsche ist von 43 auf 28 gesunken** — und einmal dazwischen gestiegen. Der Weg ist
+lehrreich:
+
+| Schritt | OFFEN | warum |
+|---|---:|---|
+| Ausgangslage | 43 | |
+| nach A1-4 | **35** | acht `JournalLine`-Abfragen tragen ihren Filter jetzt in der Query |
+| nach ADR-008 | **44** | ⚠️ *gestiegen* |
+| nach dem Nachziehen | **28** | fünfzehn Abfragen auf die neue `mandant_id` gefiltert |
+
+Der Anstieg auf 44 war kein Rückschritt, sondern die Folge eines **strengeren Modells**:
+`partner_ibans` und `partner_accounts` haben seit ADR-018 eine eigene `mandant_id`, und
+damit stuft `check_tenancy.py` sie als *direkt gebunden* ein statt als *transitiv*. Eine
+Abfrage nur über `partner_id` ist danach `OFFEN` („hat mandant_id, wird aber nicht
+gefiltert") statt `PRUEFEN`. Sechzehn Abfragen wurden so neu zur Rechenschaft gezogen —
+alle korrekt, aber alle nur durch Disziplin: Der Partner war vorher geprüft.
+
+Genau dafür ist die Spalte da. Fünfzehn davon tragen jetzt den Filter selbst, darunter
+`_transfer_ibans` und `_transfer_accounts` beim Verschmelzen, die dafür eine
+`mandant_id` bekamen. Ein Verschmelzen, das Kennungen über eine Mandantengrenze trägt,
+wäre unter den schwerwiegendsten Fehlern des Systems — und die Query soll ihn nicht erst
+durch eine Prüfung weiter oben ausschließen.
+
+Bemerkenswert an `load_partner_assignment_criteria`: Diese Funktion bekommt ihre
+`partner_id` aus einer **Buchungszeile**, also aus Daten und nicht aus einem geprüften
+Pfadparameter. Dieselbe Form hat `_enrich_context` im Review. Dort ist der Filter kein
+Gürtel zum Hosenträger, sondern die einzige Schranke.
+
+**M10 erzwingen kostete nichts an Funktion.** Von 310 Tests fielen genau die **sechs**,
+die das alte Verhalten beschrieben — kein einziger fachlicher. Der Grund liegt im
+Frontend: Der Zustandsspeicher leitet den gewählten Mandanten *aus dem Token* ab
+(`sanitizeAuthState`: `mandants.find(m => m.id === user.mandant_id)`). Auswahl und Token
+können nicht auseinanderlaufen, das Frontend schickt also nie ein Paar, das der neue
+Vergleich abweisen würde.
+
+Damit ist auch das Gegenargument gegenstandslos, das für „Anzeigezustand" sprach — zwei
+Fenster auf zwei Mandanten. Sie waren vorher schon nicht möglich: Der Speicher liegt im
+`localStorage` und ist je Ursprung gemeinsam.
+
+Der Preis steht in `tests/tenancy/test_token_und_pfad.py::test_ein_token_ohne_auswahl_erreicht_nichts`:
+Ein Token ohne `mandant_id` erreicht keinen Endpunkt mehr. Das trifft zwei Zustände —
+mehrere Mandanten und noch keine Auswahl, oder gar keine Zuordnung (M6) — und in beiden
+gibt es auch nichts anzuzeigen.
+
+**Zwei Tests aus Stufe 3 und 4 haben angeschlagen, wie vorgesehen.**
+`test_fremde_iban_blockiert_das_anlegen_eines_kontos` hielt fest, dass ein gemeinsam
+genutztes Bankkonto nicht in beiden Mandanten erfassbar ist, und schrieb dazu: „Dieser
+Test hält den **heutigen** Stand fest, er verteidigt ihn nicht. Fällt die Entscheidung in
+Stufe 5 anders, schlägt er an und muss mit ihr geändert werden — das ist Absicht." Genau
+das ist passiert. Ebenso `test_nutzer_beider_mandanten_erreicht_beide`, das die
+M10-Eigenschaft mit festhielt.
+
+Ein dritter hat angeschlagen, ohne es zu wissen:
+`test_iban_not_matched_across_mandants` erwartete beim zweiten Import
+`no_partner_identified` — und beschrieb damit unbemerkt genau Befund A1-3. Er prüft
+jetzt, dass der **eigene** Partner über seine IBAN wiedererkannt wird. Das ist die
+schärfere Aussage.
+
+**Die Migration löscht Daten, und das ist Absicht.** `partner_ibans` enthielt 19 Zeilen
+(von 2840), deren Partner es nicht mehr gibt — SQLite setzt Fremdschlüssel ohne
+`PRAGMA foreign_keys=ON` nicht durch. Sie sind auf jedem Pfad unerreichbar und belegten
+unter globaler Eindeutigkeit ihre IBAN trotzdem für alle Mandanten. Achtzehn tragen
+**zwei aneinandergeklebte IBANs mit einem Zeilenumbruch** — Parserreste vom
+2026-04-13. Siehe **M19**. Die Migration ist gegen eine **Kopie** der
+Entwicklungsdatenbank erprobt, nicht gegen sie selbst:
+
+```
+029: 19 verwaiste Zeilen in partner_ibans werden entfernt
+nachher partner_ibans: 2821   mandant_id NULL: 0   Abweichung zum Partner: 0
+zwei Mandanten mit derselben IBAN: erlaubt (richtig)
+derselbe Mandant zweimal:          abgewiesen (richtig)
+```
+
+**A2-3 waren drei Literale, nicht zwei.** Der Befund nannte zwei Stellen
+(`journal/service.py:495`, `:617`); es sind drei, die dritte in
+`get_income_expense_matrix`. Alle drei rufen jetzt `_basiswaehrung(mandant_id)`. Die
+Regel: eindeutige Kontowährung des Mandanten gewinnt; bei mehreren die mit den meisten
+Konten, bei Gleichstand die alphabetisch erste; ohne Konto bleibt es bei `EUR`.
+Umgerechnet wird nichts — das System kennt keine Kurse, und eine Umrechnung wäre eine
+eigene fachliche Entscheidung mit Stichtagen, Quellen und Rundung.
+
+**Was neu entstanden ist**
+
+| Was | Wo |
+|---|---|
+| Mandantenbedingung für Buchungszeilen als Ausdruck | `backend/app/imports/tenancy_utils.py` (neu) |
+| `mandant_id` in `partner_ibans`/`partner_accounts`, Eindeutigkeit je Mandant | `backend/migrations/versions/029_iban_unique_per_mandant.py` (neu) |
+| Basiswährung aus den Konten | `JournalService._basiswaehrung()` |
+| Auswahl als Grenze | `app/auth/dependencies.py` |
+| Regressionstest zu M18, gegen den unbehobenen Stand geprüft | `backend/tests/partners/test_fallback_und_mandant.py` (neu) |
+| Basiswährung mit CHF-Mandant und Gegenprobe | `backend/tests/journal/test_basiswaehrung.py` (neu) |
+| ADR-018 (ersetzt ADR-008), ADR-019, Verzeichnis auf 19 Sätze | `memory-bank/` |
+| Ratsche 43 → 28 | `.github/workflows/ci.yml`, `docs/code-review-konzept.md` |
+
+**Was offen bleibt**
+
+* **M17** — die Admin-Ausnahme hat noch keinen Entscheidungssatz. ADR-019 grenzt sie
+  ein (auch ein Admin muss wählen), ersetzt sie aber nicht.
+* **`PRAGMA foreign_keys`** ist nicht gesetzt; der `ON DELETE CASCADE` auf
+  `partner_ibans.partner_id` steht im Schema, ohne zu wirken (M19). Berührt jede
+  Löschung im System und gehört nicht in die Mandantenfähigkeit.
+* **Row-Level-Security** — die Frage aus dem Kopf dieser Stufe. Nach Stufe 4 ist sie
+  beantwortbar: Die Trennung hält an allen 89 Endpunkten, und Stufe 5 hat 15 der
+  verbleibenden Disziplin-Fälle in Struktur überführt. Bei SQLite als
+  Entwicklungsdatenbank bleibt RLS ohnehin eine Entscheidung über die Datenbank.
+* **Die gemeinsame Fixture** könnte beiden Mandanten dieselbe IBAN geben, seit die
+  Eindeutigkeit je Mandant gilt — das wäre die konsequentere Prüfumgebung. Der Grund für
+  die Unterscheidung ist entfallen, die Unterscheidung noch nicht.
+* **Fünf Kopien** von `setup_db`/`db_session`/`client` in den Modul-Conftests, offener
+  Punkt seit Stufe 0.
+
+**Der Merge-Check auf die eigene Arbeit angewendet.** Die sechs Fragen aus
+`code-review-konzept.md` §10:
+
+| Frage | Ergebnis |
+|---|---|
+| 1 · Zwilling? | **Einen entfernt, einen bewusst geschaffen** — siehe unten |
+| 2 · Mandantentrennung | Ratsche **gesenkt** 43 → 28, eng geprüft (27 schlägt an) |
+| 3 · Geld | **Ja, ein Pfad berührt** — heute ohne Zahlenänderung, nachgerechnet |
+| 4 · Bestand | Die Migration; von null, gegen eine Kopie und rückwärts geprüft |
+| 5 · Prüft die Prüfung? | gegen den unbehobenen Stand, mit ausgedruckten Statuscodes |
+| 6 · Dokumentation | **fand einen Fehler** — siehe unten |
+
+**Frage 1.** Der Helfer beseitigt fünf Kopien des Musters „laden und danach in Python
+sieben", und `_basiswaehrung()` beseitigt drei Literale. Zwei Zwillinge bleiben, beide
+mit Absicht:
+
+* `partner_ibans.mandant_id` **verdoppelt** `partners.mandant_id`. Eine Eindeutigkeit
+  über Tabellengrenzen kann keine Datenbank ausdrücken; ohne die Spalte müsste die Regel
+  in der Anwendung stehen, und das ist der Zustand, den diese Stufe ablöst. Auseinander
+  laufen kann sie nur, wenn ein Partner den Mandanten wechselt — kein Pfad tut das
+  (ADR-018).
+* Fünf Stellen in `journal`, `forecast` und `testing` laden die Kontokennungen weiter
+  selbst und filtern damit **in** der Query. Korrekt, nur ausführlicher. Ihre Umstellung
+  auf den Helfer ist eine eigene Aufräumarbeit und steht im Kopf von `tenancy_utils.py`,
+  damit die nächste Erweiterung nicht eine sechste Kopie baut.
+
+**Frage 3** trifft zu und verdient eine klare Antwort: `_basiswaehrung()` entscheidet,
+welche Konten und Buchungen überhaupt in die Auswertungen eingehen. Für einen Mandanten
+mit ausschließlich Euro-Konten liefert die Ableitung `EUR` — genau das Literal, das dort
+stand. Es ändert sich also heute keine Zahl, und das ist nachgerechnet, nicht vermutet:
+Mandant A behält `1380,00` in der Gegenprobe des neuen Tests, und alle Geldtests der
+Suite bleiben grün. Gerundet wird nichts anders.
+
+**Frage 4.** Die Migration ist der neue schreibende Pfad, und sie **löscht** 19 Zeilen.
+Geprüft in drei Richtungen: von null (`alembic upgrade head` auf leerer Datenbank),
+gegen eine **Kopie** der Entwicklungsdatenbank, und zurück (`downgrade 028`). Die neue
+Eindeutigkeit ist in beiden Richtungen belegt — zwei Mandanten mit derselben IBAN
+erlaubt, derselbe Mandant zweimal abgewiesen.
+
+Was bleibt: SQLite führt DDL **nicht transaktional** aus, alembic sagt es beim Lauf
+selbst („Will assume non-transactional DDL"). Ein Abbruch mitten in 029 könnte ein halb
+umgestelltes Schema hinterlassen. Das ist der Datenbank eigen (ADR-015) und nicht hier
+entstanden; der praktische Schutz ist eine Kopie vorher.
+
+**Frage 6 hat einen Fehler gefunden, und zwar meinen.** Kein Test fährt Migrationen —
+die Suite baut ihr Schema aus den Modellen. Der Vergleich beider Schemata zeigte: Das
+Modell deklariert `Field(foreign_key="mandants.id")`, meine Migration erzeugte die
+Spalte **ohne** Fremdschlüssel. Auf SQLite unerheblich, weil er ohne
+`PRAGMA foreign_keys=ON` nicht durchgesetzt wird (M19) — auf dem Produktionsziel
+PostgreSQL (ADR-015) wäre es eine stille Abweichung zwischen Modell und Schema.
+Nachgetragen.
+
+Daraus die Regel für künftige Migrationen: **von null prüfen und die beiden Schemata
+gegenüberstellen.** Sonst prüft nichts die Kette.
+
+#### Bilanz von Stufe 5
+
+| | |
+|---|---|
+| Entscheidungen getroffen | 3 (A1-3/Konto-IBAN, M10, A2-3) |
+| Behobene Befunde | **4** — A1-3, A1-4, A2-3, dazu M18 und M19 neu gefunden und behoben |
+| ADRs | 2 neu (018, 019), 1 ersetzt (008) |
+| `check_tenancy` OFFEN | 43 → **28** |
+| Migration | 029, gegen eine Kopie erprobt, löscht 19 unerreichbare Zeilen |
+| Tests, die planmäßig angeschlagen haben | 3 (zwei mit Vorwarnung im Docstring, einer unbemerkt) |
+| Stand danach | **852 Tests grün**, keine `xfail` mehr, Abdeckung 70,21 % |
 
 ---
 
@@ -1005,7 +1222,7 @@ besonders:
 * **Frage 1 (Zwilling)** — der Plan berührt drei bekannte Zwillinge: die doppelte
   Auto-Auswahl (M2), die zwei Definitionen von „Mandanten dieses Nutzers" (M5) und die
   duplizierten Zweige in `UserDialog.tsx`.
-* **Frage 2 (Mandantentrennung)** — `check_tenancy.py --strict --max-offen 43` muss grün
+* **Frage 2 (Mandantentrennung)** — `check_tenancy.py --strict --max-offen 28` muss grün
   bleiben; beim Beheben ist die Zahl **mitzusenken**, sonst schweigt die Ratsche, wenn
   gleichzeitig einer dazukommt.
 * **Frage 5 (prüft die Prüfung?)** — gilt für Stufe 4 doppelt: Ein Isolationstest, der
