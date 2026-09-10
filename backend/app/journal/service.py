@@ -69,6 +69,10 @@ MONTH_KEYS = [
 
 _ZERO = Decimal("0.00")
 
+#: Waehrung fuer einen Mandanten ohne Konten — es gibt dann keine Buchungen,
+#: also auch nichts umzurechnen; der Wert erscheint nur in der Antwort.
+_VORGABE_WAEHRUNG = "EUR"
+
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
@@ -492,6 +496,47 @@ class JournalService:
 
     # ─── Liquiditätsvorschau ─────────────────────────────────────────────────
 
+    async def _basiswaehrung(self, mandant_id: UUID) -> str:
+        """Die Basiswaehrung dieses Mandanten — aus seinen Konten, nicht aus einem Literal.
+
+        Bis Stufe 5 stand ``base_currency = "EUR"`` dreimal als Literal im Code, obwohl
+        Konten ein eigenes ``currency`` fuehren (Befund A2-3). Ein Mandant mit einem
+        Konto in CHF bekam eine vollstaendig leere Matrix: Alle Buchungen fielen unter
+        „ausgeschlossene Fremdwaehrung". Der Hinweis darauf waere erschienen, es waere
+        also nicht lautlos gewesen — aber auch nicht als Fehler erkennbar.
+
+        Die Regel
+        ---------
+        Fuehren die aktiven Konten des Mandanten **eine** Waehrung, ist das seine
+        Basiswaehrung. Fuehren sie mehrere, gewinnt die mit den meisten Konten; bei
+        Gleichstand die alphabetisch erste, damit dieselben Daten immer dasselbe
+        Ergebnis geben. Hat der Mandant kein Konto, bleibt es bei ``EUR``.
+
+        Warum bei mehreren Waehrungen ueberhaupt eine gewaehlt wird und nicht
+        umgerechnet: Das System kennt keine Kurse. Eine Umrechnung waere eine eigene
+        fachliche Entscheidung mit Stichtagen, Quellen und Rundung. Die Auswertungen
+        rechnen deshalb in einer Waehrung und weisen den Rest als ausgeschlossen aus —
+        wie bisher, nur nicht mehr immer in Euro.
+
+        Warum kein Feld am Mandanten: Es waere ausdruecklicher, braeuchte aber Schema,
+        Migration und eine Stelle in der Oberflaeche, an der es gesetzt wird. Solange
+        die Waehrung eines Mandanten aus seinen Konten eindeutig hervorgeht, sagt die
+        Ableitung dasselbe ohne den Aufwand. Die Frage steht in Stufe 5 des
+        Mandantenfaehigkeitsplans.
+        """
+        zeilen = (
+            await self._session.exec(
+                select(Account.currency, func.count())
+                .where(Account.mandant_id == mandant_id, Account.is_active == True)
+                .group_by(col(Account.currency))
+            )
+        ).all()
+        if not zeilen:
+            return _VORGABE_WAEHRUNG
+        # Absteigend nach Anzahl, bei Gleichstand aufsteigend nach Waehrung.
+        waehrung, _ = min(zeilen, key=lambda z: (-int(z[1]), str(z[0])))
+        return str(waehrung)
+
     async def get_liquidity(
         self,
         mandant_id: UUID,
@@ -503,7 +548,7 @@ class JournalService:
         werden die Monatsprognosen aufaddiert. Für den laufenden Monat zählt nur, was über
         die bereits gebuchten Beträge hinaus erwartet wird.
         """
-        base_currency = "EUR"
+        base_currency = await self._basiswaehrung(mandant_id)
         balances = await self.get_account_balances(mandant_id)
 
         total = next(
@@ -639,7 +684,7 @@ class JournalService:
         Buchungen in Kontowährung; die Grenze zwischen Ist und Prognose folgt derselben
         Regel wie in der Matrix.
         """
-        base_currency = "EUR"
+        base_currency = await self._basiswaehrung(mandant_id)
         today = self._today
 
         balances = await self.get_account_balances(mandant_id)
@@ -736,7 +781,7 @@ class JournalService:
         year: int,
         scenario: Scenario = Scenario.expected,
     ) -> IncomeExpenseMatrixResponse:
-        base_currency = "EUR"
+        base_currency = await self._basiswaehrung(mandant_id)
 
         service_svc = ServiceManagementService(self._session)
         await service_svc.ensure_default_groups(mandant_id)
