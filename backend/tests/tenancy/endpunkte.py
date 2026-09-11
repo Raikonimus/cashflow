@@ -87,6 +87,7 @@ irren.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -119,6 +120,87 @@ def _ist_anwendungsroute(route: APIRoute) -> bool:
     """
     herkunft = getattr(route.endpoint, "__module__", "")
     return herkunft.startswith(ANWENDUNGSPAKET)
+
+
+def _eingehaengte_routen(
+    routen: Iterable[Any], praefix: str = ""
+) -> Iterator[tuple[str, APIRoute]]:
+    """Jede ``APIRoute`` unterhalb von ``routen`` — mit ihrem vollen Pfad.
+
+    Warum das nicht einfach ``app.routes`` ist
+    ------------------------------------------
+    Bis FastAPI 0.139 hat ``include_router()`` die Routen des eingehaengten Routers
+    **flachgeklopft**: Jede landete einzeln in ``app.routes``, ihr ``path`` trug den
+    Praefix bereits. Seit 0.140 steht dort stattdessen ein ``_IncludedRouter``, der
+    den urspruenglichen Router unter ``original_router`` haelt und den beim Einhaengen
+    gegebenen Praefix in ``include_context.prefix``.
+
+    Aus ``app.routes`` wurden damit 89 Endpunkte zu dreizehn Behaeltern, und eine
+    Pruefung auf ``isinstance(route, APIRoute)`` fand **nichts**. Genau das ist am
+    2026-09-11 passiert: CI loest die Abhaengigkeiten frei auf und bekam 0.141, die
+    Entwicklungsumgebung hatte 0.135 — dieselbe Datei war lokal gruen und in CI rot.
+
+    Diese Funktion steigt deshalb ab und setzt den Pfad selbst zusammen. Sie kommt mit
+    beiden Formen zurecht: Liegen die Routen flach, greift der erste Zweig und der
+    Praefix bleibt leer; liegen sie verschachtelt, sammelt der zweite ihn ein. Den
+    Praefix des Routers selbst (``/auth``, ``/mandants/{mandant_id}/review``) traegt
+    der Kindpfad in beiden Faellen schon, weil ``APIRouter`` ihn beim Anlegen der Route
+    einsetzt und nicht erst beim Einhaengen.
+
+    ``original_router`` und ``include_context`` sind FastAPI-Interna. Das ist hier
+    vertretbar, weil die Alternative — die Endpunktliste von Hand zu fuehren — den
+    ganzen Zweck der Datei aufhebt (siehe Modulkopf). Aendern sie sich erneut, faellt
+    es sofort auf: ``anwendungsrouten()`` besteht darauf, etwas zu finden.
+    """
+    for route in routen:
+        if isinstance(route, APIRoute):
+            yield praefix + route.path, route
+            continue
+        eingehaengter = getattr(route, "original_router", None)
+        if eingehaengter is not None:
+            zusatz = (
+                getattr(getattr(route, "include_context", None), "prefix", "") or ""
+            )
+            yield from _eingehaengte_routen(eingehaengter.routes, praefix + zusatz)
+            continue
+        # Mount und Co. — ``/docs`` und ``/openapi.json`` sind keine APIRoute und
+        # fallen hier heraus, wie sie es vorher auch taten.
+        unterrouten = getattr(route, "routes", None)
+        if unterrouten:
+            yield from _eingehaengte_routen(unterrouten, praefix)
+
+
+def anwendungsrouten() -> tuple[tuple[str, APIRoute], ...]:
+    """Die Routen der Anwendung, ohne die von Testmodulen angehaengten.
+
+    Oeffentlich, weil ``sonden.py`` dieselbe Quelle braucht: Dort stand bis zum
+    2026-09-11 ein zweiter Lauf ueber ``app.routes``, der beim FastAPI-Umbau
+    genauso blind wurde und getrennt repariert werden musste. Zwei Wege zu
+    derselben Auskunft sind genau der Zwilling, nach dem der Merge-Check fragt.
+
+    Besteht darauf, etwas zu finden. Eine leere Liste ist kein moeglicher Zustand
+    dieser Anwendung, sondern heisst, dass die Introspektion die Routenstruktur nicht
+    mehr versteht — und das ist der gefaehrlichste Fehlschlag, den diese Datei haben
+    kann: Alle Sonden werden ueber die Endpunkte parametrisiert, und eine leere
+    Parametrisierung laesst **jede** Pruefung der Stufe 4 lautlos verschwinden. In CI
+    blieben am 2026-09-11 sechs der dreizehn Buchhaltungstests gruen, weil „fuer jeden
+    Endpunkt gilt ..." auf der leeren Menge wahr ist.
+
+    Deshalb hier ein Abbruch mit Namen statt einer leeren Rueckgabe.
+    """
+    gefunden = tuple(
+        (pfad, route)
+        for pfad, route in _eingehaengte_routen(app.routes)
+        if _ist_anwendungsroute(route)
+    )
+    if not gefunden:
+        raise RuntimeError(
+            "Keine einzige Anwendungsroute in app.routes gefunden. Die Introspektion "
+            "versteht die Routenstruktur nicht mehr — vermutlich hat FastAPI die Form "
+            "von include_router() erneut geaendert. Siehe _eingehaengte_routen(). "
+            f"Gefundene Klassen: {sorted({type(r).__name__ for r in app.routes})}"
+        )
+    return gefunden
 
 
 @dataclass(frozen=True)
@@ -229,10 +311,8 @@ def registrierte_endpunkte() -> tuple[Endpunkt, ...]:
     bleiben und ein Lauf mit ``-k`` reproduzierbar ist.
     """
     endpunkte: list[Endpunkt] = []
-    for route in app.routes:
-        if not isinstance(route, APIRoute) or not _ist_anwendungsroute(route):
-            continue
-        platzhalter = _PLATZHALTER.findall(route.path)
+    for pfad, route in anwendungsrouten():
+        platzhalter = _PLATZHALTER.findall(pfad)
         if MANDANTENPARAMETER not in platzhalter:
             continue
         kennungen = tuple(p for p in platzhalter if p != MANDANTENPARAMETER)
@@ -247,7 +327,7 @@ def registrierte_endpunkte() -> tuple[Endpunkt, ...]:
             endpunkte.append(
                 Endpunkt(
                     methode=methode,
-                    pfad=route.path,
+                    pfad=pfad,
                     kennungen=kennungen,
                     pflicht_query=pflicht_query,
                     rumpfart=_rumpfart(route),
@@ -267,15 +347,13 @@ def alle_endpunkte() -> tuple[Endpunkt, ...]:
     Bindung. Beides soll auffallen.
     """
     endpunkte: list[Endpunkt] = []
-    for route in app.routes:
-        if not isinstance(route, APIRoute) or not _ist_anwendungsroute(route):
-            continue
-        platzhalter = _PLATZHALTER.findall(route.path)
+    for pfad, route in anwendungsrouten():
+        platzhalter = _PLATZHALTER.findall(pfad)
         for methode in sorted(route.methods - {"HEAD", "OPTIONS"}):
             endpunkte.append(
                 Endpunkt(
                     methode=methode,
-                    pfad=route.path,
+                    pfad=pfad,
                     kennungen=tuple(p for p in platzhalter if p != MANDANTENPARAMETER),
                     pflicht_query=(),
                     rumpfart=_rumpfart(route),

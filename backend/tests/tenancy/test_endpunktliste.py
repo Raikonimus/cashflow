@@ -24,11 +24,15 @@ mit Begruendung im Diff.
 
 from __future__ import annotations
 
+import pytest
+
 from tests.tenancy import test_aeussere_schicht as aeussere
 from tests.tenancy import test_innere_schicht as innere
 from tests.tenancy.endpunkte import (
     MANDANTENPARAMETER,
+    PRAEFIX,
     alle_endpunkte,
+    anwendungsrouten,
     registrierte_endpunkte,
 )
 from tests.tenancy.sonden import (
@@ -406,4 +410,53 @@ def test_die_handgeschriebenen_rumpffelder_gibt_es_noch():
         f"{len(RUMPFFELDER_VON_HAND)} Felder werden von Hand geprueft statt von "
         f"Sonde 3. Ratsche wie die uebrigen: Wenn das richtig ist, hebe die Zahl hier "
         f"mit Begruendung an."
+    )
+
+
+def test_die_introspektion_bricht_ab_statt_leer_zurueckzukommen(monkeypatch):
+    """Findet die Introspektion keine Route, ist das ein Abbruch — keine leere Liste.
+
+    Dies ist der Test zum Waechter, und er ist die Lehre aus Befund M20. Am
+    2026-09-11 hat FastAPI 0.141 die eingehaengten Router nicht mehr flachgeklopft;
+    ``app.routes`` enthielt dreizehn Behaelter statt 89 Routen, und die Introspektion
+    lieferte eine **leere** Liste.
+
+    Das Verheerende daran war nicht der Fehlschlag, sondern das Gegenteil: Alle Sonden
+    der Stufe 4 werden ueber die Endpunkte parametrisiert. Eine leere Parametrisierung
+    ist fuer pytest kein Fehler, sondern ein ``skip``. Von 843 Tests liefen noch 659,
+    184 waren spurlos verschwunden — und sechs der dreizehn Tests dieser Datei blieben
+    gruen, weil „fuer jeden Endpunkt gilt ..." auf der leeren Menge wahr ist.
+
+    Ohne diesen Test waere der Waechter selbst genau das, wovor er schuetzt: eine
+    Pruefung, die niemand prueft.
+    """
+    from app.main import app
+
+    monkeypatch.setattr(app.router, "routes", [])
+    with pytest.raises(RuntimeError, match="Keine einzige Anwendungsroute"):
+        anwendungsrouten()
+
+
+def test_jeder_endpunktpfad_stammt_aus_einer_gefundenen_route():
+    """Die Gegenprobe zum Waechter — und zugleich die Probe auf den Pfadaufbau.
+
+    Ohne sie belegte der Abbruch oben nichts: Ein ``anwendungsrouten()``, das
+    **immer** abbricht, bestuende den Test daneben ebenso.
+
+    Geprueft wird nicht bloss, dass etwas gefunden wird, sondern dass die Pfade
+    zusammenpassen. Das ist die zweite Haelfte von M20: Seit FastAPI 0.140 traegt die
+    Kindroute nur ``/auth/login``, waehrend ``/api/v1`` im Einhaengevorgang steht. Wer
+    den Praefix beim Absteigen vergisst, bekommt wieder 105 Endpunkte — nur unter
+    falschen Namen, und jede Sonde liefe gegen 404.
+    """
+    pfade = {pfad for pfad, _ in anwendungsrouten()}
+    fehlend = sorted({e.pfad for e in alle_endpunkte()} - pfade)
+    assert not fehlend, (
+        "Diese Endpunktpfade stehen in keiner gefundenen Route — der Pfadaufbau in "
+        "_eingehaengte_routen() stimmt nicht:\n  " + "\n  ".join(fehlend)
+    )
+    ohne_praefix = sorted(p for p in pfade if not p.startswith(PRAEFIX))
+    assert not ohne_praefix, (
+        f"Routen ohne den Praefix {PRAEFIX} — beim Absteigen verlorengegangen:\n  "
+        + "\n  ".join(ohne_praefix)
     )

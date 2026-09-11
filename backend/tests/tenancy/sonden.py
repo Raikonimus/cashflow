@@ -80,7 +80,6 @@ from itertools import count
 from typing import Any, get_args
 from uuid import UUID, uuid4
 
-from fastapi.routing import APIRoute
 from httpx import AsyncClient, Response
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -95,7 +94,7 @@ from app.services.models import (
 )
 from app.tenants.models import AccountExcludedIdentifier
 from tests.conftest import MandantWelt, ZweiMandanten
-from tests.tenancy.endpunkte import Endpunkt
+from tests.tenancy.endpunkte import Endpunkt, anwendungsrouten
 
 # ─── Frische Werte ───────────────────────────────────────────────────────────
 
@@ -899,14 +898,17 @@ def _rumpfschema(endpunkt: Endpunkt) -> Any | None:
     """Das Pydantic-Modell des Rumpfes dieses Endpunkts, oder ``None``.
 
     Geholt aus der registrierten Route, nicht aus einem Import: So bleibt es dieselbe
-    Quelle, aus der auch die Endpunktliste kommt.
+    Quelle, aus der auch die Endpunktliste kommt — buchstaeblich dieselbe, naemlich
+    ``anwendungsrouten()``. Hier stand bis zum 2026-09-11 ein eigener Lauf ueber
+    ``app.routes``. Als FastAPI 0.140 die eingehaengten Router nicht mehr flachklopfte,
+    wurde er genauso blind wie die Endpunktliste, aber getrennt davon: Die Liste war
+    schon repariert, und dieser Zwilling meldete weiter, das Schema habe kein Feld
+    ``splits[].service_id``.
     """
-    from app.main import app
-
-    for route in app.routes:
-        if not isinstance(route, APIRoute) or route.body_field is None:
+    for pfad, route in anwendungsrouten():
+        if route.body_field is None:
             continue
-        if route.path != endpunkt.pfad:
+        if pfad != endpunkt.pfad:
             continue
         if endpunkt.methode not in route.methods:
             continue
