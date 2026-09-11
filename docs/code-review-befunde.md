@@ -1097,12 +1097,97 @@ gehört nicht in die Mandantenfähigkeit.
 
 ---
 
+## M20 — Ein FastAPI-Wechsel ließ 184 Tests lautlos verschwinden · **hoch** · behoben
+
+Gefunden am 2026-09-11, nachdem das Mandantenpaket nach `main` gemergt war und CI dort
+rot wurde.
+
+**Was passiert ist.** Bis FastAPI 0.139 hat `include_router()` die Routen des
+eingehängten Routers flachgeklopft: Jede landete einzeln in `app.routes`, ihr `path`
+trug den Präfix schon. Seit 0.140 steht dort stattdessen ein `_IncludedRouter`, der den
+ursprünglichen Router unter `original_router` hält und den Einhängepräfix in
+`include_context.prefix`. Aus 89 Endpunkten wurden dreizehn Behälter, und
+
+```python
+if not isinstance(route, APIRoute):
+    continue
+```
+
+sortierte **alles** aus. `registrierte_endpunkte()` gab ein leeres Tupel zurück.
+
+**Warum das schwer wiegt — nicht der Fehlschlag, sondern das Gegenteil.** Sämtliche
+Sonden der Stufe 4 werden über die Endpunktliste parametrisiert. Eine leere
+Parametrisierung ist für pytest kein Fehler, sondern ein `skip`:
+
+```
+Ohne den Befund:  843 passed
+Mit dem Befund:   659 passed, 4 skipped
+```
+
+**184 Tests waren spurlos verschwunden** — der gesamte Isolationstest über alle 89
+Endpunkte, die 173 Angriffe eingeschlossen. Und sechs der dreizehn Buchhaltungstests in
+`test_endpunktliste.py` blieben dabei **grün**, weil „für jeden Endpunkt gilt …" auf
+der leeren Menge wahr ist. Das ist dieselbe Klasse wie Befund N-1, eine Ebene höher:
+nicht eine Prüfung, die nichts prüft, sondern eine ganze Prüfbatterie, die sich
+klaglos auflöst.
+
+**Zwei Wächter haben unabhängig angeschlagen**, und beide stammen aus diesem Paket:
+
+1. die Zahlenratsche `>= 89` in `test_endpunktliste.py` — sie hat den Bau rot gemacht;
+2. die Abdeckungsratsche — ohne die 184 Tests fiel die Abdeckung auf 68,27 % und riss
+   `fail_under = 69`.
+
+Ohne sie wäre CI grün geblieben.
+
+**Ein Zwilling war dabei.** `sonden.py` lief in `_rumpfschema()` ein zweites Mal selbst
+über `app.routes`. Nach der ersten Reparatur war die Endpunktliste wieder vollständig,
+und dieser Zwilling meldete weiter, das Schema habe kein Feld `splits[].service_id` —
+die erste der sechs Merge-Fragen, an der eigenen Arbeit vorgeführt.
+
+**Behoben** in `tests/tenancy/endpunkte.py`:
+
+- `_eingehaengte_routen()` steigt ab und setzt den Pfad selbst zusammen. Sie kommt mit
+  beiden Formen zurecht: flach (Präfix bleibt leer) wie verschachtelt.
+- `anwendungsrouten()` **bricht ab**, wenn sie nichts findet, statt leer
+  zurückzukommen. Das ist die eigentliche Lehre: Der gefährliche Zustand war nicht der
+  Fehler, sondern seine Lautlosigkeit.
+- `sonden.py` benutzt jetzt dieselbe Quelle statt einer eigenen Schleife.
+- Zwei neue Tests: einer, dass der Wächter abbricht; einer, dass die Pfade
+  zusammenpassen — er schlägt an, wenn der Präfix beim Absteigen verlorengeht.
+
+Nachgewiesen in einer Umgebung mit den Versionen, die CI auflöst: **843 passed,
+69,25 %** — Ziffer für Ziffer wie in der Entwicklungsumgebung mit FastAPI 0.135.
+
+**Die Ursache hinter der Ursache: Die Abhängigkeiten sind nicht festgeschrieben.**
+CI löst bei jedem Lauf frei auf und bekam FastAPI 0.141.1 / Starlette 1.6.0, die
+Entwicklungsumgebung hatte 0.135.3 / 1.0.0. Damit belegt eine grüne Prüfung vor Ort
+nichts über CI, und eine Veröffentlichung im Netz kann den Bau rot machen, ohne dass
+jemand etwas ändert — genau so ist es hier gekommen. Eine Sperrdatei
+(`pip-compile`, `uv.lock`) oder wenigstens Obergrenzen wären der strukturelle Schluss.
+**Das ist eine Entscheidung und steht offen.**
+
+**Und ein Befund über das Vorgehen, nicht über den Code:** CI war schon auf den
+Branches rot — `-stufe-3-tests` am Gesamtlauf, `-stufe-4-isolation` und
+`-stufe-5-struktur` an der Endpunktliste. Alle drei wurden rot gepusht, ohne dass
+jemand hinsah; grün war nur `-stufen-0-2`. Der Merge-Check nennt die Werkzeuge, die
+**lokal** zu laufen haben, und die liefen. Er sagt nichts über den Bau nach dem Push.
+Die Lücke ist eine Zeile wert: **nach dem Push den Lauf ansehen, bevor der nächste
+Schritt beginnt.**
+
+---
+
 ## Weiterhin offen
 
-Der vertagte Sammelpunkt **Mandantenfähigkeit** (mit A1-3, A1-4 und A2-3) — seit
-2026-09-10 als Analyse und Prüfplan ausgearbeitet in
-[mandantenfaehigkeit-plan.md](mandantenfaehigkeit-plan.md). Stufen 0–4 sind umgesetzt,
-Stufe 5 (Struktur) steht aus.
+Der vertagte Sammelpunkt **Mandantenfähigkeit** (mit A1-3, A1-4 und A2-3) ist
+erledigt: Analyse und Prüfplan stehen in
+[mandantenfaehigkeit-plan.md](mandantenfaehigkeit-plan.md), **alle Stufen 0–5 sind
+umgesetzt** und am 2026-09-11 nach `main` gemergt.
 
-Dazu **M17** — die Admin-Ausnahme braucht einen Entscheidungssatz. Niedrig, aber eine
-Entscheidung und deshalb nicht nebenbei zu erledigen.
+Offen bleiben drei Punkte:
+
+- **M17** — die Admin-Ausnahme braucht einen Entscheidungssatz. Niedrig, aber eine
+  Entscheidung und deshalb nicht nebenbei zu erledigen.
+- **Die Abhängigkeiten sind nicht festgeschrieben** (aus M20). Solange CI frei auflöst,
+  belegt eine grüne Prüfung vor Ort nichts über den Bau.
+- **`PRAGMA foreign_keys`** ist nicht gesetzt (aus M19); der `ON DELETE CASCADE` steht
+  im Schema, ohne zu wirken.

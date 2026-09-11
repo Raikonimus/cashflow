@@ -373,6 +373,12 @@ Die Werkzeuge zuerst — was sie finden, muss niemand lesen. Danach der Diff geg
 sechs Fragen. Befunde wandern nach `code-review-befunde.md`, kritische werden vor dem
 Merge behoben.
 
+**Und nach dem Push den Lauf ansehen, bevor der nächste Schritt beginnt** — etwa mit
+`gh run watch`. Die Werkzeuge oben laufen in der Entwicklungsumgebung; CI löst die
+Abhängigkeiten bei jedem Lauf frei auf und sieht deshalb unter Umständen etwas anderes.
+Am 2026-09-11 sind drei Branches rot gepusht worden, ohne dass jemand hinsah, und der
+Fehler kam erst in `main` heraus (Befund M20).
+
 ---
 
 ## 11. Offene Entscheidungen

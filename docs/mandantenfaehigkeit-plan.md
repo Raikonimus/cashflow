@@ -715,7 +715,12 @@ jeder von ihnen korrekt.
 einer Prüfung, die heute stimmt, und einer, die morgen noch stimmt:
 
 1. **Die Endpunktliste** kommt aus `app.routes`. Ein neuer Endpunkt ist ohne weiteres
-   Zutun in Sonde 1 und 2.
+   Zutun in Sonde 1 und 2. Der Preis dafür steht in Befund M20: Die Liste hängt an der
+   inneren Form von FastAPI. Seit 0.140 stehen dort nicht mehr die Routen selbst,
+   sondern die eingehängten Router; `anwendungsrouten()` steigt deshalb ab — und bricht
+   ab, wenn sie nichts findet, statt leer zurückzukommen. Eine leere Endpunktliste wäre
+   der schlimmste Zustand dieser Prüfung: Alle Sonden sind über sie parametrisiert, und
+   eine leere Parametrisierung ist für pytest ein `skip`, kein Fehler.
 2. **Die Mindestrolle** kommt aus dem Abschluss von `require_role`. Das ist wichtiger,
    als es aussieht: Ein 403 aus der Rollenprüfung sieht genauso aus wie eines aus
    `require_mandant_access`. Stünde die Rolle in einer Tabelle im Testcode, wäre sie
